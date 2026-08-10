@@ -381,8 +381,7 @@ Deno.serve(async (req) => {
     }
     // `capabilities` are credentials this project holds and can attempt.
     // `verifiedCapabilities` are the ones the provider has already accepted.
-    const truth = await capabilityTruth(secretStoreDeps(), authorizedProjectId, ["wordpress_admin"]);
-    void EXECUTABLE_ACCESS_TYPES;
+    const truth = await capabilityTruth(secretStoreDeps(), authorizedProjectId, EXECUTABLE_ACCESS_TYPES);
     return Response.json(
       {
         ok: true,
