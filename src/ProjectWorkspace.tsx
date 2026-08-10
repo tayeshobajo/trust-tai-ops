@@ -5,6 +5,7 @@ import type { DecisionKind, ThreadCard, ThreadMessage } from "./conversation";
 import {
   dayLabel,
   findHitsOutsideRun,
+  highlightSegments,
   matchesQuery,
   contentSignature,
   dedupeKeyForThreadMessage,
@@ -99,6 +100,9 @@ export function ProjectWorkspace({
   // double click cannot start the same domain action twice while React is
   // still committing the busy state.
   const decisionRef = useRef<Set<string>>(new Set());
+  // How far the reader expanded earlier messages, per task, so returning to a
+  // task reopens the thread at the same window size.
+  const windowSizeRef = useRef<Map<string, number>>(new Map());
 
   const activeRun = runs.find((run) => run.id === activeRunId) ?? null;
   const signal = activeRun ? signalForRun(activeRun) : null;
@@ -230,9 +234,17 @@ export function ProjectWorkspace({
     [messages, activeRun, query, searching],
   );
 
-  // A new task, a new search, or a cleared search always starts from the end.
+  const windowKey = activeRunId ?? "project";
+
+  // Remember the reader's expansion per task while not searching.
   useEffect(() => {
-    setWindowSize(PAGE_SIZE);
+    if (!searching) windowSizeRef.current.set(windowKey, windowSize);
+  }, [windowKey, windowSize, searching]);
+
+  // A search always starts from the end; a task reopens where it was left.
+  useEffect(() => {
+    setWindowSize(query.trim() ? PAGE_SIZE : windowSizeRef.current.get(windowKey) ?? PAGE_SIZE);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRunId, query]);
 
   useEffect(() => {
@@ -761,7 +773,10 @@ export function ProjectWorkspace({
                   }}
                 >
                   <strong>{hitRun ? hitRun.title : "Project conversation"}</strong>
-                  <span>{hit.role === "user" ? "You" : "Engineering Agent"} · {hit.excerpt}</span>
+                  <span>
+                    {hit.role === "user" ? "You" : "Engineering Agent"} ·{" "}
+                    <Highlight text={hit.excerpt} query={query} />
+                  </span>
                 </button>
               );
             })}
@@ -800,7 +815,7 @@ export function ProjectWorkspace({
                     </span>
                   ) : null}
                   {message.body.map((paragraph, index) => (
-                    <p key={index}>{paragraph}</p>
+                    <p key={index}>{searching ? <Highlight text={paragraph} query={query} /> : paragraph}</p>
                   ))}
                   {message.card ? (
                     <div className="pw-card">
