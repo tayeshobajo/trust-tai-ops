@@ -4643,3 +4643,265 @@ button:focus-visible {
   padding: 0 2px;
   box-decoration-break: clone;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   Presentation System v2 — global layout, surfaces, rhythm
+   Presentation only. No behavioral coupling.
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  --tt-rail: 88px;
+  --tt-inbox: 380px;
+  --tt-measure: 720px;
+  --tt-workspace-max: 1180px;
+  --tt-shell-max: 1760px;
+
+  --tt-layer-paper: var(--tt-paper);
+  --tt-layer-raised: var(--tt-white);
+  --tt-layer-sunken: rgba(1, 5, 27, 0.028);
+  --tt-hairline: 1px solid var(--tt-rule);
+}
+
+/* ─── Shared page shell for single-column surfaces ──────── */
+
+.tt-page,
+.access-surface,
+.project-empty,
+.create-project-main {
+  --tt-page-max: var(--tt-workspace-max);
+}
+
+.access-surface {
+  padding: var(--tt-space-10) var(--tt-space-8) var(--tt-space-12);
+  gap: var(--tt-space-8);
+}
+
+.access-surface > * {
+  width: 100%;
+  max-width: var(--tt-page-max);
+  margin-inline: auto;
+}
+
+.access-head {
+  padding-bottom: var(--tt-space-6);
+  border-bottom: var(--tt-hairline);
+}
+
+.access-head h1,
+.project-empty-identity h1 {
+  font-family: var(--tt-font-display);
+  font-size: clamp(30px, 2.4vw, 40px);
+  line-height: 1.08;
+}
+
+/* ─── Typography hierarchy ──────────────────────────────── */
+
+.eyebrow {
+  font-family: var(--tt-font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tt-muted);
+}
+
+/* ─── Home shell: use the whole desktop ─────────────────── */
+
+.home-shell {
+  grid-template-columns: var(--tt-rail) minmax(320px, var(--tt-inbox)) minmax(0, 1fr);
+  max-width: var(--tt-shell-max);
+  margin-inline: auto;
+  box-shadow: 0 0 0 1px var(--tt-rule);
+}
+
+.preview-column {
+  display: flex;
+  justify-content: center;
+  padding: var(--tt-space-12) var(--tt-space-10);
+}
+
+.preview-panel,
+.preview-empty {
+  width: 100%;
+  max-width: var(--tt-workspace-max);
+  border-radius: var(--tt-radius-lg);
+  box-shadow: var(--tt-shadow-sm);
+  padding: var(--tt-space-10);
+  align-self: start;
+}
+
+.preview-empty {
+  max-width: var(--tt-measure);
+  gap: var(--tt-space-4);
+}
+
+/* ─── De-boxed preview interior ─────────────────────────── */
+
+.preview-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--tt-space-8);
+  margin-top: var(--tt-space-6);
+}
+
+.preview-lede {
+  min-width: 0;
+}
+
+.preview-intro {
+  max-width: 62ch;
+}
+
+.preview-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 0;
+}
+
+.preview-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: var(--tt-space-5) 0;
+  border-top: var(--tt-hairline);
+}
+
+.preview-cards .preview-card:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.phase-track {
+  border-bottom: 0;
+  padding-bottom: 0;
+  gap: var(--tt-space-5);
+}
+
+.preview-actions {
+  margin-top: var(--tt-space-10);
+  padding-top: var(--tt-space-6);
+  border-top: var(--tt-hairline);
+}
+
+/* ─── Quiet status chips ────────────────────────────────── */
+
+.agent-state {
+  border: 0;
+  background: var(--tt-layer-sunken);
+  border-radius: var(--tt-radius-md);
+  letter-spacing: 0.1em;
+  padding: var(--tt-space-1) var(--tt-space-2);
+}
+
+.agent-state-working {
+  background: rgba(29, 84, 193, 0.08);
+  color: var(--tt-royal);
+}
+
+.agent-state-needs_you {
+  background: rgba(29, 84, 193, 0.1);
+  color: var(--tt-royal);
+}
+
+/* ─── Inbox rows ────────────────────────────────────────── */
+
+.inbox-list {
+  padding-inline: var(--tt-space-4);
+}
+
+.inbox-row {
+  border-radius: var(--tt-radius-md);
+  padding: var(--tt-space-4) var(--tt-space-3);
+}
+
+.inbox-row.is-selected {
+  background: var(--tt-white);
+  border-left-color: var(--tt-royal);
+  box-shadow: var(--tt-shadow-sm);
+}
+
+.inbox-search {
+  border-radius: var(--tt-radius-md);
+}
+
+.inbox-filter {
+  border-radius: var(--tt-radius-md);
+}
+
+/* ─── Workspace columns from tokens ─────────────────────── */
+
+.pw-shell {
+  grid-template-columns: minmax(0, var(--tt-inbox)) minmax(0, 1fr) minmax(0, 320px);
+  max-width: var(--tt-shell-max);
+  margin-inline: auto;
+}
+
+.pw-thread {
+  max-width: var(--tt-measure);
+  padding: var(--tt-space-10) var(--tt-space-8) var(--tt-space-8);
+}
+
+.pw-card {
+  border-radius: var(--tt-radius-md);
+  box-shadow: none;
+  background: var(--tt-layer-sunken);
+  border-color: transparent;
+}
+
+/* ─── Geometry normalisation ────────────────────────────── */
+
+.preview-menu-list,
+.list-card,
+.stat-card,
+.run-side-card,
+.mem-entry,
+.thread-card {
+  border-radius: var(--tt-radius-md);
+}
+
+/* ─── Responsive tiers ──────────────────────────────────── */
+
+@media (min-width: 1680px) {
+  .preview-body {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    gap: var(--tt-space-12);
+  }
+
+  .preview-cards {
+    border-left: var(--tt-hairline);
+    padding-left: var(--tt-space-10);
+  }
+}
+
+@media (max-width: 1280px) {
+  .preview-column {
+    padding: var(--tt-space-8) var(--tt-space-6);
+  }
+
+  .preview-panel {
+    padding: var(--tt-space-8);
+  }
+}
+
+@media (max-width: 1024px) {
+  .access-surface {
+    padding: var(--tt-space-8) var(--tt-space-5) var(--tt-space-10);
+  }
+}
+
+@media (max-width: 768px) {
+  .preview-panel,
+  .preview-empty {
+    padding: var(--tt-space-5);
+  }
+
+  .access-surface {
+    padding: var(--tt-space-6) var(--tt-space-4) var(--tt-space-10);
+    gap: var(--tt-space-6);
+  }
+
+  .preview-body {
+    gap: var(--tt-space-6);
+  }
+}
