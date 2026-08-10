@@ -15,13 +15,46 @@ That means:
 
 ## Env contract
 
-Copy `.env.example` to `.env.local` or your preferred local env file and set:
+Copy `.env.example` to `.env.local` or your preferred local env file.
+
+**Frontend / public only** (compiled into the browser bundle):
 
 - `VITE_OPS_REPOSITORY_ADAPTER`
 - `VITE_OPS_SUBDOMAIN`
-- `VITE_OPS_SUPABASE_URL`
-- `VITE_OPS_SUPABASE_PUBLISHABLE_KEY`
+- `VITE_OPS_SUPABASE_URL` — public Supabase URL
+- `VITE_OPS_SUPABASE_PUBLISHABLE_KEY` — public anon/publishable key
+  (`VITE_OPS_SUPABASE_ANON_KEY` accepted as a legacy alias)
 - `VITE_OPS_SUPABASE_SCHEMA`
+
+**Edge Function / server only** (Supabase Edge Function secrets, never here):
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY` — only if used for caller token claims
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `AGENT_SECRET_ENCRYPTION_KEY`
+
+The service-role key and the encryption key must **never** use a `VITE_` prefix
+and must **never** enter browser env.
+
+## BYO Supabase deployment order
+
+The full eight-step production sequence lives in `BRIEF.md` → *Deployment truth
+(private read layer)*:
+
+1. Apply migrations
+2. Configure Edge Function secrets
+3. Deploy `access-secrets`
+4. Deploy `agent-execute`
+5. Sign in with a real Supabase user mapped to the app `users` organization
+6. Store a WordPress Application Password
+7. Verify it read-only
+8. Run a private plugin/health read
+
+## Tenant identity
+
+`auth_user_id` is preferred and resolves from `auth.uid()`. Email matching is a
+transitional fallback for unmigrated rows only. Backfill `users.auth_user_id`
+during production rollout and remove reliance on email matching afterwards.
 
 ## SQL
 
