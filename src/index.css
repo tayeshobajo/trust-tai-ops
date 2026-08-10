@@ -1834,7 +1834,7 @@ button:focus-visible {
   display: grid;
   grid-template-columns: 1.4fr 1fr;
   gap: var(--tt-space-4);
-  align-items: strh;
+  align-items: stretch;
 }
 
 .hero-copy,
@@ -2315,7 +2315,7 @@ button:focus-visible {
 
   .workspace-grid {
     flex-direction: column;
-    align-items: strh;
+    align-items: stretch;
   }
 
   .side-column {
@@ -2448,7 +2448,7 @@ button:focus-visible {
   .ops-actions,
   .qa-result-top {
     flex-direction: column;
-    align-items: strh;
+    align-items: stretch;
   }
 
   .ops-btn,
