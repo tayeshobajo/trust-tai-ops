@@ -4103,6 +4103,12 @@ button:focus-visible {
   outline-offset: 1px;
 }
 
+.access-field-hint {
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--tt-ink-soft, rgba(1, 5, 27, 0.6));
+}
+
 .access-drawer-actions {
   display: flex;
   justify-content: flex-end;
