@@ -122,6 +122,9 @@ check("tampered ciphertext is rejected", (await openSecret(
   { ...(await sealSecret("x", (await parseEncryptionKey(KEY)).ok ? ((await parseEncryptionKey(KEY)) as { key: Uint8Array }).key : new Uint8Array(32))), ciphertext: "AAAA" },
   ((await parseEncryptionKey(KEY)) as { key: Uint8Array }).key,
 )).ok === false);
+check("a short key is refused rather than weakly accepted", (await parseEncryptionKey("tooshort")).ok === false);
+check("a long generated alphanumeric secret is usable", (await parseEncryptionKey("a".repeat(64))).ok === true);
+check("an absent key is refused", (await parseEncryptionKey(undefined)).ok === false);
 
 console.log("\nserver-confirmed capabilities");
 check(
