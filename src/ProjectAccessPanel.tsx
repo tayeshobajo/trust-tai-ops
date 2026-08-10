@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { AccessType, Organization, Project, ProjectAccessMethod } from "./types";
 import { workspaceRepository } from "./repository";
 import { getProjectInitials } from "./home";
+import { submitCredential } from "./agent-core/secrets";
 
 type Props = {
   project: Project;
@@ -18,7 +19,7 @@ export type AccessEventAction = "added" | "replaced" | "reverified" | "removed";
 export type AccessEvent = { type: AccessType; label: string; action: AccessEventAction };
 
 type FieldKind = "text" | "secret";
-type Field = { key: string; label: string; kind: FieldKind; placeholder?: string };
+type Field = { key: string; label: string; kind: FieldKind; placeholder?: string; hint?: string };
 
 const CONNECTION_TYPES: Array<{
   type: AccessType;
@@ -26,16 +27,24 @@ const CONNECTION_TYPES: Array<{
   blurb: string;
   authMethod: string;
   fields: Field[];
+  /** True when a real credential can be sealed server-side for this type. */
+  executable?: boolean;
 }> = [
   {
     type: "wordpress_admin",
     label: "WordPress Admin",
     blurb: "The usual first door for diagnosis and plugin-level checks.",
-    authMethod: "Administrator login",
+    authMethod: "Application Password",
+    executable: true,
     fields: [
-      { key: "url", label: "Login URL", kind: "text", placeholder: "https://example.com/wp-admin" },
-      { key: "user", label: "Username or email", kind: "text" },
-      { key: "secret", label: "Password", kind: "secret" },
+      { key: "user", label: "WordPress username", kind: "text" },
+      {
+        key: "secret",
+        label: "Application Password",
+        kind: "secret",
+        placeholder: "xxxx xxxx xxxx xxxx xxxx xxxx",
+        hint: "In WordPress: Users → Profile → Application Passwords. It can be revoked on its own, and your login password is never needed.",
+      },
     ],
   },
   {
@@ -46,7 +55,6 @@ const CONNECTION_TYPES: Array<{
     fields: [
       { key: "host", label: "Host", kind: "text", placeholder: "sftp.example.com" },
       { key: "user", label: "Username", kind: "text" },
-      { key: "secret", label: "Password", kind: "secret" },
     ],
   },
   {
@@ -57,7 +65,6 @@ const CONNECTION_TYPES: Array<{
     fields: [
       { key: "host", label: "Host", kind: "text", placeholder: "example.com" },
       { key: "user", label: "Username", kind: "text" },
-      { key: "secret", label: "Key or password", kind: "secret" },
     ],
   },
   {
@@ -68,7 +75,6 @@ const CONNECTION_TYPES: Array<{
     fields: [
       { key: "host", label: "Hosting provider", kind: "text", placeholder: "Kinsta, SiteGround, WP Engine..." },
       { key: "user", label: "Account email", kind: "text" },
-      { key: "secret", label: "Password", kind: "secret" },
     ],
   },
   {
@@ -79,7 +85,6 @@ const CONNECTION_TYPES: Array<{
     fields: [
       { key: "host", label: "Host", kind: "text" },
       { key: "user", label: "Database user", kind: "text" },
-      { key: "secret", label: "Database password", kind: "secret" },
     ],
   },
   {
@@ -90,7 +95,6 @@ const CONNECTION_TYPES: Array<{
     fields: [
       { key: "host", label: "Provider", kind: "text", placeholder: "Cloudflare" },
       { key: "user", label: "Account email", kind: "text" },
-      { key: "secret", label: "API token", kind: "secret" },
     ],
   },
 ];
