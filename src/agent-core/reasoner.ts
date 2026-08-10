@@ -21,6 +21,20 @@ export interface AgentReasoner {
 const hasEvidenceFrom = (context: AgentContext, toolId: ToolId) =>
   context.evidence.some((item) => item.toolId === toolId);
 
+/** True only when something actually observed says this is WordPress. */
+const wordpressMarkersPresent = (context: AgentContext): boolean =>
+  context.evidence.some((item) => {
+    if (item.toolId === "public_http.inspect_site") {
+      const generator = typeof item.data.generator === "string" ? item.data.generator : "";
+      return item.data.wordpressSignals === true || /wordpress/i.test(generator);
+    }
+    if (item.toolId === "wordpress.inspect_public_surface") {
+      const namespaces = Array.isArray(item.data.namespaces) ? (item.data.namespaces as string[]) : [];
+      return item.data.restApiAvailable === true || namespaces.some((ns) => ns.startsWith("wp/"));
+    }
+    return false;
+  });
+
 const minimumAccessFor = (context: AgentContext): AccessType[] => {
   switch (context.run.taskType) {
     case "malware":
@@ -76,6 +90,12 @@ class DeterministicReasoner implements AgentReasoner {
         id: "inspect-wp-public",
         toolId: "wordpress.inspect_public_surface",
         purpose: "Read the publicly visible WordPress signals.",
+      });
+    } else if (wordpressMarkersPresent(context) && !hasEvidenceFrom(context, "wordpress.read_health")) {
+      want.push({
+        id: "read-health",
+        toolId: "wordpress.read_health",
+        purpose: "Read the site's health signals now that WordPress is confirmed.",
       });
     }
 
