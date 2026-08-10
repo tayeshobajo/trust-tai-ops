@@ -8,8 +8,23 @@ const VOLATILE_SUFFIXES = ["-working", "-qa", "-qa-working", "-plan-working"];
 
 const isVolatile = (id: string) => VOLATILE_SUFFIXES.some((suffix) => id.endsWith(suffix));
 
-export const dedupeKeyForThreadMessage = (message: ThreadMessage, run: Run): string =>
-  isVolatile(message.id) ? `${message.id}:${run.state}` : message.id;
+// Stable, order-independent signature of what a message actually says.
+const bodySignature = (body: string[]): string => {
+  const text = body.join("\n").trim();
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+};
+
+// Volatile lines are keyed by their wording, not by run state, so the same
+// sentence is never written twice while genuinely new wording still lands.
+export const dedupeKeyForThreadMessage = (message: ThreadMessage, _run: Run): string =>
+  isVolatile(message.id) ? `${message.id}:${bodySignature(message.body)}` : message.id;
+
+export const contentSignature = (role: string, body: string[]): string =>
+  `${role}:${bodySignature(body)}`;
 
 export const kindForThreadMessage = (message: ThreadMessage): MessageKind => {
   if (message.decision) return "decision_request";
