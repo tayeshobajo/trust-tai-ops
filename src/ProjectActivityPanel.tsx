@@ -105,6 +105,12 @@ export function ProjectActivityPanel({ project, onBackToConversation }: Props) {
                   ))}
 
                   {technical.length > 0 ? (
+                    <></>
+                  ) : null}
+                  {messageCount > 0 ? (
+                    <p className="act-conversation">Conversation: {messageCount} {messageCount === 1 ? "message" : "messages"}</p>
+                  ) : null}
+                  {technical.length > 0 ? (
                     <div className="act-technical">
                       <button type="button" className="ghost-button" onClick={() => setShowTechnical((value) => !value)}>
                         {showTechnical ? "Hide technical details" : "Technical details"}
