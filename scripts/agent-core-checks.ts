@@ -44,7 +44,8 @@ check("database writes are high risk", classifyRisk("database.execute") === "hig
 console.log("\ntool registry capability checks");
 check("public tool usable with public internet", toolIsUsable("public_http.inspect_site", ["public_internet"]));
 check("plugin listing is not usable yet", !toolIsUsable("wordpress.list_plugins", ["wordpress_admin"]));
-check("only two tools are implemented", Object.values(TOOL_REGISTRY).filter((tool) => tool.implemented).length === 2);
+check("site health is implemented", TOOL_REGISTRY["wordpress.read_health"].implemented);
+check("only implemented tools are declared so", Object.values(TOOL_REGISTRY).filter((tool) => tool.implemented).length === 3);
 
 console.log("\nurl / SSRF validation");
 const blocked = [
