@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { loadAuthState, signOutIfSupported } from "./auth";
 import { AuthScreen } from "./AuthScreen";
 import { OperationsPanel } from "./OperationsPanel";
+import { ProjectsCommandCenter } from "./ProjectsCommandCenter";
 import { accessTypeCopy, starterProjectDraft, starterRunDraft, stateCopy, taskTypeOptions, workspaceTabs } from "./data";
 import {
   countOpenRecommendations,
@@ -37,7 +38,7 @@ function App() {
   const [workspace, setWorkspace] = useState<Organization>(seedWorkspace);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(seedWorkspace.projects[0]?.id ?? null);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("active_run");
-  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("workspace");
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("home");
   const [isReady, setIsReady] = useState(false);
   const [draft, setDraft] = useState<RunDraft>(starterRunDraft(seedWorkspace.projects[0]?.environments[0]?.id ?? ""));
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(starterProjectDraft());
@@ -181,6 +182,35 @@ function App() {
   }
 
   return (
+    workspaceView === "home" ? (
+      <ProjectsCommandCenter
+        workspace={workspace}
+        authState={authState}
+        selectedProjectId={selectedProjectId}
+        onSelectProject={(projectId) => {
+          setSelectedProjectId(projectId);
+          setSaveMessage("");
+        }}
+        onOpenProject={(projectId) => {
+          setSelectedProjectId(projectId);
+          setWorkspaceView("workspace");
+          setActiveTab("active_run");
+        }}
+        onCreateProject={() => {
+          setSaveMessage("");
+          setWorkspaceView("create_project");
+        }}
+        onNewTask={(projectId) => {
+          const project = getProjectById(workspace, projectId);
+          setSelectedProjectId(projectId);
+          if (project) {
+            setDraft(createFirstRunDraft(project));
+          }
+          setSaveMessage("");
+          setWorkspaceView("first_run");
+        }}
+      />
+    ) : (
     <div className={`app-shell ${railOpen ? "rail-is-open" : ""}`}>
       <header className="mobile-topbar">
         <button
@@ -233,13 +263,13 @@ function App() {
             <button
               className={`rail-nav-button ${workspaceView !== "create_project" ? "is-active" : ""}`}
               onClick={() => {
-                setWorkspaceView("workspace");
+                setWorkspaceView("home");
                 setSaveMessage("");
                 setRailOpen(false);
               }}
             >
               <strong>Projects</strong>
-              <span>Workspace, runs, QA, memory</span>
+              <span>Back to the project inbox</span>
             </button>
             <button
               className={`rail-nav-button ${workspaceView === "create_project" ? "is-active" : ""}`}
