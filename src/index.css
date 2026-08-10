@@ -158,6 +158,93 @@ button:focus-visible {
   min-height: 100vh;
 }
 
+/* ─── Mobile topbar + drawer scrim ──────────────────────── */
+
+.mobile-topbar {
+  display: none;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  align-items: center;
+  gap: var(--tt-space-3);
+  padding: var(--tt-space-3) var(--tt-space-4);
+  background: var(--tt-ink);
+  color: var(--tt-paper);
+}
+
+.mobile-topbar-title {
+  min-width: 0;
+}
+
+.mobile-topbar .eyebrow {
+  margin: 0;
+  color: rgba(252, 250, 246, 0.45);
+}
+
+.mobile-topbar-title strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tt-paper);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--tt-radius-pill);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(252, 250, 246, 0.85);
+  padding: var(--tt-space-2) var(--tt-space-3);
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 40px;
+}
+
+.rail-toggle-bars,
+.rail-toggle-bars::before,
+.rail-toggle-bars::after {
+  display: block;
+  width: 16px;
+  height: 1.5px;
+  background: currentColor;
+  border-radius: var(--tt-radius-pill);
+}
+
+.rail-toggle-bars {
+  position: relative;
+}
+
+.rail-toggle-bars::before,
+.rail-toggle-bars::after {
+  content: "";
+  position: absolute;
+  left: 0;
+}
+
+.rail-toggle-bars::before {
+  top: -5px;
+}
+
+.rail-toggle-bars::after {
+  top: 5px;
+}
+
+.rail-scrim {
+  display: none;
+  border: 0;
+  padding: 0;
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(1, 5, 27, 0.5);
+}
+
 /* ─── Ink Sidebar (Rail) ────────────────────────────────── */
 
 .rail {
