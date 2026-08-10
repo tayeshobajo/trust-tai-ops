@@ -450,27 +450,46 @@ export function ProjectAccessPanel({
             <h2>{editing.existingId ? "Replace" : "Add"} {activeDefinition.label}</h2>
             <p className="access-drawer-note">
               {activeDefinition.executable
-                ? "The password is sent straight to the secure store and is never shown again."
+                ? activeDefinition.type === "ssh"
+                  ? "The private key is sent straight to the secure store and is never shown again. Only a fixed list of read-only WP-CLI inspections can ever be run with it."
+                  : "The password is sent straight to the secure store and is never shown again."
                 : "Connection details only. Don't paste a password here — it wouldn't be stored securely yet."}
             </p>
 
             {activeDefinition.fields.map((field) => (
               <label key={field.key} className="access-field">
-                <span>{field.label}</span>
-                <input
-                  type={field.kind === "secret" ? "password" : "text"}
-                  value={values[field.key] ?? ""}
-                  placeholder={field.placeholder}
-                  autoComplete="off"
-                  onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
-                />
+                <span>
+                  {field.label}
+                  {field.optional ? <em className="access-field-optional"> · optional</em> : null}
+                </span>
+                {field.kind === "secret_multiline" ? (
+                  <textarea
+                    className="access-field-key"
+                    rows={5}
+                    value={values[field.key] ?? ""}
+                    placeholder={field.placeholder}
+                    autoComplete="off"
+                    spellCheck={false}
+                    onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
+                  />
+                ) : (
+                  <input
+                    type={field.kind === "secret" ? "password" : "text"}
+                    value={values[field.key] ?? ""}
+                    placeholder={field.placeholder}
+                    autoComplete="off"
+                    onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
+                  />
+                )}
                 {field.hint ? <small className="access-field-hint">{field.hint}</small> : null}
               </label>
             ))}
 
             <p className="access-drawer-note">
               {activeDefinition.executable
-                ? "You can revoke this Application Password in WordPress at any time, without changing your login."
+                ? activeDefinition.type === "ssh"
+                  ? "You can remove this key from the server's authorized_keys at any time. Nothing here can write, install, update, or delete."
+                  : "You can revoke this Application Password in WordPress at any time, without changing your login."
                 : "Deeper server access will get the same secure treatment as WordPress Admin before it goes live."}
             </p>
 
