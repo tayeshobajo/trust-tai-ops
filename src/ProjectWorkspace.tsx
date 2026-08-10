@@ -288,11 +288,12 @@ export function ProjectWorkspace({
   // connection label and the action — never from any submitted form value.
   const recordAccessEvent = ({ type, label, action }: AccessEvent) => {
     const runId = activeRun?.id ?? null;
+    const subject = /access$/i.test(label.trim()) ? label : `${label} access`;
     void emit({
       runId,
       role: "user",
       kind: "decision_response",
-      body: [`${label} access ${action}.`],
+      body: [`${subject} ${action}.`],
       dedupeKey: `access-${runId ?? "project"}-${type}-${action}-${Date.now()}`,
     });
   };
