@@ -5355,13 +5355,15 @@ p, li {
 
 /* ─── Create project + memory: editorial, not form-like ─── */
 
-.create-page-inner,
-.create-form {
+.create-page-inner {
   max-width: var(--tt-measure);
   margin-inline: auto;
 }
 
 .create-form {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -5380,6 +5382,17 @@ p, li {
   background: transparent;
   padding: var(--tt-space-6) 0 0;
   border-top: var(--tt-hairline);
+}
+
+/* Keep access options in a balanced 2-up grid instead of an orphan row */
+.create-access-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 600px) {
+  .create-access-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .mem-overview {
@@ -5463,6 +5476,24 @@ p, li {
 .mem-entry p,
 .act-detail li,
 .access-intro {
+  max-width: 70ch;
+}
+
+/* Centre the whole reading column via surface padding so measure-limited
+   paragraphs stay on the column's left edge instead of re-centring. */
+.access-surface {
+  padding-inline: max(var(--tt-space-8), calc((100% - var(--tt-page-max)) / 2));
+}
+
+.access-surface > * {
+  max-width: var(--tt-page-max);
+  margin-inline: 0;
+}
+
+.access-surface > p,
+.access-surface > .access-intro,
+.access-surface > .mem-overview,
+.access-surface > .mem-empty {
   max-width: 70ch;
 }
 
