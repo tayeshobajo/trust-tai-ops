@@ -29,7 +29,7 @@ export type AgentStepContext = {
 export type AgentStepResult = { ran: boolean };
 
 /** Deterministic key for anything the agent says about a given step of a run. */
-export const agentStepKey = (runId: string, step: string): string => `agent-step-${runId}-${step}`;
+export const agentStepKey = (runId: string, step: string): string => `auto-${runId}-${step}`;
 
 /** Identity of the work the agent is about to do. Stable across rerenders. */
 export const agentStepIdentity = (project: Project, run: Run): string | null => {
