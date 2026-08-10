@@ -4917,3 +4917,72 @@ button:focus-visible {
     gap: var(--tt-space-6);
   }
 }
+
+/* ─── v2 refinements: page heads, quiet chips, de-boxed lists ── */
+
+.access-head .create-back {
+  flex-basis: auto;
+  width: auto;
+  align-self: flex-start;
+  order: -1;
+}
+
+.access-head {
+  flex-wrap: wrap;
+  row-gap: var(--tt-space-4);
+}
+
+.access-head .create-back,
+.create-back {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--tt-radius-md);
+}
+
+.access-status {
+  border: 0;
+  background: var(--tt-layer-sunken);
+  border-radius: var(--tt-radius-md);
+  padding: 3px var(--tt-space-2);
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+}
+
+.access-card {
+  border-radius: var(--tt-radius-lg);
+  box-shadow: none;
+  background: var(--tt-white);
+}
+
+.access-card.is-focused {
+  box-shadow: 0 0 0 3px rgba(29, 84, 193, 0.08);
+}
+
+.mem-entry {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  border-top: var(--tt-hairline);
+  padding: var(--tt-space-5) 0;
+  box-shadow: none;
+}
+
+.mem-list > .mem-entry:first-child {
+  border-top: 0;
+  padding-top: var(--tt-space-2);
+}
+
+.mem-kind {
+  border-radius: var(--tt-radius-md);
+}
+
+.mem-section h2,
+.access-surface h2 {
+  font-family: var(--tt-font-display);
+  font-size: 22px;
+}
+
+/* Activity list: rules instead of boxes */
+.act-item {
+  border-radius: var(--tt-radius-md);
+}
