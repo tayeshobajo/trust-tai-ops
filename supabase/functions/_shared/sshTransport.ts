@@ -129,7 +129,7 @@ export const denoSshTransport = (): SshTransport => ({
       }, timeoutMs + SSH_CONNECT_TIMEOUT_MS);
 
       client.on("ready", () => {
-        client.exec(command, (error: Error | undefined, stream: any) => {
+        client.exec(command, (error: Error | undefined, stream: SshExecStream | undefined) => {
           if (error || !stream) {
             finish({
               ok: false,
