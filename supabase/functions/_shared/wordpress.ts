@@ -60,6 +60,13 @@ export const authenticatedGet = async (
     await response.body?.cancel().catch(() => undefined);
     return { ok: false, kind: "endpoint_unavailable", status: response.status };
   }
+  if (!response.ok) {
+    // Anything else that is not a success — a 500, a 429, a gateway error — is
+    // a failed read. Treating it as a body we can interpret would let a broken
+    // site look like a working, authenticated one.
+    await response.body?.cancel().catch(() => undefined);
+    return { ok: false, kind: "network", status: response.status };
+  }
 
   const body = await readBounded(response);
   return { ok: true, status: response.status, body, credentialsSurvived };
