@@ -132,6 +132,17 @@
   --sidebar-ring: oklch(0.551 0.027 264.364);
 }
 
+@utility sidebar-dark {
+  --sidebar: oklch(0.2 0.04 265);
+  --sidebar-foreground: oklch(0.98 0.003 247.858);
+  --sidebar-primary: oklch(0.55 0.18 264);
+  --sidebar-primary-foreground: oklch(0.98 0.003 247.858);
+  --sidebar-accent: oklch(0.3 0.05 260);
+  --sidebar-accent-foreground: oklch(0.98 0.003 247.858);
+  --sidebar-border: oklch(1 0 0 / 15%);
+  --sidebar-ring: oklch(0.6 0.18 264);
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
