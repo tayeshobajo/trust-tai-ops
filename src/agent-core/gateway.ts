@@ -28,14 +28,22 @@ export type GatewayResponse =
   | { ok: true; summary: string; data: Record<string, unknown> }
   | { ok: false; code: ToolFailureCode; summary: string; retryable: boolean };
 
+export type ProjectCapabilities = {
+  /** A credential exists for this project and the server can decrypt it. */
+  stored: string[];
+  /** The provider has actually accepted that credential at least once. */
+  verified: string[];
+};
+
 export interface ExecutionGateway {
   available(): boolean;
   invoke(request: GatewayRequest): Promise<GatewayResponse>;
   /**
    * Server truth about which private capabilities this project can actually
-   * use. Client-side access state is only ever a hint.
+   * use, split into stored and verified. Client-side access state is only ever
+   * a hint, and "stored" is never presented to a person as "verified".
    */
-  confirmedCapabilities(projectId: string): Promise<string[]>;
+  projectCapabilities(projectId: string): Promise<ProjectCapabilities>;
 }
 
 const UNAVAILABLE: GatewayResponse = {
@@ -68,22 +76,28 @@ class SupabaseFunctionGateway implements ExecutionGateway {
     }
   }
 
-  async confirmedCapabilities(projectId: string): Promise<string[]> {
-    if (!this.available()) return [];
+  async projectCapabilities(projectId: string): Promise<ProjectCapabilities> {
+    const none: ProjectCapabilities = { stored: [], verified: [] };
+    if (!this.available()) return none;
     try {
       const client = getSupabaseClient();
       const { data, error } = await client.functions.invoke("agent-execute", {
         body: { mode: "capabilities", projectId },
       });
-      if (error) return [];
-      const payload = data as { ok?: boolean; data?: { capabilities?: unknown } } | null;
-      if (!payload?.ok || !Array.isArray(payload.data?.capabilities)) return [];
-      return (payload.data?.capabilities as unknown[]).filter(
-        (value): value is string => typeof value === "string",
-      );
+      if (error) return none;
+      const payload = data as
+        | { ok?: boolean; data?: { capabilities?: unknown; verifiedCapabilities?: unknown } }
+        | null;
+      if (!payload?.ok) return none;
+      const strings = (value: unknown): string[] =>
+        Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+      return {
+        stored: strings(payload.data?.capabilities),
+        verified: strings(payload.data?.verifiedCapabilities),
+      };
     } catch {
       // Unproven means unavailable. Never assume a capability exists.
-      return [];
+      return none;
     }
   }
 }
