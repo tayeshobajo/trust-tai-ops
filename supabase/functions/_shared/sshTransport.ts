@@ -143,8 +143,8 @@ export const denoSshTransport = (): SshTransport => ({
           const stdout = boundedCollector(WP_CLI_MAX_OUTPUT_BYTES);
           const stderr = boundedCollector(WP_CLI_MAX_OUTPUT_BYTES);
 
-          stream.on("data", (chunk: unknown) => stdout.push(chunk));
-          stream.stderr.on("data", (chunk: unknown) => stderr.push(chunk));
+          stream.on("data", (chunk) => stdout.push(chunk));
+          stream.stderr.on("data", (chunk) => stderr.push(chunk));
           stream.on("close", (code: number | null) => {
             finish({
               ok: true,
