@@ -87,6 +87,14 @@ const agentStateLabel = (run: Run | null) => {
   }
 };
 
+const agentStateTone = (run: Run | null) => {
+  if (!run) return "agent-state-ready";
+  const signal = signalForRun(run);
+  if (signal.agentState === "needs_you") return "agent-state-needs_you";
+  if (run.state === "complete") return "agent-state-ready";
+  return "agent-state-working";
+};
+
 export function ProjectWorkspace({
   project,
   canWrite,
