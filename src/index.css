@@ -802,6 +802,22 @@ button:focus-visible {
   flex-wrap: wrap;
 }
 
+.list-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.list-card-top > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.list-card-top .pill {
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
 .project-top {
   align-items: flex-start;
   flex-wrap: wrap;
