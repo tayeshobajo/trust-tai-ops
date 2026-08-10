@@ -158,7 +158,9 @@ function App() {
       ]
     : [];
   const canCreateRun = authState.isAuthenticated && authState.role !== "viewer";
-  const canCreateProject = canCreateRun;
+  // Project creation follows the same disabled auth gate as the rest of the app;
+  // only an explicit viewer role blocks it.
+  const canCreateProject = authState.role !== "viewer";
 
   // Auth gate disabled — app loads directly into workspace
   // Re-enable by setting this to: repositoryHealth.adapter === "supabase" && !authState.isAuthenticated && authState.status !== "loading"
@@ -208,6 +210,18 @@ function App() {
           setSaveMessage("");
           setWorkspaceView("first_run");
         }}
+      />
+    ) : workspaceView === "create_project" ? (
+      <CreateProjectPage
+        canCreateProject={canCreateProject}
+        draft={projectDraft}
+        onBack={() => {
+          setSaveMessage("");
+          setWorkspaceView("home");
+        }}
+        onCreateProject={handleCreateProject}
+        onDraftChange={setProjectDraft}
+        saveMessage={saveMessage}
       />
     ) : workspaceView === "project_home" && selectedProject ? (
       <ProjectEmptyState
@@ -402,16 +416,7 @@ function App() {
       </aside>
 
       <main className="workspace">
-        {workspaceView === "create_project" ? (
-          <CreateProjectPage
-            canCreateProject={canCreateProject}
-            draft={projectDraft}
-            onBack={() => setWorkspaceView("workspace")}
-            onCreateProject={handleCreateProject}
-            onDraftChange={setProjectDraft}
-            saveMessage={saveMessage}
-          />
-        ) : workspaceView === "first_run" && selectedProject ? (
+        {workspaceView === "first_run" && selectedProject ? (
           <FirstRunPage
             canCreateRun={canCreateRun}
             draft={draft}
