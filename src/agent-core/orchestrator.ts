@@ -9,7 +9,13 @@
 
 import type { AccessType, MemoryEntry, Organization, NewProjectMessage, Project, ProjectMessage, Run } from "../types";
 import { workspaceRepository } from "../repository";
-import { describeHealth, describePublicSurface, describeSiteInspection, findingFromEvidence } from "./evidence";
+import {
+  describeHealth,
+  describePlugins,
+  describePublicSurface,
+  describeSiteInspection,
+  findingFromEvidence,
+} from "./evidence";
 import { evaluateAction } from "./policy";
 import { getTool } from "./registry";
 import { executionGateway } from "./gateway";
@@ -50,10 +56,33 @@ const primaryUrlFor = (project: Project, run: Run): string | null => {
   return raw ? raw : null;
 };
 
+/**
+ * Client-side hint only. Useful for what the workspace shows a person, never
+ * sufficient to run a private tool.
+ */
 export const capabilitiesFor = (project: Project): Capability[] => [
   "public_internet",
   ...project.accessMethods.filter((method) => method.status === "available").map((method) => method.type),
 ];
+
+/**
+ * Server truth. A private capability counts only when the gateway confirms a
+ * usable secret belongs to this project — an `available` access record is a
+ * claim the browser makes, and the browser is not trusted.
+ */
+const confirmedCapabilities = async (project: Project): Promise<Capability[]> => {
+  const base: Capability[] = ["public_internet"];
+  try {
+    const confirmed = await executionGateway().confirmedCapabilities(project.id);
+    const known = new Set(project.accessMethods.map((method) => method.type as string));
+    return [
+      ...base,
+      ...confirmed.filter((value): value is Capability => known.has(value) || value === "wordpress_admin"),
+    ];
+  } catch {
+    return base;
+  }
+};
 
 /** Prior evidence, reconstructed from the audit trail of this run. */
 const loadPriorEvidence = async (projectId: string, runId: string): Promise<AgentEvidence[]> => {
@@ -82,7 +111,7 @@ export const buildAgentContext = async (input: OrchestratorInput): Promise<Agent
     run,
     recentMessages: input.recentMessages.slice(-20),
     memory: input.memory,
-    capabilities: capabilitiesFor(project),
+    capabilities: await confirmedCapabilities(project),
     evidence: await loadPriorEvidence(project.id, run.id),
     environment: {
       primaryUrl: primaryUrlFor(project, run),
@@ -123,6 +152,8 @@ const describe = (evidence: AgentEvidence): string[] => {
       return describePublicSurface(evidence);
     case "wordpress.read_health":
       return describeHealth(evidence);
+    case "wordpress.list_plugins":
+      return describePlugins(evidence);
     default:
       return [evidence.summary];
   }
