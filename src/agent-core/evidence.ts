@@ -68,9 +68,46 @@ export const describePublicSurface = (evidence: AgentEvidence): string[] => {
 };
 
 /** A run finding, but only when the evidence actually justifies one. */
+export const describeHealth = (evidence: AgentEvidence): string[] => {
+  const data = evidence.data;
+  const lines: string[] = [];
+
+  if (data.authenticatedHealthAvailable === true) {
+    lines.push("I read the site health report directly.");
+  } else if (data.credentialsRequired === true) {
+    lines.push(
+      "The site health report is there, but WordPress only shows it to an administrator, so I read the public health signals instead.",
+    );
+  } else {
+    lines.push("The site health report isn't exposed here, so I read the public health signals instead.");
+  }
+
+  if (data.httpsEnabled === false) lines.push("The site is being served without HTTPS.");
+  if (data.usersPubliclyListed === true) lines.push("The site publicly lists its user accounts through the API.");
+  if (data.xmlrpcExposed === true) lines.push("XML-RPC is reachable from outside.");
+  return lines;
+};
+
 export const findingFromEvidence = (
   evidence: AgentEvidence,
 ): { severity: "low" | "medium" | "high" | "critical"; title: string; summary: string } | null => {
+  if (evidence.toolId === "wordpress.read_health") {
+    if (evidence.data.usersPubliclyListed === true) {
+      return {
+        severity: "medium",
+        title: "User accounts are publicly listed",
+        summary: safeSummary("The WordPress API returns the site's user list to anonymous visitors."),
+      };
+    }
+    if (evidence.data.httpsEnabled === false) {
+      return {
+        severity: "high",
+        title: "Site is served without HTTPS",
+        summary: safeSummary("The recorded site address is not using HTTPS."),
+      };
+    }
+    return null;
+  }
   const status = num(evidence.data.status);
   if (status === null) return null;
   if (status >= 500) {
