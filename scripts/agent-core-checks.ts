@@ -43,9 +43,15 @@ check("database writes are high risk", classifyRisk("database.execute") === "hig
 
 console.log("\ntool registry capability checks");
 check("public tool usable with public internet", toolIsUsable("public_http.inspect_site", ["public_internet"]));
-check("plugin listing is not usable yet", !toolIsUsable("wordpress.list_plugins", ["wordpress_admin"]));
+check("plugin listing needs wordpress admin", toolIsUsable("wordpress.list_plugins", ["wordpress_admin"]));
+check("plugin listing is unusable on public access alone", !toolIsUsable("wordpress.list_plugins", ["public_internet"]));
+check("plugin listing is read only", TOOL_REGISTRY["wordpress.list_plugins"].risk === "read_only");
 check("site health is implemented", TOOL_REGISTRY["wordpress.read_health"].implemented);
-check("only implemented tools are declared so", Object.values(TOOL_REGISTRY).filter((tool) => tool.implemented).length === 3);
+check("only implemented tools are declared so", Object.values(TOOL_REGISTRY).filter((tool) => tool.implemented).length === 4);
+check(
+  "no mutating tool has been implemented",
+  Object.values(TOOL_REGISTRY).every((tool) => !tool.implemented || tool.readOnly),
+);
 
 console.log("\nurl / SSRF validation");
 const blocked = [
@@ -146,6 +152,7 @@ let calls = 0;
 const spoken: string[][] = [];
 setExecutionGateway({
   available: () => true,
+  confirmedCapabilities: async () => [],
   invoke: async () => {
     calls += 1;
     return {

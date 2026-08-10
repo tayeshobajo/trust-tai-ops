@@ -31,6 +31,11 @@ export type GatewayResponse =
 export interface ExecutionGateway {
   available(): boolean;
   invoke(request: GatewayRequest): Promise<GatewayResponse>;
+  /**
+   * Server truth about which private capabilities this project can actually
+   * use. Client-side access state is only ever a hint.
+   */
+  confirmedCapabilities(projectId: string): Promise<string[]>;
 }
 
 const UNAVAILABLE: GatewayResponse = {
@@ -60,6 +65,25 @@ class SupabaseFunctionGateway implements ExecutionGateway {
     } catch {
       // Never surface a transport error verbatim: it can carry URLs and headers.
       return UNAVAILABLE;
+    }
+  }
+
+  async confirmedCapabilities(projectId: string): Promise<string[]> {
+    if (!this.available()) return [];
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke("agent-execute", {
+        body: { mode: "capabilities", projectId },
+      });
+      if (error) return [];
+      const payload = data as { ok?: boolean; data?: { capabilities?: unknown } } | null;
+      if (!payload?.ok || !Array.isArray(payload.data?.capabilities)) return [];
+      return (payload.data?.capabilities as unknown[]).filter(
+        (value): value is string => typeof value === "string",
+      );
+    } catch {
+      // Unproven means unavailable. Never assume a capability exists.
+      return [];
     }
   }
 }

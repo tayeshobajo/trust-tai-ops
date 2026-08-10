@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { AccessType, Organization, Project, ProjectAccessMethod } from "./types";
 import { workspaceRepository } from "./repository";
 import { getProjectInitials } from "./home";
+import { submitCredential } from "./agent-core/secrets";
 
 type Props = {
   project: Project;
@@ -18,7 +19,7 @@ export type AccessEventAction = "added" | "replaced" | "reverified" | "removed";
 export type AccessEvent = { type: AccessType; label: string; action: AccessEventAction };
 
 type FieldKind = "text" | "secret";
-type Field = { key: string; label: string; kind: FieldKind; placeholder?: string };
+type Field = { key: string; label: string; kind: FieldKind; placeholder?: string; hint?: string };
 
 const CONNECTION_TYPES: Array<{
   type: AccessType;
@@ -26,16 +27,24 @@ const CONNECTION_TYPES: Array<{
   blurb: string;
   authMethod: string;
   fields: Field[];
+  /** True when a real credential can be sealed server-side for this type. */
+  executable?: boolean;
 }> = [
   {
     type: "wordpress_admin",
     label: "WordPress Admin",
     blurb: "The usual first door for diagnosis and plugin-level checks.",
-    authMethod: "Administrator login",
+    authMethod: "Application Password",
+    executable: true,
     fields: [
-      { key: "url", label: "Login URL", kind: "text", placeholder: "https://example.com/wp-admin" },
-      { key: "user", label: "Username or email", kind: "text" },
-      { key: "secret", label: "Password", kind: "secret" },
+      { key: "user", label: "WordPress username", kind: "text" },
+      {
+        key: "secret",
+        label: "Application Password",
+        kind: "secret",
+        placeholder: "xxxx xxxx xxxx xxxx xxxx xxxx",
+        hint: "In WordPress: Users → Profile → Application Passwords. It can be revoked on its own, and your login password is never needed.",
+      },
     ],
   },
   {
@@ -46,7 +55,6 @@ const CONNECTION_TYPES: Array<{
     fields: [
       { key: "host", label: "Host", kind: "text", placeholder: "sftp.example.com" },
       { key: "user", label: "Username", kind: "text" },
-      { key: "secret", label: "Password", kind: "secret" },
     ],
   },
   {
@@ -57,7 +65,6 @@ const CONNECTION_TYPES: Array<{
     fields: [
       { key: "host", label: "Host", kind: "text", placeholder: "example.com" },
       { key: "user", label: "Username", kind: "text" },
-      { key: "secret", label: "Key or password", kind: "secret" },
     ],
   },
   {
@@ -68,7 +75,6 @@ const CONNECTION_TYPES: Array<{
     fields: [
       { key: "host", label: "Hosting provider", kind: "text", placeholder: "Kinsta, SiteGround, WP Engine..." },
       { key: "user", label: "Account email", kind: "text" },
-      { key: "secret", label: "Password", kind: "secret" },
     ],
   },
   {
@@ -79,7 +85,6 @@ const CONNECTION_TYPES: Array<{
     fields: [
       { key: "host", label: "Host", kind: "text" },
       { key: "user", label: "Database user", kind: "text" },
-      { key: "secret", label: "Database password", kind: "secret" },
     ],
   },
   {
@@ -90,7 +95,6 @@ const CONNECTION_TYPES: Array<{
     fields: [
       { key: "host", label: "Provider", kind: "text", placeholder: "Cloudflare" },
       { key: "user", label: "Account email", kind: "text" },
-      { key: "secret", label: "API token", kind: "secret" },
     ],
   },
 ];
@@ -151,7 +155,40 @@ export function ProjectAccessPanel({
     if (!definition) return;
 
     const existing = editing.existingId ? project.accessMethods.find((item) => item.id === editing.existingId) : null;
-    const detail = [values.url, values.host, values.user].filter(Boolean).join(" · ");
+    const detail = [values.host, values.user].filter(Boolean).join(" · ");
+
+    // Real credentials never touch project state. They are sealed server-side
+    // first, and only a reference plus non-secret metadata is stored here.
+    let credentialReference: string | undefined;
+    if (definition.executable) {
+      const username = (values.user ?? "").trim();
+      const secret = values.secret ?? "";
+      if (!username || secret.trim().length < 8) {
+        setNotice("I need the WordPress username and a complete Application Password.");
+        return;
+      }
+
+      setBusy(true);
+      let stored: Awaited<ReturnType<typeof submitCredential>>;
+      try {
+        stored = await submitCredential({
+          projectId: project.id,
+          accessType: "wordpress_admin",
+          username,
+          secret,
+        });
+      } finally {
+        // Drop the value from component state before anything else happens.
+        setValues({});
+        setBusy(false);
+      }
+
+      if (!stored.ok) {
+        setNotice(stored.summary);
+        return;
+      }
+      credentialReference = stored.secretReference;
+    }
 
     const method: ProjectAccessMethod = {
       id: existing?.id ?? `access-${project.id}-${definition.type}-${Date.now()}`,
@@ -161,11 +198,14 @@ export function ProjectAccessPanel({
       authMethod: definition.authMethod,
       lastVerifiedAt: new Date().toISOString(),
       notes: detail || existing?.notes || "Connection details shared by the site owner.",
+      ...(credentialReference ? { credentialReference } : {}),
     };
 
     await run(
       () => workspaceRepository.saveAccessMethod(project.id, method),
-      `${definition.label} is connected. Secrets are not shown again.`,
+      definition.executable
+        ? `${definition.label} is connected. The password is stored securely and can never be read back.`
+        : `${definition.label} connection details saved.`,
       { type: definition.type, label: definition.label, action: existing ? "replaced" : "added" },
     );
 
@@ -190,8 +230,9 @@ export function ProjectAccessPanel({
       </header>
 
       <p className="access-intro">
-        Share only what the agent needs. Credential storage will be connected to the secure vault layer before
-        production use, so treat this as connection state rather than a credential store.
+        Share only what the agent needs. A WordPress Application Password is sealed on the server the moment you save
+        it and can never be read back — not by you, not by the agent, not by this page. The other connections record
+        where access lives; their credentials aren't stored here yet.
       </p>
 
       {notice ? <p className="access-notice">{notice}</p> : null}
@@ -300,7 +341,9 @@ export function ProjectAccessPanel({
           >
             <h2>{editing.existingId ? "Replace" : "Add"} {activeDefinition.label}</h2>
             <p className="access-drawer-note">
-              Secrets are masked and are never displayed again after you save.
+              {activeDefinition.executable
+                ? "The password is sent straight to the secure store and is never shown again."
+                : "Connection details only. Don't paste a password here — it wouldn't be stored securely yet."}
             </p>
 
             {activeDefinition.fields.map((field) => (
@@ -313,11 +356,14 @@ export function ProjectAccessPanel({
                   autoComplete="off"
                   onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
                 />
+                {field.hint ? <small className="access-field-hint">{field.hint}</small> : null}
               </label>
             ))}
 
             <p className="access-drawer-note">
-              Credential storage will be connected to the secure vault layer before production use.
+              {activeDefinition.executable
+                ? "You can revoke this Application Password in WordPress at any time, without changing your login."
+                : "Deeper server access will get the same secure treatment as WordPress Admin before it goes live."}
             </p>
 
             <div className="access-drawer-actions">

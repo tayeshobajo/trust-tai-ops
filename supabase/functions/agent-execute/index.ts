@@ -1,145 +1,33 @@
 // Trust Tai Ops — agent execution gateway.
 //
-// The only place privileged/agent tool execution happens. The browser sends an
-// identity (project, run, action) and never a credential; this function
-// resolves execution context server-side.
+// The only place tool execution happens. The browser sends an identity
+// (project, run, action) and never a credential, a capability claim, or a
+// trusted URL for private work.
 //
-// Implemented in this pass: two public, read-only inspections. Everything else
-// answers honestly that it is not available. Nothing is ever simulated.
+// Public read-only tools may run for the project's own callers as before.
+// Private tools require a proven signed-in caller who belongs to the
+// organization that owns the project, plus a server-resolvable secret.
+// Nothing is ever simulated, and nothing in this pass mutates WordPress.
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-
-const TIMEOUT_MS = 10_000;
-const MAX_BYTES = 512_000;
-
-const BLOCKED_HOSTNAMES = new Set(["localhost", "metadata.google.internal", "metadata"]);
-
-const isBlockedIp = (host: string): boolean => {
-  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
-    if (a === 0 || a === 10 || a === 127) return true;
-    if (a === 169 && b === 254) return true; // link-local + cloud metadata
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 100 && b >= 64 && b <= 127) return true;
-    if (a >= 224) return true;
-    return false;
-  }
-  if (host.includes(":")) return true; // no raw IPv6 destinations
-  return false;
-};
-
-type UrlCheck = { ok: true; url: URL } | { ok: false; reason: string };
-
-const validatePublicUrl = (candidate: string): UrlCheck => {
-  let url: URL;
-  try {
-    url = new URL(candidate);
-  } catch {
-    return { ok: false, reason: "That doesn't look like a valid web address." };
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    return { ok: false, reason: "I can only check http or https addresses." };
-  }
-  const host = url.hostname.toLowerCase().replace(/\.$/, "");
-  if (BLOCKED_HOSTNAMES.has(host) || host.endsWith(".local") || host.endsWith(".internal")) {
-    return { ok: false, reason: "That address points inside a private network, so I won't check it." };
-  }
-  if (isBlockedIp(host)) {
-    return { ok: false, reason: "That address points inside a private network, so I won't check it." };
-  }
-  return { ok: true, url };
-};
-
-const SENSITIVE_HEADERS = new Set([
-  "authorization",
-  "cookie",
-  "set-cookie",
-  "proxy-authorization",
-  "www-authenticate",
-  "x-api-key",
-]);
-
-const KEEP_HEADERS = new Set([
-  "content-type",
-  "server",
-  "x-powered-by",
-  "cache-control",
-  "content-encoding",
-  "location",
-  "x-cache",
-  "cf-cache-status",
-]);
-
-const safeHeaders = (headers: Headers): Record<string, string> => {
-  const out: Record<string, string> = {};
-  headers.forEach((value, key) => {
-    const name = key.toLowerCase();
-    if (SENSITIVE_HEADERS.has(name)) return;
-    if (!KEEP_HEADERS.has(name)) return;
-    out[name] = value.slice(0, 200);
-  });
-  return out;
-};
-
-const redact = (value: string): string =>
-  value
-    .replace(/([?&](?:token|key|secret|password|pass|auth|signature)=)[^&\s]+/gi, "$1[redacted]")
-    .replace(/\b[A-Za-z0-9_-]{32,}\b/g, "[redacted]");
-
-/** Manual redirect walk, so every hop is re-validated against SSRF rules. */
-const fetchSafely = async (
-  start: URL,
-  init: RequestInit = {},
-): Promise<{ response: Response; finalUrl: URL; hops: number } | { error: string }> => {
-  let current = start;
-  for (let hop = 0; hop < 5; hop += 1) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    let response: Response;
-    try {
-      response = await fetch(current.toString(), {
-        ...init,
-        redirect: "manual",
-        signal: controller.signal,
-        headers: { "user-agent": "TrustTaiOps/1.0 (+read-only site check)", ...(init.headers ?? {}) },
-      });
-    } catch (error) {
-      clearTimeout(timer);
-      const aborted = error instanceof Error && error.name === "AbortError";
-      return { error: aborted ? "timeout" : "network_error" };
-    }
-    clearTimeout(timer);
-
-    const location = response.headers.get("location");
-    if (response.status >= 300 && response.status < 400 && location) {
-      const next = validatePublicUrl(new URL(location, current).toString());
-      if (!next.ok) return { error: "unsafe_destination" };
-      current = next.url;
-      continue;
-    }
-    return { response, finalUrl: current, hops: hop };
-  }
-  return { error: "network_error" };
-};
-
-const readBounded = async (response: Response): Promise<string> => {
-  const reader = response.body?.getReader();
-  if (!reader) return "";
-  const decoder = new TextDecoder();
-  let text = "";
-  while (text.length < MAX_BYTES) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    text += decoder.decode(value, { stream: true });
-  }
-  await reader.cancel().catch(() => undefined);
-  return text.slice(0, MAX_BYTES);
-};
+import { authorizeProject } from "../_shared/authz.ts";
+import { authzDeps, executionContextConfigured, secretStoreDeps } from "../_shared/clients.ts";
+import { fetchSafely, readBounded, redact, safeHeaders, validatePublicUrl } from "../_shared/net.ts";
+import { resolvableCapabilities, resolveCredential } from "../_shared/secretStore.ts";
+import { authenticatedGet, normalizeHealthTest, normalizePlugins } from "../_shared/wordpress.ts";
 
 const fail = (code: string, summary: string, retryable: boolean) =>
   Response.json({ ok: false, code, summary, retryable }, { headers: corsHeaders });
+
+const AUTH_FAIL_SUMMARY: Record<string, string> = {
+  unauthorized: "I need you to be signed in before I can use private access.",
+  forbidden: "This account isn't allowed to work on that project.",
+  execution_context_unavailable: "I can't confirm who this project belongs to right now, so I stopped.",
+};
+
+const PRIVATE_TOOLS = new Set(["wordpress.list_plugins"]);
+
+// --- public inspections (unchanged behaviour) -------------------------------
 
 const inspectSite = async (rawUrl: string) => {
   const check = validatePublicUrl(rawUrl);
@@ -149,7 +37,7 @@ const inspectSite = async (rawUrl: string) => {
   const attempt = await fetchSafely(check.url);
   if ("error" in attempt) {
     return fail(
-      attempt.error,
+      attempt.error === "unsafe_destination" ? "unsafe_destination" : attempt.error,
       attempt.error === "timeout"
         ? "The site did not respond in time when I checked it from outside."
         : "I could not reach the site from outside at all.",
@@ -195,11 +83,8 @@ const inspectPublicSurface = async (rawUrl: string) => {
   const restUrl = new URL("/wp-json/", check.url.origin);
   const attempt = await fetchSafely(restUrl, { headers: { accept: "application/json" } });
   if ("error" in attempt) {
-    return fail(
-      attempt.error,
-      "I could not reach the WordPress public interface from outside.",
-      true,
-    );
+    return fail(attempt.error === "unsafe_destination" ? "unsafe_destination" : attempt.error,
+      "I could not reach the WordPress public interface from outside.", true);
   }
 
   const { response } = attempt;
@@ -231,7 +116,6 @@ const inspectPublicSurface = async (rawUrl: string) => {
         siteName: typeof payload.name === "string" ? redact(payload.name).slice(0, 120) : null,
         description: typeof payload.description === "string" ? redact(payload.description).slice(0, 200) : null,
         namespaces,
-        // Only what WordPress already publishes to anonymous visitors.
         authenticationAdvertised: Boolean(payload.authentication && Object.keys(payload.authentication as object).length),
       },
     },
@@ -239,17 +123,11 @@ const inspectPublicSurface = async (rawUrl: string) => {
   );
 };
 
-/**
- * Site health, read-only.
- *
- * Runs server-side capability checks first: it probes what can actually be
- * read from this site right now, and reports honestly which parts of the
- * WordPress health report need administrator credentials. Nothing is guessed.
- */
-const readHealth = async (rawUrl: string) => {
-  const check = validatePublicUrl(rawUrl);
-  if (!check.ok) return fail("unsafe_destination", check.reason, false);
+// --- health: public signals, deepened by real admin access ------------------
 
+const publicHealthSignals = async (rawUrl: string) => {
+  const check = validatePublicUrl(rawUrl);
+  if (!check.ok) return { error: check.reason };
   const origin = check.url.origin;
 
   const probe = async (path: string, accept: string) => {
@@ -271,9 +149,7 @@ const readHealth = async (rawUrl: string) => {
     probe("/wp-json/", "application/json"),
   ]);
 
-  if (!root || (root.error && root.status === null)) {
-    return fail("network_error", "I could not reach the site to read its health signals.", true);
-  }
+  if (!root || (root.error && root.status === null)) return { error: "unreachable" };
 
   let namespaces: string[] = [];
   try {
@@ -284,49 +160,176 @@ const readHealth = async (rawUrl: string) => {
   }
 
   const siteHealthStatus = siteHealth?.status ?? null;
-  const siteHealthEndpointExists = namespaces.includes("wp-site-health/v1") || siteHealthStatus === 401 ||
-    siteHealthStatus === 403;
-  const authenticatedHealthAvailable = siteHealthStatus === 200;
-  const credentialsRequired = siteHealthStatus === 401 || siteHealthStatus === 403;
+  return {
+    data: {
+      siteHealthEndpointExists: namespaces.includes("wp-site-health/v1") || siteHealthStatus === 401 || siteHealthStatus === 403,
+      credentialsRequired: siteHealthStatus === 401 || siteHealthStatus === 403,
+      siteHealthStatus,
+      namespaces,
+      httpsEnabled: check.url.protocol === "https:",
+      usersPubliclyListed: users?.status === 200 && (users.body ?? "").trim().startsWith("["),
+      xmlrpcExposed: xmlrpc?.status === 200 || xmlrpc?.status === 405,
+    },
+  };
+};
 
-  const usersPubliclyListed = users?.status === 200 && (users.body ?? "").trim().startsWith("[");
-  const xmlrpcExposed = xmlrpc?.status === 200 || xmlrpc?.status === 405;
+const SITE_HEALTH_TESTS = [
+  "background-updates",
+  "loopback-requests",
+  "https-status",
+  "dotorg-communication",
+];
 
-  const readable: string[] = [];
-  const needsCredentials: string[] = [];
-  (siteHealthEndpointExists ? needsCredentials : readable).push("WordPress site health report");
-  readable.push("Transport security", "Public author exposure", "XML-RPC exposure");
-  if (authenticatedHealthAvailable) {
-    readable.push("WordPress site health report");
-    needsCredentials.length = 0;
+/** Authenticated Site Health. Only claims what a 200 response actually proved. */
+const authenticatedHealth = async (baseUrl: string, projectId: string) => {
+  const deps = secretStoreDeps();
+  const resolved = await resolveCredential(deps, projectId, "wordpress_admin");
+  if (!resolved.ok) return { available: false as const, code: resolved.code };
+
+  const readable: Array<{ id: string; label: string; status: string | null }> = [];
+  let unauthorized = false;
+  let forbidden = false;
+  let reachable = false;
+
+  for (const test of SITE_HEALTH_TESTS) {
+    const outcome = await authenticatedGet(
+      baseUrl,
+      `/wp-json/wp-site-health/v1/tests/${test}`,
+      resolved.credential,
+    );
+    if (outcome.ok) {
+      reachable = true;
+      try {
+        const normalized = normalizeHealthTest(test, JSON.parse(outcome.body));
+        if (normalized) readable.push(normalized);
+      } catch {
+        // A non-JSON 200 proves nothing; it is simply not recorded.
+      }
+      continue;
+    }
+    if (outcome.kind === "unauthorized") unauthorized = true;
+    if (outcome.kind === "forbidden") forbidden = true;
   }
 
-  const summary = authenticatedHealthAvailable
-    ? "I read the WordPress site health report."
-    : credentialsRequired
-    ? "The WordPress site health report exists but is only readable with administrator access; I read the public health signals instead."
-    : "The WordPress site health report is not exposed here; I read the public health signals instead.";
+  if (unauthorized || forbidden) {
+    await deps.markVerification?.(projectId, "wordpress_admin", "rejected");
+    return { available: false as const, code: unauthorized ? "unauthorized" : "forbidden" };
+  }
+  if (readable.length > 0) {
+    await deps.markVerification?.(projectId, "wordpress_admin", "verified");
+  }
+
+  return { available: reachable && readable.length > 0, tests: readable, code: null };
+};
+
+const readHealth = async (rawUrl: string, authorizedProjectId: string | null, canonicalUrl: string | null) => {
+  const target = authorizedProjectId && canonicalUrl ? canonicalUrl : rawUrl;
+  const publicSignals = await publicHealthSignals(target);
+  if ("error" in publicSignals) {
+    return fail("network_error", "I could not reach the site to read its health signals.", true);
+  }
+
+  let authenticated: Record<string, unknown> = {
+    authenticatedHealthAvailable: false,
+    authenticatedHealthCode: authorizedProjectId ? null : "capability_unavailable",
+    authenticatedChecksRead: [] as unknown[],
+  };
+
+  if (authorizedProjectId && canonicalUrl) {
+    const auth = await authenticatedHealth(canonicalUrl, authorizedProjectId);
+    authenticated = {
+      authenticatedHealthAvailable: auth.available,
+      authenticatedHealthCode: auth.code ?? null,
+      authenticatedChecksRead: auth.available ? auth.tests : [],
+    };
+  }
+
+  const authAvailable = authenticated.authenticatedHealthAvailable === true;
+  const summary = authAvailable
+    ? "I read the private WordPress health checks with the stored admin access."
+    : publicSignals.data.credentialsRequired
+    ? "The WordPress health report is only readable with administrator access; I read the public health signals instead."
+    : "The WordPress health report is not exposed here; I read the public health signals instead.";
 
   return Response.json(
     {
       ok: true,
       summary: redact(summary),
+      data: { ...publicSignals.data, ...authenticated },
+    },
+    { headers: corsHeaders },
+  );
+};
+
+// --- private: installed plugins --------------------------------------------
+
+const listPlugins = async (projectId: string, canonicalUrl: string | null) => {
+  if (!canonicalUrl) {
+    return fail("execution_context_unavailable", "I don't have a confirmed site address for this project.", false);
+  }
+
+  const deps = secretStoreDeps();
+  const resolved = await resolveCredential(deps, projectId, "wordpress_admin");
+  if (!resolved.ok) {
+    return fail(
+      resolved.code,
+      resolved.code === "secret_store_unavailable"
+        ? "The secure credential store isn't available, so I won't attempt a private read."
+        : "I don't have usable WordPress admin access stored for this project yet.",
+      false,
+    );
+  }
+
+  const outcome = await authenticatedGet(canonicalUrl, "/wp-json/wp/v2/plugins", resolved.credential);
+  if (!outcome.ok) {
+    if (outcome.kind === "unauthorized") {
+      await deps.markVerification?.(projectId, "wordpress_admin", "rejected");
+      return fail("unauthorized", "WordPress rejected the stored admin credential.", false);
+    }
+    if (outcome.kind === "forbidden") {
+      await deps.markVerification?.(projectId, "wordpress_admin", "rejected");
+      return fail("forbidden", "That WordPress account is not allowed to read the plugin list.", false);
+    }
+    if (outcome.kind === "endpoint_unavailable") {
+      return fail("not_implemented", "This WordPress install does not expose the plugins endpoint.", false);
+    }
+    if (outcome.kind === "unsafe") {
+      return fail("unsafe_destination", "The site address for this project is not safe to call.", false);
+    }
+    return fail("network_error", "I could not reach WordPress to read the plugin list.", true);
+  }
+
+  let inventory: ReturnType<typeof normalizePlugins> = null;
+  try {
+    inventory = normalizePlugins(JSON.parse(outcome.body));
+  } catch {
+    inventory = null;
+  }
+  if (!inventory) {
+    return fail("not_implemented", "WordPress answered, but not with a readable plugin list.", false);
+  }
+
+  await deps.markVerification?.(projectId, "wordpress_admin", "verified");
+
+  return Response.json(
+    {
+      ok: true,
+      summary: redact(
+        `I read ${inventory.total} installed plugins (${inventory.active} active, ${inventory.inactive} inactive).`,
+      ),
       data: {
-        siteHealthEndpointExists,
-        authenticatedHealthAvailable,
-        credentialsRequired,
-        siteHealthStatus,
-        namespaces,
-        httpsEnabled: check.url.protocol === "https:",
-        usersPubliclyListed,
-        xmlrpcExposed,
-        readableChecks: Array.from(new Set(readable)),
-        checksNeedingCredentials: Array.from(new Set(needsCredentials)),
+        total: inventory.total,
+        active: inventory.active,
+        inactive: inventory.inactive,
+        truncated: inventory.truncated,
+        plugins: inventory.plugins,
       },
     },
     { headers: corsHeaders },
   );
 };
+
+// --- entrypoint --------------------------------------------------------------
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -338,19 +341,63 @@ Deno.serve(async (req) => {
     return fail("invalid_input", "That request could not be read.", false);
   }
 
+  const mode = typeof body.mode === "string" ? body.mode : "execute";
   const toolId = typeof body.toolId === "string" ? body.toolId : "";
+  const projectId = typeof body.projectId === "string" ? body.projectId : "";
   const args = (body.args ?? {}) as Record<string, unknown>;
-  const url = typeof args.url === "string" ? args.url : "";
+  const clientUrl = typeof args.url === "string" ? args.url : "";
+  const authorization = req.headers.get("Authorization");
 
-  if (!toolId || !url) return fail("invalid_input", "That request was missing what I need to run a check.", false);
+  const needsServerTruth = mode === "capabilities" || PRIVATE_TOOLS.has(toolId) || toolId === "wordpress.read_health";
+
+  let authorizedProjectId: string | null = null;
+  let canonicalUrl: string | null = null;
+
+  if (needsServerTruth) {
+    if (!executionContextConfigured()) {
+      // Fail closed: no proof of ownership means no private execution.
+      if (mode === "capabilities" || PRIVATE_TOOLS.has(toolId)) {
+        return fail("execution_context_unavailable", "I can't verify project access from here yet.", false);
+      }
+    } else {
+      const authz = await authorizeProject(authorization, projectId, authzDeps());
+      if (authz.ok) {
+        authorizedProjectId = authz.project.projectId;
+        canonicalUrl = authz.project.canonicalUrl;
+      } else if (mode === "capabilities" || PRIVATE_TOOLS.has(toolId)) {
+        return fail(authz.code, AUTH_FAIL_SUMMARY[authz.code], false);
+      }
+    }
+  }
+
+  if (mode === "capabilities") {
+    if (!authorizedProjectId) {
+      return fail("execution_context_unavailable", "I can't confirm what access this project has.", false);
+    }
+    const capabilities = await resolvableCapabilities(secretStoreDeps(), authorizedProjectId, ["wordpress_admin"]);
+    return Response.json(
+      { ok: true, summary: "Confirmed the access this project can actually use.", data: { capabilities } },
+      { headers: corsHeaders },
+    );
+  }
+
+  if (!toolId) return fail("invalid_input", "That request was missing what I need to run a check.", false);
 
   switch (toolId) {
     case "public_http.inspect_site":
-      return await inspectSite(url);
+      if (!clientUrl) return fail("invalid_input", "That request was missing the site address.", false);
+      return await inspectSite(clientUrl);
     case "wordpress.inspect_public_surface":
-      return await inspectPublicSurface(url);
+      if (!clientUrl) return fail("invalid_input", "That request was missing the site address.", false);
+      return await inspectPublicSurface(clientUrl);
     case "wordpress.read_health":
-      return await readHealth(url);
+      if (!clientUrl && !canonicalUrl) {
+        return fail("invalid_input", "That request was missing the site address.", false);
+      }
+      return await readHealth(clientUrl, authorizedProjectId, canonicalUrl);
+    case "wordpress.list_plugins":
+      if (!authorizedProjectId) return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
+      return await listPlugins(authorizedProjectId, canonicalUrl);
     default:
       return fail("not_implemented", "That capability is not enabled yet.", false);
   }

@@ -72,6 +72,7 @@ type ProjectAccessMethodRow = {
   auth_method: string;
   last_verified_at: string | null;
   notes: string;
+  credential_reference?: string | null;
 };
 
 type MemoryEntryRow = {
@@ -1136,6 +1137,8 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       auth_method: method.authMethod,
       last_verified_at: method.lastVerifiedAt || null,
       notes: method.notes,
+      // A reference, never a value. The secret lives in the server-only store.
+      credential_reference: method.credentialReference ?? null,
     }]);
     return this.loadWorkspace();
   }
@@ -1356,6 +1359,7 @@ function mapAccessMethod(row: ProjectAccessMethodRow): ProjectAccessMethod {
     authMethod: row.auth_method,
     lastVerifiedAt: row.last_verified_at ?? "Unknown",
     notes: row.notes,
+    ...(row.credential_reference ? { credentialReference: row.credential_reference } : {}),
   };
 }
 

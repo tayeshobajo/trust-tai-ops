@@ -71,6 +71,11 @@ export type ProjectAccessMethod = {
   authMethod: string;
   lastVerifiedAt: string;
   notes: string;
+  /**
+   * Points at a server-only sealed credential. It identifies a row, never a
+   * value: the secret itself is unreadable from the browser.
+   */
+  credentialReference?: string;
 };
 
 export type MemoryEntry = {

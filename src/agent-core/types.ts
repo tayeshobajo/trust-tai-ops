@@ -83,6 +83,10 @@ export type AgentEvidence = {
 export type ToolFailureCode =
   | "execution_backend_unavailable"
   | "capability_unavailable"
+  | "secret_store_unavailable"
+  | "execution_context_unavailable"
+  | "unauthorized"
+  | "forbidden"
   | "not_implemented"
   | "invalid_input"
   | "unsafe_destination"
