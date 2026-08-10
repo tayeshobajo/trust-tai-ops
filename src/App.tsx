@@ -235,6 +235,7 @@ function App() {
               onClick={() => {
                 setWorkspaceView("workspace");
                 setSaveMessage("");
+                setRailOpen(false);
               }}
             >
               <strong>Projects</strong>
@@ -245,6 +246,7 @@ function App() {
               onClick={() => {
                 setWorkspaceView("create_project");
                 setSaveMessage("");
+                setRailOpen(false);
               }}
             >
               <strong>New Project</strong>
@@ -277,6 +279,7 @@ function App() {
                     setSelectedProjectId(project.id);
                     setWorkspaceView("workspace");
                     setSaveMessage("");
+                    setRailOpen(false);
                   }}
                 >
                   <div className="project-top">
