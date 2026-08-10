@@ -1442,7 +1442,7 @@ button:focus-visible {
 
 .run-experience-card {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 240px) minmax(320px, 1fr) minmax(0, 280px);
   gap: 0;
   overflow: hidden;
   padding: 0;
@@ -1539,6 +1539,7 @@ button:focus-visible {
   font-weight: 500;
   letter-spacing: -0.02em;
   color: var(--tt-ink);
+  overflow-wrap: anywhere;
 }
 
 .run-thread {
