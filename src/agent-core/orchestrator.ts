@@ -66,21 +66,28 @@ export const capabilitiesFor = (project: Project): Capability[] => [
 ];
 
 /**
- * Server truth. A private capability counts only when the gateway confirms a
- * usable secret belongs to this project — an `available` access record is a
- * claim the browser makes, and the browser is not trusted.
+ * Server truth, in two grades.
+ *
+ *   stored   — the gateway can decrypt a credential belonging to this project.
+ *              Enough to *attempt* a read-only private call.
+ *   verified — the provider has already accepted that credential. The only
+ *              grade that may ever be described to a person as verified.
+ *
+ * An `available` access record is a claim the browser makes, and the browser
+ * is not trusted for either grade.
  */
-const confirmedCapabilities = async (project: Project): Promise<Capability[]> => {
+const serverCapabilities = async (
+  project: Project,
+): Promise<{ capabilities: Capability[]; verified: Capability[] }> => {
   const base: Capability[] = ["public_internet"];
   try {
-    const confirmed = await executionGateway().confirmedCapabilities(project.id);
+    const truth = await executionGateway().projectCapabilities(project.id);
     const known = new Set(project.accessMethods.map((method) => method.type as string));
-    return [
-      ...base,
-      ...confirmed.filter((value): value is Capability => known.has(value) || value === "wordpress_admin"),
-    ];
+    const keep = (values: string[]): Capability[] =>
+      values.filter((value): value is Capability => known.has(value) || value === "wordpress_admin");
+    return { capabilities: [...base, ...keep(truth.stored)], verified: keep(truth.verified) };
   } catch {
-    return base;
+    return { capabilities: base, verified: [] };
   }
 };
 
@@ -106,12 +113,14 @@ const loadPriorEvidence = async (projectId: string, runId: string): Promise<Agen
 
 export const buildAgentContext = async (input: OrchestratorInput): Promise<AgentContext> => {
   const { project, run } = input;
+  const capabilities = await serverCapabilities(project);
   return {
     project,
     run,
     recentMessages: input.recentMessages.slice(-20),
     memory: input.memory,
-    capabilities: await confirmedCapabilities(project),
+    capabilities: capabilities.capabilities,
+    verifiedCapabilities: capabilities.verified,
     evidence: await loadPriorEvidence(project.id, run.id),
     environment: {
       primaryUrl: primaryUrlFor(project, run),
