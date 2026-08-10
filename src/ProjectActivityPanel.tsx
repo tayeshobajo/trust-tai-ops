@@ -104,9 +104,6 @@ export function ProjectActivityPanel({ project, onBackToConversation }: Props) {
                     </section>
                   ))}
 
-                  {technical.length > 0 ? (
-                    <></>
-                  ) : null}
                   {messageCount > 0 ? (
                     <p className="act-conversation">Conversation: {messageCount} {messageCount === 1 ? "message" : "messages"}</p>
                   ) : null}
