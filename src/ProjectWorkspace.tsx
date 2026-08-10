@@ -8,6 +8,9 @@ import { workspaceRepository } from "./repository";
 import { validateAdvance } from "./operations";
 import { autoAdvanceTarget, projectHasUsableAccess, simulateQa, workingNarration } from "./agent";
 import { ProjectAccessPanel } from "./ProjectAccessPanel";
+import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
+import { ProjectActivityPanel } from "./ProjectActivityPanel";
+import { deriveMemoryFromRun } from "./memory";
 
 type ProjectWorkspaceProps = {
   project: Project;
@@ -57,11 +60,12 @@ export function ProjectWorkspace({
   const [localMessages, setLocalMessages] = useState<Record<string, LocalMessage[]>>({});
   const [busy, setBusy] = useState(false);
   const [mobilePane, setMobilePane] = useState<"tasks" | "chat" | "context">("chat");
-  const [surface, setSurface] = useState<"conversation" | "access">(initialSurface);
+  const [surface, setSurface] = useState<"conversation" | "access" | "memory" | "activity">(initialSurface);
   const [accessFocus, setAccessFocus] = useState<AccessType[]>([]);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
+  const memoryRef = useRef<Set<string>>(new Set());
 
   const activeRun = runs.find((run) => run.id === activeRunId) ?? null;
   const signal = activeRun ? signalForRun(activeRun) : null;
@@ -108,6 +112,33 @@ export function ProjectWorkspace({
     setAccessFocus(types);
     setSurface("access");
   };
+
+  // When a task closes out, persist only the durable facts the run data supports.
+  useEffect(() => {
+    if (!canWrite) return;
+    const completed = runs.filter((run) => run.state === "complete");
+    for (const run of completed) {
+      if (memoryRef.current.has(run.id)) continue;
+      const derived = deriveMemoryFromRun(project, run);
+      if (derived.length === 0) {
+        memoryRef.current.add(run.id);
+        continue;
+      }
+      memoryRef.current.add(run.id);
+      void (async () => {
+        try {
+          let next: Organization | null = null;
+          for (const entry of derived) {
+            next = await workspaceRepository.addMemoryEntry(project.id, entry);
+          }
+          if (next) onWorkspaceUpdate(next);
+        } catch {
+          // Memory must never block or corrupt the run lifecycle.
+        }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, runs, canWrite]);
 
   // The agent moves itself through every lawful step that needs no human judgment.
   useEffect(() => {
@@ -322,6 +353,21 @@ export function ProjectWorkspace({
     );
   }
 
+  if (surface === "memory") {
+    return (
+      <ProjectMemoryPanel
+        project={project}
+        canWrite={canWrite}
+        onBackToConversation={() => setSurface("conversation")}
+        onWorkspaceUpdate={onWorkspaceUpdate}
+      />
+    );
+  }
+
+  if (surface === "activity") {
+    return <ProjectActivityPanel project={project} onBackToConversation={() => setSurface("conversation")} />;
+  }
+
   return (
     <div className={`pw-shell pane-${mobilePane}`}>
       <aside className="pw-tasks">
@@ -367,14 +413,14 @@ export function ProjectWorkspace({
         </div>
 
         <nav className="pw-secondary" aria-label="Project sections">
-          <button type="button" className="is-soon" disabled title="Coming soon">
-            Memory <span className="pw-soon">Soon</span>
+          <button type="button" onClick={() => setSurface("memory")}>
+            Memory
           </button>
           <button type="button" onClick={() => openAccessSurface([])}>
             Access
           </button>
-          <button type="button" className="is-soon" disabled title="Coming soon">
-            Activity <span className="pw-soon">Soon</span>
+          <button type="button" onClick={() => setSurface("activity")}>
+            Activity
           </button>
         </nav>
       </aside>
