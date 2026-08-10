@@ -6,10 +6,12 @@ import { createSeedWorkspace } from "./seed";
 import { getSupabaseClient } from "./supabase";
 import type {
   MemoryEntry,
+  NewProjectMessage,
   Organization,
   Project,
   ProjectAccessMethod,
   ProjectEnvironment,
+  ProjectMessage,
   QaReport,
   QaResult,
   QaRule,
@@ -27,6 +29,7 @@ import type {
 } from "./types";
 
 const STORAGE_KEY = "ops-trust-tai.workspace";
+const MESSAGE_STORAGE_KEY = "ops-trust-tai.messages";
 
 type OrganizationRow = {
   id: string;
@@ -76,6 +79,20 @@ type MemoryEntryRow = {
   importance: MemoryEntry["importance"];
   title: string;
   content: string;
+  source_run_id?: string | null;
+  source_message_id?: string | null;
+};
+
+type ProjectMessageRow = {
+  id: string;
+  project_id: string;
+  run_id: string | null;
+  role: ProjectMessage["role"];
+  kind: ProjectMessage["kind"];
+  body: string[] | null;
+  dedupe_key: string | null;
+  source_key: string | null;
+  created_at: string;
 };
 
 type QaRuleRow = {
@@ -200,10 +217,13 @@ export interface WorkspaceRepository {
   setQaVerdict(projectId: string, runId: string, verdict: "passed" | "failed" | "partial" | "waived", summary: string): Promise<Organization>;
   addEvidence(projectId: string, runId: string, artifactType: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report", title: string, summary: string): Promise<Organization>;
   addRecommendation(projectId: string, runId: string | null, category: Recommendation["category"], priority: Recommendation["priority"], title: string, summary: string): Promise<Organization>;
-  addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string }): Promise<Organization>;
+  addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string; sourceRunId?: string | null; sourceMessageId?: string | null }): Promise<Organization>;
   saveAccessMethod(projectId: string, method: ProjectAccessMethod): Promise<Organization>;
   removeAccessMethod(projectId: string, methodId: string): Promise<Organization>;
   verifyAccessMethod(projectId: string, methodId: string): Promise<Organization>;
+  listProjectMessages(projectId: string): Promise<ProjectMessage[]>;
+  listRunMessages(projectId: string, runId: string): Promise<ProjectMessage[]>;
+  addProjectMessage(projectId: string, message: NewProjectMessage): Promise<ProjectMessage>;
 }
 
 class LocalWorkspaceRepository implements WorkspaceRepository {
@@ -446,7 +466,7 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     return nextWorkspace;
   }
 
-  async addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string }): Promise<Organization> {
+  async addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string; sourceRunId?: string | null; sourceMessageId?: string | null }): Promise<Organization> {
     const workspace = await this.loadWorkspace();
     const project = getProjectById(workspace, projectId);
     if (!project) return workspace;
@@ -513,6 +533,57 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     };
     await this.saveWorkspace(nextWorkspace);
     return nextWorkspace;
+  }
+
+  private readMessageStore(): Record<string, ProjectMessage[]> {
+    if (typeof window === "undefined") return {};
+    const raw = window.localStorage.getItem(MESSAGE_STORAGE_KEY);
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as Record<string, ProjectMessage[]>;
+    } catch {
+      return {};
+    }
+  }
+
+  private writeMessageStore(store: Record<string, ProjectMessage[]>): void {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(MESSAGE_STORAGE_KEY, JSON.stringify(store));
+  }
+
+  async listProjectMessages(projectId: string): Promise<ProjectMessage[]> {
+    return sortByCreatedAt(this.readMessageStore()[projectId] ?? []);
+  }
+
+  async listRunMessages(projectId: string, runId: string): Promise<ProjectMessage[]> {
+    const messages = await this.listProjectMessages(projectId);
+    return messages.filter((message) => message.runId === runId);
+  }
+
+  async addProjectMessage(projectId: string, message: NewProjectMessage): Promise<ProjectMessage> {
+    const store = this.readMessageStore();
+    const existing = store[projectId] ?? [];
+    const dedupeKey = message.dedupeKey ?? null;
+
+    if (dedupeKey) {
+      const match = existing.find((item) => item.dedupeKey === dedupeKey);
+      if (match) return match;
+    }
+
+    const saved: ProjectMessage = {
+      id: createMessageId(),
+      projectId,
+      runId: message.runId ?? null,
+      role: message.role,
+      kind: message.kind,
+      body: message.body,
+      createdAt: new Date().toISOString(),
+      dedupeKey,
+      sourceKey: message.sourceKey ?? null,
+    };
+
+    this.writeMessageStore({ ...store, [projectId]: [...existing, saved] });
+    return saved;
   }
 }
 
@@ -993,7 +1064,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     return this.loadWorkspace();
   }
 
-  async addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string }): Promise<Organization> {
+  async addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string; sourceRunId?: string | null; sourceMessageId?: string | null }): Promise<Organization> {
     const client = getSupabaseClient();
     await client.from("project_memory_entries").insert([{
       id: crypto.randomUUID(),
@@ -1002,6 +1073,8 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       importance: entry.importance,
       title: entry.title,
       content: entry.content,
+      ...(entry.sourceRunId ? { source_run_id: entry.sourceRunId } : {}),
+      ...(entry.sourceMessageId ? { source_message_id: entry.sourceMessageId } : {}),
     }] as never);
     return this.loadWorkspace();
   }
@@ -1037,6 +1110,88 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       update: (v: unknown) => { eq: (k: string, v: string) => Promise<unknown> };
     }).update({ status: "available", last_verified_at: new Date().toISOString() }).eq("id", methodId);
     return this.loadWorkspace();
+  }
+
+  async listProjectMessages(projectId: string): Promise<ProjectMessage[]> {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from("project_messages")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return sortByCreatedAt(((data ?? []) as ProjectMessageRow[]).map(mapProjectMessage));
+  }
+
+  async listRunMessages(projectId: string, runId: string): Promise<ProjectMessage[]> {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from("project_messages")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("run_id", runId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return sortByCreatedAt(((data ?? []) as ProjectMessageRow[]).map(mapProjectMessage));
+  }
+
+  async addProjectMessage(projectId: string, message: NewProjectMessage): Promise<ProjectMessage> {
+    const client = getSupabaseClient();
+    const dedupeKey = message.dedupeKey ?? null;
+
+    if (dedupeKey) {
+      const { data: existing } = await client
+        .from("project_messages")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("dedupe_key", dedupeKey)
+        .limit(1);
+
+      const match = ((existing ?? []) as ProjectMessageRow[])[0];
+      if (match) {
+        return mapProjectMessage(match);
+      }
+    }
+
+    const row: ProjectMessageRow = {
+      id: createMessageId(),
+      project_id: projectId,
+      run_id: message.runId ?? null,
+      role: message.role,
+      kind: message.kind,
+      body: message.body,
+      dedupe_key: dedupeKey,
+      source_key: message.sourceKey ?? null,
+      created_at: new Date().toISOString(),
+    };
+
+    const { error } = await client.from("project_messages").insert([row] as never);
+
+    if (error) {
+      // A concurrent writer may have already stored the same deterministic
+      // message. Prefer the stored record over failing the conversation.
+      if (dedupeKey) {
+        const { data: retry } = await client
+          .from("project_messages")
+          .select("*")
+          .eq("project_id", projectId)
+          .eq("dedupe_key", dedupeKey)
+          .limit(1);
+        const match = ((retry ?? []) as ProjectMessageRow[])[0];
+        if (match) return mapProjectMessage(match);
+      }
+      throw error;
+    }
+
+    return mapProjectMessage(row);
   }
 
   private async selectIn<TRow>(
@@ -1096,7 +1251,37 @@ function mapMemoryEntry(row: MemoryEntryRow): MemoryEntry {
     type: row.memory_type,
     importance: row.importance,
     content: row.content,
+    sourceRunId: row.source_run_id ?? null,
+    sourceMessageId: row.source_message_id ?? null,
   };
+}
+
+function mapProjectMessage(row: ProjectMessageRow): ProjectMessage {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    runId: row.run_id ?? null,
+    role: row.role,
+    kind: row.kind,
+    body: row.body ?? [],
+    createdAt: row.created_at,
+    dedupeKey: row.dedupe_key ?? null,
+    sourceKey: row.source_key ?? null,
+  };
+}
+
+function sortByCreatedAt(messages: ProjectMessage[]): ProjectMessage[] {
+  return [...messages].sort((a, b) => {
+    const delta = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    return delta !== 0 ? delta : a.id.localeCompare(b.id);
+  });
+}
+
+function createMessageId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `message-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function mapQaRule(row: QaRuleRow): QaRule {

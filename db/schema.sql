@@ -216,3 +216,30 @@ create table if not exists run_recommendations (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Persistent conversation ------------------------------------------------
+create table if not exists project_messages (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references projects(id) on delete cascade,
+  run_id uuid references runs(id) on delete set null,
+  role text not null check (role in ('user', 'agent', 'system')),
+  kind text not null check (kind in ('message', 'status_update', 'decision_request', 'decision_response')),
+  body text[] not null default '{}',
+  dedupe_key text,
+  source_key text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists project_messages_project_created_idx
+  on project_messages (project_id, created_at);
+create index if not exists project_messages_run_created_idx
+  on project_messages (run_id, created_at);
+create unique index if not exists project_messages_dedupe_idx
+  on project_messages (project_id, dedupe_key)
+  where dedupe_key is not null;
+
+-- Memory provenance (optional; existing rows stay null).
+alter table project_memory_entries
+  add column if not exists source_run_id uuid references runs(id) on delete set null;
+alter table project_memory_entries
+  add column if not exists source_message_id uuid references project_messages(id) on delete set null;

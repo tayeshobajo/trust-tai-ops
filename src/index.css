@@ -4422,3 +4422,90 @@ button:focus-visible {
     padding: var(--tt-space-3);
   }
 }
+
+/* Persistent conversation ------------------------------------------------ */
+.pw-msg-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-6);
+  min-width: 0;
+}
+
+.pw-day-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-4);
+  margin: 0;
+  font-family: var(--tt-font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tt-muted);
+}
+
+.pw-day-divider::before,
+.pw-day-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--tt-rule);
+}
+
+.pw-msg-who time {
+  margin-left: var(--tt-space-3);
+  letter-spacing: 0.04em;
+  text-transform: none;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.pw-msg:hover .pw-msg-who time { opacity: 1; }
+
+.pw-msg-time {
+  display: block;
+  margin-top: var(--tt-space-2);
+  font-family: var(--tt-font-mono);
+  font-size: 0.64rem;
+  text-align: right;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.pw-msg-user:hover .pw-msg-time { opacity: 0.7; }
+
+.pw-persist-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tt-space-3);
+  margin: 0;
+  padding: var(--tt-space-3) var(--tt-space-4);
+  border: 1px solid var(--tt-rule);
+  border-radius: var(--tt-radius-md);
+  background: var(--tt-white);
+  font-size: 0.86rem;
+  color: var(--tt-muted);
+}
+
+.pw-persist-error button {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--tt-ink);
+  text-decoration: underline;
+}
+
+.act-conversation {
+  margin: var(--tt-space-3) 0 0;
+  font-family: var(--tt-font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  color: var(--tt-muted);
+}
+
+@media (hover: none) {
+  .pw-msg-who time,
+  .pw-msg-time { opacity: 0.6; }
+}

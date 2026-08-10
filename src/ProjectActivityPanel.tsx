@@ -1,7 +1,9 @@
-import { useState } from "react";
-import type { Project } from "./types";
+import { useEffect, useState } from "react";
+import type { Project, ProjectMessage } from "./types";
 import { getProjectInitials } from "./home";
 import { buildTaskDetail, buildTaskHistory, buildTechnicalDetail } from "./activity";
+import { countMessagesForRun } from "./messages";
+import { workspaceRepository } from "./repository";
 
 type Props = {
   project: Project;
@@ -24,6 +26,22 @@ export function ProjectActivityPanel({ project, onBackToConversation }: Props) {
   const history = buildTaskHistory(project);
   const [openId, setOpenId] = useState<string | null>(history[0]?.run.id ?? null);
   const [showTechnical, setShowTechnical] = useState(false);
+  const [messages, setMessages] = useState<ProjectMessage[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const stored = await workspaceRepository.listProjectMessages(project.id);
+        if (alive) setMessages(stored);
+      } catch {
+        if (alive) setMessages([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [project.id]);
 
   return (
     <div className="access-surface">
@@ -48,6 +66,7 @@ export function ProjectActivityPanel({ project, onBackToConversation }: Props) {
           const isOpen = task.run.id === openId;
           const sections = isOpen ? buildTaskDetail(task.run) : [];
           const technical = isOpen ? buildTechnicalDetail(task.run) : [];
+          const messageCount = countMessagesForRun(messages, task.run.id);
 
           return (
             <li key={task.run.id} className={`act-item ${isOpen ? "is-open" : ""}`}>
@@ -85,6 +104,9 @@ export function ProjectActivityPanel({ project, onBackToConversation }: Props) {
                     </section>
                   ))}
 
+                  {messageCount > 0 ? (
+                    <p className="act-conversation">Conversation: {messageCount} {messageCount === 1 ? "message" : "messages"}</p>
+                  ) : null}
                   {technical.length > 0 ? (
                     <div className="act-technical">
                       <button type="button" className="ghost-button" onClick={() => setShowTechnical((value) => !value)}>

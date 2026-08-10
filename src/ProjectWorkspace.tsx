@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AccessType, Organization, Project, Run } from "./types";
+import type { AccessType, NewProjectMessage, Organization, Project, ProjectMessage, Run } from "./types";
 import { buildThread, draftFromBrief } from "./conversation";
-import type { DecisionKind, ThreadMessage } from "./conversation";
+import type { DecisionKind, ThreadCard, ThreadMessage } from "./conversation";
+import {
+  dayLabel,
+  contentSignature,
+  dedupeKeyForThreadMessage,
+  kindForThreadMessage,
+  shouldPersistThreadMessage,
+  sortMessages,
+  timeLabel,
+} from "./messages";
 import { formatActivityStamp, getProjectInitials, signalForRun } from "./home";
 import { HUMAN_PHASES } from "./home";
 import { workspaceRepository } from "./repository";
@@ -21,7 +30,14 @@ type ProjectWorkspaceProps = {
   onWorkspaceUpdate: (next: Organization) => void;
 };
 
-type LocalMessage = { id: string; role: "user" | "agent"; body: string[] };
+type ViewItem = {
+  key: string;
+  role: "user" | "agent" | "system";
+  body: string[];
+  createdAt: string | null;
+  card?: ThreadCard;
+  decision?: DecisionKind;
+};
 
 const agentStateLabel = (run: Run | null) => {
   if (!run) return "Ready";
@@ -57,7 +73,9 @@ export function ProjectWorkspace({
     startInNewTask ? null : runs.find((run) => run.state !== "complete")?.id ?? runs[0]?.id ?? null,
   );
   const [composerValue, setComposerValue] = useState("");
-  const [localMessages, setLocalMessages] = useState<Record<string, LocalMessage[]>>({});
+  const [messages, setMessages] = useState<ProjectMessage[]>([]);
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
+  const [persistError, setPersistError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [mobilePane, setMobilePane] = useState<"tasks" | "chat" | "context">("chat");
   const [surface, setSurface] = useState<"conversation" | "access" | "memory" | "activity">(initialSurface);
@@ -66,6 +84,7 @@ export function ProjectWorkspace({
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
   const memoryRef = useRef<Set<string>>(new Set());
+  const emitRef = useRef<Set<string>>(new Set());
 
   const activeRun = runs.find((run) => run.id === activeRunId) ?? null;
   const signal = activeRun ? signalForRun(activeRun) : null;
@@ -75,18 +94,174 @@ export function ProjectWorkspace({
     [project, activeRun],
   );
 
-  const extras = activeRun ? localMessages[activeRun.id] ?? [] : localMessages.__new ?? [];
+  // Stored conversation for this project. Loaded once per project.
+  useEffect(() => {
+    let alive = true;
+    setMessagesLoaded(false);
+    void (async () => {
+      try {
+        const stored = await workspaceRepository.listProjectMessages(project.id);
+        if (alive) setMessages(sortMessages(stored));
+      } catch {
+        // A conversation that cannot be read must never block the workspace.
+        if (alive) setMessages([]);
+      } finally {
+        if (alive) setMessagesLoaded(true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [project.id]);
+
+  const runMessages = useMemo(
+    () =>
+      sortMessages(
+        messages.filter((message) => (activeRun ? message.runId === activeRun.id : message.runId === null)),
+      ),
+    [messages, activeRun],
+  );
+
+  const persistedKeys = useMemo(
+    () => new Set(runMessages.map((message) => message.dedupeKey).filter((key): key is string => Boolean(key))),
+    [runMessages],
+  );
+
+  // Second guard: the same sentence is never shown or stored twice, even if the
+  // reconstruction produces it again under a different id later in the task.
+  const persistedContent = useMemo(
+    () => new Set(runMessages.map((message) => contentSignature(message.role, message.body))),
+    [runMessages],
+  );
+
+  // A task is "native" when its opening brief was written to the conversation
+  // record. Older tasks keep their deterministic reconstruction and are never
+  // backfilled with history that was never actually stored.
+  const isNativeRun = Boolean(
+    activeRun && runMessages.some((message) => message.sourceKey === `${activeRun.id}-brief`),
+  );
+
+  const visible = useMemo<ViewItem[]>(() => {
+    if (!activeRun) {
+      return runMessages.map((message) => ({
+        key: message.id,
+        role: message.role,
+        body: message.body,
+        createdAt: message.createdAt,
+      }));
+    }
+
+    if (!isNativeRun) {
+      // Fallback: reconstructed thread first, then anything genuinely stored since.
+      return [
+        ...thread.map((message) => ({
+          key: message.id,
+          role: message.role,
+          body: message.body,
+          createdAt: null,
+          card: message.card,
+          decision: message.decision,
+        })),
+        ...runMessages.map((message) => ({
+          key: message.id,
+          role: message.role,
+          body: message.body,
+          createdAt: message.createdAt,
+        })),
+      ];
+    }
+
+    const derivedBySource = new Map(thread.map((message) => [message.id, message]));
+    const items: ViewItem[] = runMessages.map((message) => {
+      const source = message.sourceKey ? derivedBySource.get(message.sourceKey) : undefined;
+      return {
+        key: message.id,
+        role: message.role,
+        body: message.body,
+        createdAt: message.createdAt,
+        card: source?.card,
+        decision: source?.decision,
+      };
+    });
+
+    for (const message of thread) {
+      if (!shouldPersistThreadMessage(message)) continue;
+      if (persistedKeys.has(dedupeKeyForThreadMessage(message, activeRun))) continue;
+      if (persistedContent.has(contentSignature(message.role, message.body))) continue;
+      items.push({
+        key: `pending-${message.id}`,
+        role: message.role,
+        body: message.body,
+        createdAt: null,
+        card: message.card,
+        decision: message.decision,
+      });
+    }
+
+    return items;
+  }, [activeRun, isNativeRun, persistedContent, persistedKeys, runMessages, thread]);
 
   useEffect(() => {
     composerRef.current?.focus();
   }, [activeRunId]);
 
   useEffect(() => {
+    if (!messagesLoaded) return;
     threadEndRef.current?.scrollIntoView({ block: "end" });
-  }, [thread.length, extras.length]);
+  }, [messagesLoaded, visible.length, surface]);
 
-  const pushLocal = (runId: string, message: LocalMessage) => {
-    setLocalMessages((current) => ({ ...current, [runId]: [...(current[runId] ?? []), message] }));
+  // Single write path for every message the user actually sees.
+  const emit = async (input: NewProjectMessage): Promise<ProjectMessage | null> => {
+    const key = input.dedupeKey ?? null;
+    if (key && emitRef.current.has(key)) return null;
+    if (key) emitRef.current.add(key);
+
+    try {
+      const saved = await workspaceRepository.addProjectMessage(project.id, input);
+      setMessages((current) => (current.some((item) => item.id === saved.id) ? current : sortMessages([...current, saved])));
+      setPersistError(null);
+      return saved;
+    } catch {
+      if (key) emitRef.current.delete(key);
+      setPersistError("I couldn't save that to the conversation history. The work itself is unaffected — you can try again.");
+      return null;
+    }
+  };
+
+  // Bridge: once a task has a real conversation record, keep it complete.
+  useEffect(() => {
+    if (!canWrite || !messagesLoaded || !activeRun || !isNativeRun) return;
+
+    const pending = thread.filter(
+      (message) =>
+        shouldPersistThreadMessage(message) &&
+        !persistedKeys.has(dedupeKeyForThreadMessage(message, activeRun)) &&
+        !persistedContent.has(contentSignature(message.role, message.body)),
+    );
+
+    if (pending.length === 0) return;
+
+    void (async () => {
+      const written = new Set<string>();
+      for (const message of pending) {
+        const signature = contentSignature(message.role, message.body);
+        if (written.has(signature)) continue;
+        written.add(signature);
+        await emit({
+          runId: activeRun.id,
+          role: "agent",
+          kind: kindForThreadMessage(message),
+          body: message.body,
+          dedupeKey: dedupeKeyForThreadMessage(message, activeRun),
+          sourceKey: message.id,
+        });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRun, canWrite, isNativeRun, messagesLoaded, persistedContent, persistedKeys, thread]);
+
+  const say = async (runId: string | null, body: string[], kind: NewProjectMessage["kind"] = "message") => {
+    await emit({ runId, role: "agent", kind, body, dedupeKey: `agent-${runId ?? "project"}-${Date.now()}` });
   };
 
   const apply = async (work: () => Promise<Organization>, agentReply?: string) => {
@@ -96,7 +271,7 @@ export function ProjectWorkspace({
       const next = await work();
       onWorkspaceUpdate(next);
       if (agentReply && activeRun) {
-        pushLocal(activeRun.id, { id: `local-${Date.now()}`, role: "agent", body: [agentReply] });
+        await say(activeRun.id, [agentReply]);
       }
     } finally {
       setBusy(false);
@@ -182,7 +357,13 @@ export function ProjectWorkspace({
         attemptedRef.current.add(key);
         const narration = workingNarration(target);
         if (narration) {
-          pushLocal(run.id, { id: `auto-${run.id}-${target}`, role: "agent", body: [narration] });
+          await emit({
+            runId: run.id,
+            role: "agent",
+            kind: "status_update",
+            body: [narration],
+            dedupeKey: `auto-${run.id}-${target}`,
+          });
         }
         setBusy(true);
         try {
@@ -213,21 +394,44 @@ export function ProjectWorkspace({
         const next = await workspaceRepository.createRun(project.id, draftFromBrief(project, value));
         onWorkspaceUpdate(next);
         const created = next.projects.find((item) => item.id === project.id)?.runs[0];
+        // The brief becomes the first real message of the new task.
+        const saved = await emit({
+          runId: created?.id ?? null,
+          role: "user",
+          kind: "message",
+          body: [value],
+          dedupeKey: created ? `${created.id}-brief` : `project-brief-${Date.now()}`,
+          sourceKey: created ? `${created.id}-brief` : null,
+        });
         setActiveRunId(created?.id ?? null);
-        setComposerValue("");
+        if (saved) setComposerValue("");
+      } catch {
+        setPersistError("I couldn't start that task. Your message is still here — try again.");
       } finally {
         setBusy(false);
       }
       return;
     }
 
-    pushLocal(activeRun.id, { id: `local-${Date.now()}`, role: "user", body: [value] });
-    pushLocal(activeRun.id, {
-      id: `local-${Date.now()}-agent`,
-      role: "agent",
-      body: ["Noted. I've added that to the task context and I'll factor it into what I do next."],
+    const stamp = Date.now();
+    const saved = await emit({
+      runId: activeRun.id,
+      role: "user",
+      kind: "message",
+      body: [value],
+      dedupeKey: `user-${activeRun.id}-${stamp}`,
     });
+
+    if (!saved) return;
+
     setComposerValue("");
+    await emit({
+      runId: activeRun.id,
+      role: "agent",
+      kind: "message",
+      body: ["Noted. I've added that to the task context and I'll factor it into what I do next."],
+      dedupeKey: `ack-${activeRun.id}-${stamp}`,
+    });
   };
 
   const renderDecision = (run: Run, kind: DecisionKind) => {
@@ -266,6 +470,14 @@ export function ProjectWorkspace({
             onClick={async () => {
               await apply(() => workspaceRepository.confirmBackup(project.id, run.id, "Backup confirmed by the site owner in conversation."));
               await apply(() => workspaceRepository.advanceRun(project.id, run.id, "environment_mapping"));
+              // History only. The backup gate itself remains the authority.
+              await emit({
+                runId: run.id,
+                role: "user",
+                kind: "decision_response",
+                body: ["Backup confirmed."],
+                dedupeKey: `decision-backup-${run.id}`,
+              });
             }}
           >
             Confirm backup
@@ -275,13 +487,9 @@ export function ProjectWorkspace({
             type="button"
             disabled={busy}
             onClick={() =>
-              pushLocal(run.id, {
-                id: `local-${Date.now()}`,
-                role: "agent",
-                body: [
-                  "No problem. Most hosts have a one-click backup in their control panel, and plugins like UpdraftPlus can also create one. Tell me who hosts the site and I'll point you to the exact place.",
-                ],
-              })
+              void say(run.id, [
+                "No problem. Most hosts have a one-click backup in their control panel, and plugins like UpdraftPlus can also create one. Tell me who hosts the site and I'll point you to the exact place.",
+              ])
             }
           >
             Help me create one
@@ -291,11 +499,7 @@ export function ProjectWorkspace({
             type="button"
             disabled={busy}
             onClick={() =>
-              pushLocal(run.id, {
-                id: `local-${Date.now()}`,
-                role: "agent",
-                body: ["Understood. I'll keep this read-only and carry on investigating without changing anything."],
-              })
+              void say(run.id, ["Understood. I'll keep this read-only and carry on investigating without changing anything."])
             }
           >
             Investigate only
@@ -314,6 +518,13 @@ export function ProjectWorkspace({
             onClick={async () => {
               await apply(() => workspaceRepository.approveRun(project.id, run.id, "high_risk_execution", "approved", "Owner approved the recommended fix in conversation."));
               await apply(() => workspaceRepository.advanceRun(project.id, run.id, "execution"));
+              await emit({
+                runId: run.id,
+                role: "user",
+                kind: "decision_response",
+                body: ["Approved. Proceed with the recommended fix."],
+                dedupeKey: `decision-approval-${run.id}`,
+              });
             }}
           >
             Proceed with fix
@@ -448,37 +659,54 @@ export function ProjectWorkspace({
             </div>
           ) : null}
 
-          {thread.map((message) => (
-            <article key={message.id} className={`pw-msg pw-msg-${message.role}`}>
-              {message.role === "agent" ? <span className="pw-msg-who">Engineering Agent</span> : null}
-              {message.body.map((paragraph, index) => (
-                <p key={index}>{paragraph}</p>
-              ))}
-              {message.card ? (
-                <div className="pw-card">
-                  <h4>{message.card.title}</h4>
-                  <ul>
-                    {message.card.items.map((item, index) => (
-                      <li key={index} className={`tone-${item.tone ?? "neutral"}`}>
-                        <strong>{item.label}</strong>
-                        <span>{item.detail}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              {activeRun && message.decision ? renderDecision(activeRun, message.decision) : null}
-            </article>
-          ))}
+          {visible.map((message, position) => {
+            const previous = position > 0 ? visible[position - 1] : null;
+            const divider =
+              message.createdAt && (!previous?.createdAt || dayLabel(previous.createdAt) !== dayLabel(message.createdAt))
+                ? dayLabel(message.createdAt)
+                : null;
 
-          {extras.map((message) => (
-            <article key={message.id} className={`pw-msg pw-msg-${message.role}`}>
-              {message.role === "agent" ? <span className="pw-msg-who">Engineering Agent</span> : null}
-              {message.body.map((paragraph, index) => (
-                <p key={index}>{paragraph}</p>
-              ))}
-            </article>
-          ))}
+            return (
+              <div key={message.key} className="pw-msg-wrap">
+                {divider ? <p className="pw-day-divider"><span>{divider}</span></p> : null}
+                <article className={`pw-msg pw-msg-${message.role}`}>
+                  {message.role === "agent" ? (
+                    <span className="pw-msg-who">
+                      Engineering Agent
+                      {message.createdAt ? <time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time> : null}
+                    </span>
+                  ) : null}
+                  {message.body.map((paragraph, index) => (
+                    <p key={index}>{paragraph}</p>
+                  ))}
+                  {message.card ? (
+                    <div className="pw-card">
+                      <h4>{message.card.title}</h4>
+                      <ul>
+                        {message.card.items.map((item, index) => (
+                          <li key={index} className={`tone-${item.tone ?? "neutral"}`}>
+                            <strong>{item.label}</strong>
+                            <span>{item.detail}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {activeRun && message.decision ? renderDecision(activeRun, message.decision) : null}
+                  {message.role === "user" && message.createdAt ? (
+                    <time className="pw-msg-time" dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time>
+                  ) : null}
+                </article>
+              </div>
+            );
+          })}
+
+          {persistError ? (
+            <p className="pw-persist-error" role="status">
+              {persistError}
+              <button type="button" onClick={() => setPersistError(null)}>Dismiss</button>
+            </p>
+          ) : null}
           <div ref={threadEndRef} />
         </div>
 
