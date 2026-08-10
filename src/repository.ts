@@ -201,6 +201,9 @@ export interface WorkspaceRepository {
   addEvidence(projectId: string, runId: string, artifactType: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report", title: string, summary: string): Promise<Organization>;
   addRecommendation(projectId: string, runId: string | null, category: Recommendation["category"], priority: Recommendation["priority"], title: string, summary: string): Promise<Organization>;
   addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string }): Promise<Organization>;
+  saveAccessMethod(projectId: string, method: ProjectAccessMethod): Promise<Organization>;
+  removeAccessMethod(projectId: string, methodId: string): Promise<Organization>;
+  verifyAccessMethod(projectId: string, methodId: string): Promise<Organization>;
 }
 
 class LocalWorkspaceRepository implements WorkspaceRepository {
@@ -457,6 +460,56 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     const nextWorkspace: Organization = {
       ...workspace,
       projects: workspace.projects.map((p) => p.id === projectId ? updatedProject : p),
+    };
+    await this.saveWorkspace(nextWorkspace);
+    return nextWorkspace;
+  }
+
+  async saveAccessMethod(projectId: string, method: ProjectAccessMethod): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    const project = getProjectById(workspace, projectId);
+    if (!project) return workspace;
+
+    const exists = project.accessMethods.some((item) => item.id === method.id);
+    const accessMethods = exists
+      ? project.accessMethods.map((item) => (item.id === method.id ? method : item))
+      : [...project.accessMethods, method];
+
+    const nextWorkspace: Organization = {
+      ...workspace,
+      projects: workspace.projects.map((p) => (p.id === projectId ? { ...p, accessMethods } : p)),
+    };
+    await this.saveWorkspace(nextWorkspace);
+    return nextWorkspace;
+  }
+
+  async removeAccessMethod(projectId: string, methodId: string): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    const nextWorkspace: Organization = {
+      ...workspace,
+      projects: workspace.projects.map((p) =>
+        p.id === projectId ? { ...p, accessMethods: p.accessMethods.filter((item) => item.id !== methodId) } : p,
+      ),
+    };
+    await this.saveWorkspace(nextWorkspace);
+    return nextWorkspace;
+  }
+
+  async verifyAccessMethod(projectId: string, methodId: string): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    const stamp = new Date().toISOString();
+    const nextWorkspace: Organization = {
+      ...workspace,
+      projects: workspace.projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              accessMethods: p.accessMethods.map((item) =>
+                item.id === methodId ? { ...item, status: "available" as const, lastVerifiedAt: stamp } : item,
+              ),
+            }
+          : p,
+      ),
     };
     await this.saveWorkspace(nextWorkspace);
     return nextWorkspace;
@@ -950,6 +1003,39 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       title: entry.title,
       content: entry.content,
     }] as never);
+    return this.loadWorkspace();
+  }
+
+  async saveAccessMethod(projectId: string, method: ProjectAccessMethod): Promise<Organization> {
+    const client = getSupabaseClient();
+    await (client.from("project_access_methods") as never as {
+      upsert: (v: unknown) => Promise<unknown>;
+    }).upsert([{
+      id: method.id,
+      project_id: projectId,
+      access_type: method.type,
+      label: method.label,
+      status: method.status,
+      auth_method: method.authMethod,
+      last_verified_at: method.lastVerifiedAt || null,
+      notes: method.notes,
+    }]);
+    return this.loadWorkspace();
+  }
+
+  async removeAccessMethod(_projectId: string, methodId: string): Promise<Organization> {
+    const client = getSupabaseClient();
+    await (client.from("project_access_methods") as never as {
+      delete: () => { eq: (k: string, v: string) => Promise<unknown> };
+    }).delete().eq("id", methodId);
+    return this.loadWorkspace();
+  }
+
+  async verifyAccessMethod(_projectId: string, methodId: string): Promise<Organization> {
+    const client = getSupabaseClient();
+    await (client.from("project_access_methods") as never as {
+      update: (v: unknown) => { eq: (k: string, v: string) => Promise<unknown> };
+    }).update({ status: "available", last_verified_at: new Date().toISOString() }).eq("id", methodId);
     return this.loadWorkspace();
   }
 

@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Organization, Project, Run } from "./types";
+import type { AccessType, Organization, Project, Run } from "./types";
 import { buildThread, draftFromBrief } from "./conversation";
 import type { DecisionKind, ThreadMessage } from "./conversation";
 import { formatActivityStamp, getProjectInitials, signalForRun } from "./home";
 import { HUMAN_PHASES } from "./home";
 import { workspaceRepository } from "./repository";
-import { getNextPhase, validateAdvance } from "./operations";
+import { validateAdvance } from "./operations";
+import { autoAdvanceTarget, projectHasUsableAccess, simulateQa, workingNarration } from "./agent";
+import { ProjectAccessPanel } from "./ProjectAccessPanel";
 
 type ProjectWorkspaceProps = {
   project: Project;
   canWrite: boolean;
   startInNewTask?: boolean;
+  initialSurface?: "conversation" | "access";
   onBackToProjects: () => void;
   onWorkspaceUpdate: (next: Organization) => void;
 };
@@ -42,6 +45,7 @@ export function ProjectWorkspace({
   project,
   canWrite,
   startInNewTask = false,
+  initialSurface = "conversation",
   onBackToProjects,
   onWorkspaceUpdate,
 }: ProjectWorkspaceProps) {
@@ -53,8 +57,11 @@ export function ProjectWorkspace({
   const [localMessages, setLocalMessages] = useState<Record<string, LocalMessage[]>>({});
   const [busy, setBusy] = useState(false);
   const [mobilePane, setMobilePane] = useState<"tasks" | "chat" | "context">("chat");
+  const [surface, setSurface] = useState<"conversation" | "access">(initialSurface);
+  const [accessFocus, setAccessFocus] = useState<AccessType[]>([]);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
+  const attemptedRef = useRef<Set<string>>(new Set());
 
   const activeRun = runs.find((run) => run.id === activeRunId) ?? null;
   const signal = activeRun ? signalForRun(activeRun) : null;
@@ -97,11 +104,66 @@ export function ProjectWorkspace({
     await apply(() => workspaceRepository.advanceRun(project.id, run.id, target));
   };
 
-  const continueRun = async (run: Run) => {
-    const next = getNextPhase(run.state);
-    if (!next) return;
-    await advanceTo(run, next);
+  const openAccessSurface = (types: AccessType[] = []) => {
+    setAccessFocus(types);
+    setSurface("access");
   };
+
+  // The agent moves itself through every lawful step that needs no human judgment.
+  useEffect(() => {
+    if (!canWrite || busy || !activeRun) return;
+
+    const run = activeRun;
+    const key = `${run.id}:${run.state}:${run.qaReport.verdict}`;
+    if (attemptedRef.current.has(key)) return;
+
+    if (run.state === "qa") {
+      const simulation = simulateQa(run);
+      if (!simulation) return;
+      const timer = window.setTimeout(() => {
+        void (async () => {
+          if (attemptedRef.current.has(key)) return;
+          attemptedRef.current.add(key);
+          setBusy(true);
+          try {
+            for (const update of simulation.updates) {
+              await workspaceRepository.updateQaResult(project.id, run.id, update.id, update.result, update.notes);
+            }
+            let next = await workspaceRepository.setQaVerdict(project.id, run.id, simulation.verdict, simulation.summary);
+            if (simulation.verdict !== "failed") {
+              next = await workspaceRepository.advanceRun(project.id, run.id, "recommendations");
+            }
+            onWorkspaceUpdate(next);
+          } finally {
+            setBusy(false);
+          }
+        })();
+      }, 900);
+      return () => window.clearTimeout(timer);
+    }
+
+    const target = autoAdvanceTarget(project, run);
+    if (!target) return;
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        if (attemptedRef.current.has(key)) return;
+        attemptedRef.current.add(key);
+        const narration = workingNarration(target);
+        if (narration) {
+          pushLocal(run.id, { id: `auto-${run.id}-${target}`, role: "agent", body: [narration] });
+        }
+        setBusy(true);
+        try {
+          onWorkspaceUpdate(await workspaceRepository.advanceRun(project.id, run.id, target));
+        } finally {
+          setBusy(false);
+        }
+      })();
+    }, 900);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, activeRun, canWrite, busy]);
 
   const startNewTask = () => {
     setActiveRunId(null);
@@ -141,13 +203,23 @@ export function ProjectWorkspace({
     if (!kind) return null;
 
     if (kind === "access") {
+      const hasAccess = projectHasUsableAccess(project);
       return (
         <div className="decision-actions">
-          <button className="primary-button" type="button" disabled={!canWrite || busy} onClick={() => void advanceTo(run, run.backupStatus === "unconfirmed" ? "backup_gate" : "environment_mapping")}>
-            Add access
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => openAccessSurface(["wordpress_admin", "sftp", "ssh"])}
+          >
+            {hasAccess ? "Review access" : "Add access"}
           </button>
-          <button className="ghost-button" type="button" disabled={!canWrite || busy} onClick={() => void advanceTo(run, "environment_mapping")}>
-            Continue with limited access
+          <button
+            className="ghost-button"
+            type="button"
+            disabled={!canWrite || busy}
+            onClick={() => void advanceTo(run, "environment_mapping")}
+          >
+            Continue read-only for now
           </button>
         </div>
       );
@@ -235,35 +307,20 @@ export function ProjectWorkspace({
       );
     }
 
-    if (kind === "verify") {
-      return (
-        <div className="decision-actions">
-          <button
-            className="primary-button"
-            type="button"
-            disabled={!canWrite || busy}
-            onClick={async () => {
-              for (const result of run.qaReport.results) {
-                await workspaceRepository.updateQaResult(project.id, run.id, result.id, "passed", "Checked after the work and behaving correctly.");
-              }
-              await apply(() => workspaceRepository.setQaVerdict(project.id, run.id, "passed", "All checks behaved correctly after the work."));
-              await apply(() => workspaceRepository.advanceRun(project.id, run.id, "recommendations"));
-            }}
-          >
-            Show me the results
-          </button>
-        </div>
-      );
-    }
-
-    return (
-      <div className="decision-actions">
-        <button className="ghost-button" type="button" disabled={!canWrite || busy} onClick={() => void continueRun(run)}>
-          Let the agent continue
-        </button>
-      </div>
-    );
+    return null;
   };
+
+  if (surface === "access") {
+    return (
+      <ProjectAccessPanel
+        project={project}
+        canWrite={canWrite}
+        focusTypes={accessFocus}
+        onBackToConversation={() => setSurface("conversation")}
+        onWorkspaceUpdate={onWorkspaceUpdate}
+      />
+    );
+  }
 
   return (
     <div className={`pw-shell pane-${mobilePane}`}>
@@ -310,9 +367,15 @@ export function ProjectWorkspace({
         </div>
 
         <nav className="pw-secondary" aria-label="Project sections">
-          <button type="button">Memory</button>
-          <button type="button">Access</button>
-          <button type="button">Activity</button>
+          <button type="button" className="is-soon" disabled title="Coming soon">
+            Memory <span className="pw-soon">Soon</span>
+          </button>
+          <button type="button" onClick={() => openAccessSurface([])}>
+            Access
+          </button>
+          <button type="button" className="is-soon" disabled title="Coming soon">
+            Activity <span className="pw-soon">Soon</span>
+          </button>
         </nav>
       </aside>
 
