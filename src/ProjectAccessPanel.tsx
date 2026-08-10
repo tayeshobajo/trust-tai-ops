@@ -111,10 +111,13 @@ const isVerified = (method: ProjectAccessMethod | null): boolean => {
  * true. A credential we hold but WordPress has never accepted is "Stored
  * securely" — never "Verified".
  */
-const statusLabel = (method: ProjectAccessMethod | null): string => {
+const statusLabel = (method: ProjectAccessMethod | null, executable = false): string => {
   if (!method) return "Not connected";
   if (method.status === "stale") return "Needs attention";
   if (method.status === "missing") return "Not connected";
+  // "Verified" is reserved for a credential the provider itself accepted.
+  // Details a person typed in are only ever "Confirmed".
+  if (!executable) return isVerified(method) ? "Confirmed" : "Connected";
   return isVerified(method) ? "Verified" : "Stored securely";
 };
 
@@ -289,10 +292,16 @@ export function ProjectAccessPanel({
             <article key={definition.type} className={`access-card is-${status} ${focused ? "is-focused" : ""}`}>
               <div className="access-card-head">
                 <h3>{definition.label}</h3>
-                <span className={`access-status is-${status}`}>{statusLabel(method)}</span>
+                <span className={`access-status is-${status}`}>{statusLabel(method, definition.executable)}</span>
               </div>
               <p>{method?.notes || definition.blurb}</p>
-              {method ? <small className="access-stamp">{formatVerified(method)}</small> : null}
+              {method ? (
+                <small className="access-stamp">
+                  {definition.executable && !isVerified(method)
+                    ? "Stored securely · not yet checked with WordPress"
+                    : formatVerified(method)}
+                </small>
+              ) : null}
               {focused ? <small className="access-stamp is-focus">The agent asked for this one.</small> : null}
 
               <div className="access-card-actions">
