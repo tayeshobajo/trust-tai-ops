@@ -3551,7 +3551,7 @@ button:focus-visible {
 }
 
 .pw-new-task {
-  align-self: strh;
+  align-self: stretch;
 }
 
 .pw-task-list {
@@ -4727,7 +4727,7 @@ button:focus-visible {
   border-radius: var(--tt-radius-lg);
   box-shadow: var(--tt-shadow-sm);
   padding: var(--tt-space-10);
-  align-self: strh;
+  align-self: stretch;
   min-height: calc(100vh - (2 * var(--tt-space-12)));
   display: flex;
   flex-direction: column;
