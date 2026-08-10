@@ -193,6 +193,7 @@ export interface WorkspaceRepository {
   getProject(projectId: string): Promise<Project | null>;
   getActiveRun(projectId: string): Promise<Run | null>;
   advanceRun(projectId: string, runId: string, targetState: Run["state"]): Promise<Organization>;
+  confirmBackup(projectId: string, runId: string, note: string): Promise<Organization>;
   approveRun(projectId: string, runId: string, approvalType: "high_risk_execution" | "qa_waiver" | "rollback", decision: "approved" | "rejected", reason: string): Promise<Organization>;
   rollbackRun(projectId: string, runId: string, reason: string): Promise<Organization>;
   updateQaResult(projectId: string, runId: string, resultId: string, result: "passed" | "failed" | "warning" | "skipped", notes: string): Promise<Organization>;
@@ -275,6 +276,28 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     if (!project || !run) return workspace;
 
     const updatedRun = advanceRunState(run, targetState);
+    const nextWorkspace = replaceRun(workspace, projectId, updatedRun);
+    await this.saveWorkspace(nextWorkspace);
+    return nextWorkspace;
+  }
+
+  async confirmBackup(projectId: string, runId: string, note: string): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    const { project, run } = findRun(workspace, projectId, runId);
+    if (!project || !run) return workspace;
+
+    const updatedRun: Run = {
+      ...run,
+      backupStatus: "confirmed_by_operator",
+      artifacts: [...run.artifacts, {
+        id: `artifact-${runId}-${Date.now()}`,
+        type: "backup_note",
+        title: "Backup confirmed",
+        summary: note,
+      }],
+      updatedAt: new Date().toISOString(),
+    };
+
     const nextWorkspace = replaceRun(workspace, projectId, updatedRun);
     await this.saveWorkspace(nextWorkspace);
     return nextWorkspace;
@@ -802,6 +825,25 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       (client.from("run_phases") as never as { update: (v: unknown) => { eq: (k: string, v: string) => { eq: (k: string, v: string) => unknown } } }).update({ status: phase.status })
         .eq("run_id", runId).eq("state", phase.state),
     ));
+
+    return this.loadWorkspace();
+  }
+
+  async confirmBackup(_projectId: string, runId: string, note: string): Promise<Organization> {
+    const client = getSupabaseClient();
+
+    await (client.from("runs") as never as { update: (v: unknown) => { eq: (k: string, v: string) => unknown } }).update({
+      backup_status: "confirmed_by_operator",
+      updated_at: new Date().toISOString(),
+    }).eq("id", runId);
+
+    await client.from("run_artifacts").insert([{
+      id: crypto.randomUUID(),
+      run_id: runId,
+      artifact_type: "backup_note",
+      title: "Backup confirmed",
+      summary: note,
+    }] as never);
 
     return this.loadWorkspace();
   }

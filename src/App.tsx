@@ -6,11 +6,12 @@ import { OperationsPanel } from "./OperationsPanel";
 import { ProjectsCommandCenter } from "./ProjectsCommandCenter";
 import { CreateProjectPage } from "./CreateProjectPage";
 import { ProjectEmptyState } from "./ProjectEmptyState";
+import { ProjectWorkspace } from "./ProjectWorkspace";
+import { draftFromBrief } from "./conversation";
 import { starterProjectDraft, starterRunDraft, stateCopy, taskTypeOptions, workspaceTabs } from "./data";
 import {
   countOpenRecommendations,
   countOpenRisks,
-  createFirstRunDraft,
   getActiveRun,
   getEnvironmentName,
   getProjectById,
@@ -46,6 +47,7 @@ function App() {
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(starterProjectDraft());
   const [saveMessage, setSaveMessage] = useState("");
   const [railOpen, setRailOpen] = useState(false);
+  const [startInNewTask, setStartInNewTask] = useState(false);
   const [repositoryHealth, setRepositoryHealth] = useState<RepositoryHealth>({
     adapter: "demo",
     ok: true,
@@ -137,6 +139,17 @@ function App() {
     setDraft(starterRunDraft(selectedProject.environments[0]?.id ?? ""));
   };
 
+  const handleFirstBrief = async (brief: string) => {
+    if (!selectedProject) {
+      return;
+    }
+
+    const nextWorkspace = await workspaceRepository.createRun(selectedProject.id, draftFromBrief(selectedProject, brief));
+    setWorkspace(nextWorkspace);
+    setStartInNewTask(false);
+    setWorkspaceView("workspace");
+  };
+
   const handleCreateProject = async () => {
     const nextWorkspace = await workspaceRepository.createProject(projectDraft);
     const nextProject = nextWorkspace.projects[0];
@@ -193,8 +206,10 @@ function App() {
           setSaveMessage("");
         }}
         onOpenProject={(projectId) => {
+          const project = getProjectById(workspace, projectId);
           setSelectedProjectId(projectId);
-          setWorkspaceView("workspace");
+          setStartInNewTask(false);
+          setWorkspaceView(project && project.runs.length === 0 ? "project_home" : "workspace");
           setActiveTab("active_run");
         }}
         onCreateProject={() => {
@@ -202,13 +217,10 @@ function App() {
           setWorkspaceView("create_project");
         }}
         onNewTask={(projectId) => {
-          const project = getProjectById(workspace, projectId);
           setSelectedProjectId(projectId);
-          if (project) {
-            setDraft(createFirstRunDraft(project));
-          }
           setSaveMessage("");
-          setWorkspaceView("first_run");
+          setStartInNewTask(true);
+          setWorkspaceView("workspace");
         }}
       />
     ) : workspaceView === "create_project" ? (
@@ -229,6 +241,22 @@ function App() {
         onBackToProjects={() => {
           setSaveMessage("");
           setWorkspaceView("home");
+        }}
+        onSubmitBrief={handleFirstBrief}
+      />
+    ) : workspaceView === "workspace" && selectedProject ? (
+      <ProjectWorkspace
+        project={selectedProject}
+        canWrite={canCreateProject}
+        startInNewTask={startInNewTask}
+        onBackToProjects={() => {
+          setSaveMessage("");
+          setStartInNewTask(false);
+          setWorkspaceView("home");
+        }}
+        onWorkspaceUpdate={(next) => {
+          setStartInNewTask(false);
+          setWorkspace(next);
         }}
       />
     ) : (

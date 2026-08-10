@@ -15,23 +15,28 @@ const secondaryNav = ["Conversation", "Tasks", "Memory", "Access", "Activity"] a
 export function ProjectEmptyState({
   project,
   onBackToProjects,
+  onSubmitBrief,
 }: {
   project: Project;
   onBackToProjects: () => void;
+  onSubmitBrief: (brief: string) => Promise<void> | void;
 }) {
   const [message, setMessage] = useState("");
   const [sent, setSent] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
   const accessCount = project.accessMethods.length;
 
   const send = () => {
     const value = message.trim();
 
-    if (!value) {
+    if (!value || busy) {
       return;
     }
 
     setSent((current) => [...current, value]);
     setMessage("");
+    setBusy(true);
+    void Promise.resolve(onSubmitBrief(value)).finally(() => setBusy(false));
   };
 
   return (
@@ -94,7 +99,7 @@ export function ProjectEmptyState({
           />
           <div className="composer-row">
             <button className="composer-attach" type="button" aria-label="Attach a file">＋</button>
-            <button className="primary-button" type="button" onClick={send} disabled={!message.trim()}>
+            <button className="primary-button" type="button" onClick={send} disabled={!message.trim() || busy}>
               Send
             </button>
           </div>
