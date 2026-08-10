@@ -162,13 +162,18 @@ export const TOOL_REGISTRY: Record<ToolId, ToolDefinition> = {
     true,
     "I can't list the plugins yet — that needs WordPress admin access.",
   ),
-  "wordpress.read_health": declared(
-    "wordpress.read_health",
-    "Read the WordPress site health report.",
-    "wordpress_admin",
-    true,
-    "I can't read site health yet — that needs WordPress admin access.",
-  ),
+  "wordpress.read_health": {
+    id: "wordpress.read_health",
+    purpose: "Read the site's health signals, and check what needs admin access.",
+    // The server decides what it can actually read; the public health signals
+    // need nothing private, and it reports honestly what admin access unlocks.
+    capability: "public_internet",
+    readOnly: true,
+    risk: classifyRisk("wordpress.read_health"),
+    implemented: true,
+    validate: requireUrl,
+    execute: runThroughGateway,
+  },
   "wordpress.read_error_log": declared(
     "wordpress.read_error_log",
     "Read the PHP/WordPress error log.",
