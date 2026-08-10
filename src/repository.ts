@@ -1161,7 +1161,13 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     return this.loadWorkspace();
   }
 
-  async verifyAccessMethod(_projectId: string, methodId: string): Promise<Organization> {
+  async verifyAccessMethod(_projectId: string, methodId: string, accessType?: AccessType): Promise<Organization> {
+    // An executable credential is proven by the server or not at all. This
+    // path must never stamp a verification time for one, even if asked: the
+    // database guard would refuse the write anyway, and pretending here would
+    // be worse than refusing.
+    if (accessType === "wordpress_admin") return this.loadWorkspace();
+
     const client = getSupabaseClient();
     await (client.from("project_access_methods") as never as {
       update: (v: unknown) => { eq: (k: string, v: string) => Promise<unknown> };
