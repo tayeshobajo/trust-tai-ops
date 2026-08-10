@@ -260,22 +260,40 @@ export function ProjectWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRun, canWrite, isNativeRun, messagesLoaded, persistedContent, persistedKeys, thread]);
 
-  const say = async (runId: string | null, body: string[], kind: NewProjectMessage["kind"] = "message") => {
-    await emit({ runId, role: "agent", kind, body, dedupeKey: `agent-${runId ?? "project"}-${Date.now()}` });
+  const say = async (
+    runId: string | null,
+    body: string[],
+    kind: NewProjectMessage["kind"] = "message",
+    dedupeKey?: string,
+  ) => {
+    await emit({ runId, role: "agent", kind, body, dedupeKey: dedupeKey ?? `agent-${runId ?? "project"}-${Date.now()}` });
   };
 
-  const apply = async (work: () => Promise<Organization>, agentReply?: string) => {
+  const apply = async (work: () => Promise<Organization>, agentReply?: string, replyKey?: string) => {
     if (!canWrite || busy) return;
     setBusy(true);
     try {
       const next = await work();
       onWorkspaceUpdate(next);
       if (agentReply && activeRun) {
-        await say(activeRun.id, [agentReply]);
+        await say(activeRun.id, [agentReply], "message", replyKey);
       }
     } finally {
       setBusy(false);
     }
+  };
+
+  // Conversation history for access changes. Built only from the predefined
+  // connection label and the action — never from any submitted form value.
+  const recordAccessEvent = ({ type, label, action }: AccessEvent) => {
+    const runId = activeRun?.id ?? null;
+    void emit({
+      runId,
+      role: "user",
+      kind: "decision_response",
+      body: [`${label} access ${action}.`],
+      dedupeKey: `access-${runId ?? "project"}-${type}-${action}-${Date.now()}`,
+    });
   };
 
   const advanceTo = async (run: Run, target: Run["state"]) => {
