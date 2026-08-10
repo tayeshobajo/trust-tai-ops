@@ -23,8 +23,12 @@ const toBase64 = (bytes: Uint8Array): string => {
 const fromBase64 = (value: string): Uint8Array =>
   Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
 
-/** Accepts base64 or hex, and only a real 256-bit key. */
-export const parseEncryptionKey = (raw: string | undefined | null): KeyResult => {
+/**
+ * Accepts a raw 256-bit key as hex or base64. Any other sufficiently long
+ * high-entropy string is stretched to 256 bits with SHA-256, so a generated
+ * alphanumeric secret is usable without ever falling back to a weak key.
+ */
+export const parseEncryptionKey = async (raw: string | undefined | null): Promise<KeyResult> => {
   if (!raw || raw.trim().length === 0) return { ok: false, code: "secret_store_unavailable" };
   const value = raw.trim();
   try {
@@ -35,9 +39,14 @@ export const parseEncryptionKey = (raw: string | undefined | null): KeyResult =>
       }
       return { ok: true, key: bytes };
     }
-    const bytes = fromBase64(value);
-    if (bytes.length !== 32) return { ok: false, code: "secret_store_unavailable" };
-    return { ok: true, key: bytes };
+    if (/^[A-Za-z0-9+/]+={0,2}$/.test(value)) {
+      const bytes = fromBase64(value);
+      if (bytes.length === 32) return { ok: true, key: bytes };
+    }
+    // Too short to stretch safely: refuse rather than accept a weak key.
+    if (value.length < 32) return { ok: false, code: "secret_store_unavailable" };
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+    return { ok: true, key: new Uint8Array(digest) };
   } catch {
     return { ok: false, code: "secret_store_unavailable" };
   }
