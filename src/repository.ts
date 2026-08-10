@@ -534,6 +534,57 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     await this.saveWorkspace(nextWorkspace);
     return nextWorkspace;
   }
+
+  private readMessageStore(): Record<string, ProjectMessage[]> {
+    if (typeof window === "undefined") return {};
+    const raw = window.localStorage.getItem(MESSAGE_STORAGE_KEY);
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as Record<string, ProjectMessage[]>;
+    } catch {
+      return {};
+    }
+  }
+
+  private writeMessageStore(store: Record<string, ProjectMessage[]>): void {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(MESSAGE_STORAGE_KEY, JSON.stringify(store));
+  }
+
+  async listProjectMessages(projectId: string): Promise<ProjectMessage[]> {
+    return sortByCreatedAt(this.readMessageStore()[projectId] ?? []);
+  }
+
+  async listRunMessages(projectId: string, runId: string): Promise<ProjectMessage[]> {
+    const messages = await this.listProjectMessages(projectId);
+    return messages.filter((message) => message.runId === runId);
+  }
+
+  async addProjectMessage(projectId: string, message: NewProjectMessage): Promise<ProjectMessage> {
+    const store = this.readMessageStore();
+    const existing = store[projectId] ?? [];
+    const dedupeKey = message.dedupeKey ?? null;
+
+    if (dedupeKey) {
+      const match = existing.find((item) => item.dedupeKey === dedupeKey);
+      if (match) return match;
+    }
+
+    const saved: ProjectMessage = {
+      id: createMessageId(),
+      projectId,
+      runId: message.runId ?? null,
+      role: message.role,
+      kind: message.kind,
+      body: message.body,
+      createdAt: new Date().toISOString(),
+      dedupeKey,
+      sourceKey: message.sourceKey ?? null,
+    };
+
+    this.writeMessageStore({ ...store, [projectId]: [...existing, saved] });
+    return saved;
+  }
 }
 
 class SupabaseWorkspaceRepository implements WorkspaceRepository {
