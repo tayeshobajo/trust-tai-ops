@@ -27,6 +27,16 @@ export type SshTarget = {
   passphrase?: string;
 };
 
+/**
+ * The slice of the ssh2 exec stream this file uses. Narrower than the library's
+ * own type so the transport can't quietly grow new capabilities.
+ */
+type SshExecStream = {
+  on(event: "data", listener: (chunk: Buffer) => void): SshExecStream;
+  on(event: "close", listener: (code: number | null) => void): SshExecStream;
+  stderr: { on(event: "data", listener: (chunk: Buffer) => void): unknown };
+};
+
 export type SshExecOutcome =
   | {
       ok: true;
