@@ -452,7 +452,16 @@ export function ProjectWorkspace({
             className="ghost-button"
             type="button"
             disabled={!canWrite || busy}
-            onClick={() => void advanceTo(run, "environment_mapping")}
+            onClick={async () => {
+              await advanceTo(run, "environment_mapping");
+              await emit({
+                runId: run.id,
+                role: "user",
+                kind: "decision_response",
+                body: ["Continue read-only for now."],
+                dedupeKey: `decision-readonly-${run.id}`,
+              });
+            }}
           >
             Continue read-only for now
           </button>
@@ -486,11 +495,24 @@ export function ProjectWorkspace({
             className="ghost-button"
             type="button"
             disabled={busy}
-            onClick={() =>
-              void say(run.id, [
-                "No problem. Most hosts have a one-click backup in their control panel, and plugins like UpdraftPlus can also create one. Tell me who hosts the site and I'll point you to the exact place.",
-              ])
-            }
+            onClick={async () => {
+              await emit({
+                runId: run.id,
+                role: "user",
+                kind: "message",
+                body: ["Help me create a backup first."],
+                dedupeKey: `decision-backup-help-${run.id}`,
+              });
+              await emit({
+                runId: run.id,
+                role: "agent",
+                kind: "message",
+                body: [
+                  "No problem. Most hosts have a one-click backup in their control panel, and plugins like UpdraftPlus can also create one. Tell me who hosts the site and I'll point you to the exact place.",
+                ],
+                dedupeKey: `decision-backup-help-reply-${run.id}`,
+              });
+            }}
           >
             Help me create one
           </button>
@@ -498,9 +520,22 @@ export function ProjectWorkspace({
             className="ghost-button"
             type="button"
             disabled={busy}
-            onClick={() =>
-              void say(run.id, ["Understood. I'll keep this read-only and carry on investigating without changing anything."])
-            }
+            onClick={async () => {
+              await emit({
+                runId: run.id,
+                role: "user",
+                kind: "decision_response",
+                body: ["Investigate only. Do not make changes yet."],
+                dedupeKey: `decision-investigate-only-${run.id}`,
+              });
+              await emit({
+                runId: run.id,
+                role: "agent",
+                kind: "message",
+                body: ["Understood. I'll keep this read-only and carry on investigating without changing anything."],
+                dedupeKey: `decision-investigate-only-reply-${run.id}`,
+              });
+            }}
           >
             Investigate only
           </button>
