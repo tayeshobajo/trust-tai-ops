@@ -634,6 +634,7 @@ function App() {
         )}
       </main>
     </div>
+    )
   );
 }
 
