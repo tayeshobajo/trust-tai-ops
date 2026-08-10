@@ -239,6 +239,95 @@ const inspectPublicSurface = async (rawUrl: string) => {
   );
 };
 
+/**
+ * Site health, read-only.
+ *
+ * Runs server-side capability checks first: it probes what can actually be
+ * read from this site right now, and reports honestly which parts of the
+ * WordPress health report need administrator credentials. Nothing is guessed.
+ */
+const readHealth = async (rawUrl: string) => {
+  const check = validatePublicUrl(rawUrl);
+  if (!check.ok) return fail("unsafe_destination", check.reason, false);
+
+  const origin = check.url.origin;
+
+  const probe = async (path: string, accept: string) => {
+    const target = validatePublicUrl(new URL(path, origin).toString());
+    if (!target.ok) return null;
+    const attempt = await fetchSafely(target.url, { headers: { accept } });
+    if ("error" in attempt) return { status: null as number | null, body: "", error: attempt.error };
+    const { response } = attempt;
+    const type = response.headers.get("content-type") ?? "";
+    const body = type.includes("json") || type.includes("text/") ? await readBounded(response) : "";
+    if (!body) await response.body?.cancel().catch(() => undefined);
+    return { status: response.status, body, error: null as string | null };
+  };
+
+  const [siteHealth, users, xmlrpc, root] = await Promise.all([
+    probe("/wp-json/wp-site-health/v1/tests/background-updates", "application/json"),
+    probe("/wp-json/wp/v2/users", "application/json"),
+    probe("/xmlrpc.php", "text/html"),
+    probe("/wp-json/", "application/json"),
+  ]);
+
+  if (!root || (root.error && root.status === null)) {
+    return fail("network_error", "I could not reach the site to read its health signals.", true);
+  }
+
+  let namespaces: string[] = [];
+  try {
+    const payload = JSON.parse(root.body ?? "") as Record<string, unknown>;
+    namespaces = Array.isArray(payload.namespaces) ? (payload.namespaces as string[]).slice(0, 25) : [];
+  } catch {
+    namespaces = [];
+  }
+
+  const siteHealthStatus = siteHealth?.status ?? null;
+  const siteHealthEndpointExists = namespaces.includes("wp-site-health/v1") || siteHealthStatus === 401 ||
+    siteHealthStatus === 403;
+  const authenticatedHealthAvailable = siteHealthStatus === 200;
+  const credentialsRequired = siteHealthStatus === 401 || siteHealthStatus === 403;
+
+  const usersPubliclyListed = users?.status === 200 && (users.body ?? "").trim().startsWith("[");
+  const xmlrpcExposed = xmlrpc?.status === 200 || xmlrpc?.status === 405;
+
+  const readable: string[] = [];
+  const needsCredentials: string[] = [];
+  (siteHealthEndpointExists ? needsCredentials : readable).push("WordPress site health report");
+  readable.push("Transport security", "Public author exposure", "XML-RPC exposure");
+  if (authenticatedHealthAvailable) {
+    readable.push("WordPress site health report");
+    needsCredentials.length = 0;
+  }
+
+  const summary = authenticatedHealthAvailable
+    ? "I read the WordPress site health report."
+    : credentialsRequired
+    ? "The WordPress site health report exists but is only readable with administrator access; I read the public health signals instead."
+    : "The WordPress site health report is not exposed here; I read the public health signals instead.";
+
+  return Response.json(
+    {
+      ok: true,
+      summary: redact(summary),
+      data: {
+        siteHealthEndpointExists,
+        authenticatedHealthAvailable,
+        credentialsRequired,
+        siteHealthStatus,
+        namespaces,
+        httpsEnabled: check.url.protocol === "https:",
+        usersPubliclyListed,
+        xmlrpcExposed,
+        readableChecks: Array.from(new Set(readable)),
+        checksNeedingCredentials: Array.from(new Set(needsCredentials)),
+      },
+    },
+    { headers: corsHeaders },
+  );
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -260,6 +349,8 @@ Deno.serve(async (req) => {
       return await inspectSite(url);
     case "wordpress.inspect_public_surface":
       return await inspectPublicSurface(url);
+    case "wordpress.read_health":
+      return await readHealth(url);
     default:
       return fail("not_implemented", "That capability is not enabled yet.", false);
   }
