@@ -435,3 +435,6 @@ with check (
       and can_write_ops()
   )
 );
+
+grant select, insert on project_messages to authenticated;
+grant all on project_messages to service_role;
