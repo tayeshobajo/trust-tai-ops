@@ -1,59 +1,74 @@
-# Trust Tai Ops — Post-Import Audit
+# UI Presentation Cleanup — Trust Tai Ops
 
-Read-only review of the imported codebase. No files were changed.
+Presentation-only pass. No changes to agent logic, safety gates, SSH/WP-CLI boundary, persistence, repository, or domain state. Only `src/index.css` and the markup/class structure of existing view components.
 
-## 1. Stack: confirmed, and it builds
+## A. What is visually wrong today (ranked)
 
-- Plain **Vite 7 + React 18 + TypeScript 5** SPA. No Tailwind, no shadcn, no router library — navigation is `useState` tab/view switching in `src/App.tsx`.
-- Data layer: `@supabase/supabase-js` with a `demo` / `supabase` adapter switch in `src/repository.ts`, env resolved in `src/env.ts` (`VITE_OPS_*` variables).
-- Styling: one 2.3k-line `src/index.css` holding all brand tokens (`--tt-ink`, `--tt-paper`, `--tt-royal`, `--tt-space-*`) and every component style.
-- `npm run build` (`tsc -b && vite build`) passes locally; the app renders in the dev server on desktop, tablet, and mobile.
+1. **The wide-desktop dead zone is a real CSS rule, not a perception.** `.home-shell` is `96px | minmax(320px,400px) | 1fr` and `.preview-panel` / `.preview-empty` are capped at `max-width: 720px` with no centering. At 1440px+ everything past ~816px of width is empty cream. At ultrawide it is severe. The preview reads as a card floating in a void.
+2. **No global shell contract.** Each surface invents its own frame: home is a 3-column full-bleed grid, workspace `.pw-shell` is `320 | 1fr | 300` at `height:100vh`, Access/Memory/Activity are single-column `100vh` scroll panels with their own paddings and their own header shapes. Moving between screens feels like moving between apps.
+3. **Card-in-card.** The preview panel is a bordered, radius-xl, shadow-md card that itself contains three bordered `.preview-card`s plus a bordered phase track. Same pattern in Access and the workspace rail. Too many rectangles competing for the same attention.
+4. **Geometry is unsystematic.** Four radii in use (8/12/16/24) applied by taste, two shadow levels applied inconsistently, and nearly every separation is a 1px `--tt-rule` border instead of a mix of rules, paper layers, and whitespace.
+5. **Typography hierarchy is ad hoc.** Display sizes are hardcoded per component (`32px`, `1.9rem`, `1.4rem`); eyebrows, metadata and status labels share weight and color, so the eye has no clear first/second/third read.
+6. **Status and progress read as chrome, not signal.** Chips, dots, the 5-step phase track and the progress bar all carry borders and fills, so a calm project looks as busy as one that needs you.
+7. **Inbox and preview feel disconnected** — different padding rhythm, different vertical rhythm, a hard border between the columns instead of a shared baseline.
+8. **Responsive rules are scattered** across ~10 breakpoints (1180, 1040, 900, 860, 720, 640) with different intents per surface.
 
-## 2. Why the preview shows the old scaffold / "preview not built"
+## B. The cleanup system
 
-Confirmed cause: **`package.json` has no `build:dev` script.** The Lovable build pipeline runs `build:dev`, which errors with `Script not found "build:dev"`, so no new preview bundle is produced and the previously built scaffold output stays live. Contributing factors found in the repo:
+**Layout contract (new, used everywhere)**
+- Tokens: `--tt-rail: 88px`, `--tt-inbox: 380px`, `--tt-measure: 720px` (reading), `--tt-workspace-max: 1180px` (single-column surfaces), `--tt-shell-max: 1760px`.
+- Home: rail | inbox | preview, where the preview column becomes a real *workspace* — content centered at `--tt-workspace-max` with real internal breathing, so wide screens get a composed field instead of a left-hugging card. Above `--tt-shell-max` the whole shell centers.
+- At >=1680 the preview gains a two-column interior (status + progress left; needs-you, activity, memory stacked right) so the space is used, not padded.
+- Single-column surfaces (Create, Empty state, Access, Memory, Activity) all adopt one `.tt-page` wrapper: centered, `--tt-workspace-max`, one shared header block.
 
-- A committed `dist/` folder from an earlier build is present and can be mistaken for current output.
-- Both `vite.config.ts` and a compiled `vite.config.js` (+ `vite.config.d.ts`) exist. Vite resolves `vite.config.js` first, so edits to the `.ts` config would silently not apply.
-- The Vite config sets no dev server host/port and no path alias, so it relies entirely on platform defaults.
+**Header and rhythm**
+- One `.tt-page-head` pattern: back link row, eyebrow, title, sub/meta, optional actions — separated from content by a hairline rule with a fixed `--tt-space-8` below.
+- Section rhythm: `--tt-space-10` between major sections, `--tt-space-5` inside them, `--tt-space-2` between a label and its value. No component-local one-offs.
 
-Fix (one line plus cleanup): add `"build:dev": "vite build --mode development"` to scripts, delete the stale `vite.config.js` / `vite.config.d.ts`, and stop tracking `dist/`.
+**Type scale (tokens, applied by class)**
+- Eyebrow: sans 11px, 0.14em tracking, muted, uppercase.
+- Page title: display serif, clamp 30 to 40px. Section title: display serif 22px. Card/entry title: sans 15px 600.
+- Body 15px/1.6, metadata 13px muted, mono 12px reserved for domains and paths.
+- Buttons 14px 600, one height scale (36 / 44).
 
-## 3. Where the UI still reflects the old command-center concept
+**Surface system (replaces cards-everywhere)**
+- Three layers only: `paper` (page), `raised` (white, hairline, radius-lg, shadow-sm), `sunken` (`--tt-secondary` tint, no border).
+- Rule: one raised layer maximum per region. Inside a raised region use rules, whitespace and sunken blocks — never a bordered card inside a bordered card.
+- Radii collapse to two: `--tt-radius-md` (controls, chips, small blocks) and `--tt-radius-lg` (panels); `xl` retired. Borders always 1px hairline. `shadow-sm` for panels; `shadow-md` reserved for overlays and menus.
 
-The domain model is fine; the **surface** is the problem. Concretely:
+**Status and progress**
+- Chips become quiet: no border, tinted sunken background, 11px uppercase, colored text only. A single `is-attention` state carries the royal-blue signal; everything else is ink or muted.
+- Phase track becomes a hairline horizontal rule with small dots — completed filled ink, current royal with a soft halo, upcoming hairline. No boxes, no bars in the preview.
 
-- **Workspace is tab-first, not project-first.** Five tabs (Overview, Active Run, QA Proof, Recommendations, Memory) are the primary navigation, defaulting to `active_run`. There is no WhatsApp/Telegram-style project list as the home surface — projects are a sidebar section inside a dense rail.
-- **The chat is decorative.** In `App.tsx` the thread is built from `conversationMoments`, a derived array of run fields, and the composer is `<input value="" readOnly placeholder="Message the agent..." />` with non-functional Attach / Upload / Terminal labels. Nothing sends a message; there is no AI call anywhere in `src/` (no `fetch`, no edge function invoke).
-- **Guardrails are manually operated.** `src/OperationsPanel.tsx` (864 lines) exposes state advancement, approvals, QA verdicts, rollback, evidence attachment, and recommendation status as operator buttons — exactly the machinery that should sit under the hood and be requested by the agent in conversation.
-- **Run state is user-visible furniture.** Phase ladders, progress percentages, risk pills, backup posture, and a "Guided intake" form with task type / urgency / environment / access / backup checkboxes front-load run-contract vocabulary before the user has said what they want.
-- **Project creation is a multi-step console**, not the simple "name + URL + access" capture the target product describes.
+**List rows**
+- Selected: paper-to-white lift plus a 2px royal left marker, no heavy border.
+- Needs-you: royal dot only. Active: subtle pulse on the dot. Completed: muted status text.
+- Consistent 3-line rhythm: name + timestamp / domain (mono) / status (muted).
 
-## 4. Smallest frontend realignment (no backend or domain-model rewrite)
+**Responsive minimums**
+- Consolidate to four breakpoints: `1680` (preview interior split on), `1280` (rail collapses to icons), `1024` (workspace right rail becomes a collapsible summary above the composer), `768` (single column, inbox/preview push navigation, existing drawer pattern kept).
 
-Keep `types.ts`, `data.ts`, `lib.ts`, `operations.ts`, `repository.ts`, `seed.ts`, and `db/` untouched. Change only presentation and the layer that calls into them:
+## C. Files affected
 
-1. **Make the project list the home surface.** Full-width list of project rows (avatar/initials, name, last activity line, unread/attention dot) styled with existing tokens. Selecting a project opens the project view; the dark rail becomes secondary or collapses into the existing mobile drawer.
-2. **Make the project view chat-first.** One scrolling conversation plus a real composer with local state and send handling. Render existing run findings, actions, artifacts, and QA results as message-shaped cards in the same thread instead of separate panels.
-3. **Reduce `OperationsPanel` to inline chat affordances.** Keep the guardrail functions; surface them only as contextual prompts inside the conversation ("Confirm backup before I continue" → Confirm / Not yet), each calling the same existing `advanceRunState` / approval helpers.
-4. **Collapse the tabs into a lightweight project header/drawer.** Overview, QA, and Memory become secondary panels reachable from the project header, not the primary navigation.
-5. **Simplify project creation** to name + site URL + access toggles, deriving the remaining `ProjectDraft` fields with existing defaults.
-6. **Simplify run intake** to a first chat message; map it onto the existing `RunDraft` behind the scenes with default urgency and environment.
+- `src/index.css` — the bulk: token additions, shell/layout, page-head, type scale, surfaces, chips, rows, breakpoint consolidation.
+- `src/ProjectsCommandCenter.tsx` — preview column composition, fewer nested cards, new phase track markup.
+- `src/ProjectWorkspace.tsx` — column widths from tokens, de-boxed rail and message cards, composer framing.
+- `src/ProjectEmptyState.tsx`, `src/ProjectAccessPanel.tsx`, `src/ProjectMemoryPanel.tsx`, `src/ProjectActivityPanel.tsx`, `src/CreateProjectPage.tsx` — adopt shared `.tt-page` / `.tt-page-head`, drop local paddings and headers.
+- `src/AuthScreen.tsx` — token and geometry alignment only.
+- `src/OperationsPanel.tsx` — chip and surface alignment only, no control changes.
 
-This is a re-composition of `App.tsx` and `OperationsPanel.tsx` plus additive CSS in `index.css` — all brand tokens, fonts, radii, and spacing scale preserved.
+No changes to `src/agent*.ts`, `src/agent-core/**`, `src/repository.ts`, `src/conversation.ts`, `src/messages.ts`, `supabase/**`, or `db/**`.
 
-## 5. Do not touch yet
+## D. Implementation sequence (safe, incremental)
 
-- **The domain model and state machine.** `operations.ts` guardrails, `types.ts`, and the QA/approval contracts are the product's value; hide them, don't delete them.
-- **`repository.ts` and the Supabase adapter, `db/schema.sql`, `db/rls.sql`.** No live auth/RLS-safe write path is proven yet; a UI rewrite should not also change persistence.
-- **Auth screen and role gating.** Run creation is currently blocked below `operator` role — leave that rule in place.
-- **Real AI wiring.** Connecting the chat to a model requires a backend function and keys; treat it as a separate, later step. Ship the chat shell against existing run data first.
-- **The design system.** No Tailwind, shadcn, or router migration; no new fonts or colors.
-- **The responsive layer just added** (mobile drawer, container queries) — reuse it rather than re-solving it.
+1. **Tokens and primitives** — add layout/type/surface tokens and `.tt-page`, `.tt-page-head`, `.tt-surface`, `.tt-chip` utilities. Purely additive; nothing changes visually yet.
+2. **Home shell** — fix the dead zone: shell max-width and centering, preview column workspace framing, remove the 720px cap, add the wide-width interior split.
+3. **De-box the preview** — one raised layer, rules and sunken blocks inside, quiet phase track.
+4. **Inbox rows and chips** — apply the new row and chip system across home and workspace.
+5. **Single-column surfaces** — migrate Empty state, Access, Memory, Activity, Create to the shared page shell; delete their local header/padding rules.
+6. **Project Workspace** — token-driven columns, de-boxed rail and messages, reframed composer, approval/access/verification/completion inline cards aligned to the surface system.
+7. **Geometry sweep** — collapse radii to two, normalize borders and shadows, remove dead one-off rules.
+8. **Breakpoint consolidation** — replace scattered media queries with the four-tier set.
+9. **Verification** — Playwright screenshots of every surface and state (empty, waiting, approval, access stored vs verified, completion) at 1440 / 1680 / 1024 / 390, then `build`, `lint`, `check:agent`, `check:private`, `check:migrations`, `check:wpcli` to prove zero behavioral drift.
 
-## Suggested order
-
-1. Fix the build script and config duplication so the preview reflects the repo.
-2. Project list home + chat-first project view.
-3. Fold operations controls into in-chat prompts.
-4. Simplify project creation and run intake.
+Each step is independently revertable and touches presentation only.
