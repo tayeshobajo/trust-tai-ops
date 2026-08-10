@@ -1834,7 +1834,7 @@ button:focus-visible {
   display: grid;
   grid-template-columns: 1.4fr 1fr;
   gap: var(--tt-space-4);
-  align-items: strh;
+  align-items: stretch;
 }
 
 .hero-copy,
@@ -2315,7 +2315,7 @@ button:focus-visible {
 
   .workspace-grid {
     flex-direction: column;
-    align-items: strh;
+    align-items: stretch;
   }
 
   .side-column {
@@ -2448,7 +2448,7 @@ button:focus-visible {
   .ops-actions,
   .qa-result-top {
     flex-direction: column;
-    align-items: strh;
+    align-items: stretch;
   }
 
   .ops-btn,
@@ -3551,7 +3551,7 @@ button:focus-visible {
 }
 
 .pw-new-task {
-  align-self: strh;
+  align-self: stretch;
 }
 
 .pw-task-list {
@@ -4727,7 +4727,7 @@ button:focus-visible {
   border-radius: var(--tt-radius-lg);
   box-shadow: var(--tt-shadow-sm);
   padding: var(--tt-space-10);
-  align-self: strh;
+  align-self: stretch;
   min-height: calc(100vh - (2 * var(--tt-space-12)));
   display: flex;
   flex-direction: column;
@@ -5033,4 +5033,447 @@ button:focus-visible {
   .pw-shell {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Presentation System v3 — global tokens, rhythm, responsive
+   Presentation only. No behavioral coupling.
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  /* Layout tokens */
+  --tt-rail: 80px;
+  --tt-inbox: clamp(320px, 24vw, 390px);
+  --tt-gutter: clamp(28px, 3vw, 52px);
+  --tt-workspace-max: 1480px;
+  --tt-measure: 740px;
+  --tt-tasks: 280px;
+  --tt-context: 312px;
+  --tt-shell-max: 1920px;
+
+  /* Signal palette */
+  --tt-gold: #9a6a12;
+  --tt-gold-tint: rgba(164, 104, 21, 0.1);
+  --tt-royal-tint: rgba(29, 84, 193, 0.09);
+  --tt-green-tint: rgba(31, 107, 59, 0.1);
+  --tt-quiet-tint: rgba(1, 5, 27, 0.05);
+  --tt-edge: rgba(1, 5, 27, 0.11);
+
+  /* Type scale */
+  --tt-type-eyebrow: 11px;
+  --tt-type-meta: 12.5px;
+  --tt-type-body: 15.5px;
+  --tt-type-button: 13.5px;
+  --tt-type-section: clamp(22px, 1.7vw, 28px);
+  --tt-type-page: clamp(34px, 2.6vw, 42px);
+}
+
+/* ─── Global quiet borders ──────────────────────────────── */
+
+.preview-panel,
+.access-card,
+.pw-card,
+.list-card,
+.mem-entry,
+.create-form,
+.thread-card,
+.inbox-row,
+.act-item {
+  border-color: var(--tt-edge);
+}
+
+/* ─── Typography normalisation ──────────────────────────── */
+
+body {
+  font-size: var(--tt-type-body);
+}
+
+.eyebrow {
+  font-size: var(--tt-type-eyebrow);
+  letter-spacing: 0.13em;
+}
+
+.access-head h1,
+.project-empty-identity h1,
+.inbox-title h1,
+.create-hero h1 {
+  font-family: var(--tt-font-display);
+  font-size: var(--tt-type-page);
+  line-height: 1.06;
+  letter-spacing: -0.01em;
+}
+
+.preview-identity h2,
+.mem-section h2,
+.access-surface h2,
+.conversation-intro h2,
+.preview-empty h2,
+.inbox-empty h2 {
+  font-family: var(--tt-font-display);
+  font-size: var(--tt-type-section);
+  line-height: 1.14;
+  letter-spacing: -0.005em;
+}
+
+.preview-status h3 {
+  font-family: var(--tt-font-display);
+  font-size: clamp(20px, 1.4vw, 25px);
+  line-height: 1.2;
+}
+
+.primary-button,
+.ghost-button,
+.composer-row button,
+.decision-actions button {
+  font-size: var(--tt-type-button);
+  letter-spacing: 0.01em;
+  text-transform: none;
+  border-radius: var(--tt-radius-sm);
+}
+
+.inbox-row-domain,
+.inbox-row-top small,
+.act-stamp,
+.pw-stamp,
+.pw-msg-time,
+.preview-intro + *,
+.mem-blurb,
+.create-note {
+  font-size: var(--tt-type-meta);
+}
+
+p, li {
+  line-height: 1.62;
+}
+
+/* ─── Shell + gutters ───────────────────────────────────── */
+
+.home-shell {
+  grid-template-columns: var(--tt-rail) var(--tt-inbox) minmax(0, 1fr);
+  max-width: var(--tt-shell-max);
+}
+
+.preview-column {
+  padding: var(--tt-gutter);
+  justify-content: stretch;
+}
+
+.preview-panel {
+  max-width: var(--tt-workspace-max);
+  border-radius: var(--tt-radius-lg);
+  padding: clamp(28px, 2.6vw, 56px);
+  min-height: calc(100vh - (2 * var(--tt-gutter)));
+}
+
+.preview-empty {
+  max-width: var(--tt-measure);
+  margin-inline: auto;
+}
+
+/* Connect the selected project to its inbox row */
+.preview-panel {
+  border-left: 2px solid var(--tt-royal);
+}
+
+.inbox-row.is-selected {
+  background: rgba(29, 84, 193, 0.05);
+  border-left-color: var(--tt-royal);
+  box-shadow: none;
+}
+
+/* ─── Editorial preview composition ─────────────────────── */
+
+.preview-intro {
+  max-width: 66ch;
+  color: var(--tt-muted);
+}
+
+.preview-status {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin-top: var(--tt-space-8);
+}
+
+.preview-card {
+  padding: var(--tt-space-6) 0;
+}
+
+.preview-card ul,
+.act-detail ul {
+  list-style: none;
+  padding: 0;
+  margin: var(--tt-space-2) 0 0;
+  display: grid;
+  gap: var(--tt-space-2);
+}
+
+@media (min-width: 1440px) {
+  .preview-body {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+    gap: clamp(40px, 4vw, 72px);
+  }
+
+  .preview-cards {
+    border-left: var(--tt-hairline);
+    padding-left: clamp(32px, 3vw, 56px);
+  }
+}
+
+/* ─── Status + progress: quiet signals ──────────────────── */
+
+.agent-state,
+.act-tag,
+.access-status,
+.mem-kind,
+.mem-weight {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 3px var(--tt-space-2);
+  border: 0;
+  border-radius: var(--tt-radius-sm);
+  background: var(--tt-quiet-tint);
+  color: var(--tt-muted);
+}
+
+.agent-state-working,
+.act-tag.is-live {
+  background: var(--tt-royal-tint);
+  color: var(--tt-royal);
+}
+
+.agent-state-needs_you,
+.act-tag.is-attention,
+.access-status.is-attention {
+  background: var(--tt-gold-tint);
+  color: var(--tt-gold);
+}
+
+.access-status.is-verified,
+.act-tag.is-done {
+  background: var(--tt-green-tint);
+  color: var(--tt-success);
+}
+
+.inbox-dot {
+  background: var(--tt-gold);
+  width: 6px;
+  height: 6px;
+}
+
+.phase-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tt-space-5);
+  margin-top: var(--tt-space-6);
+  padding: 0;
+  list-style: none;
+}
+
+.phase-step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  font-size: var(--tt-type-meta);
+  color: color-mix(in srgb, var(--tt-muted) 70%, transparent);
+}
+
+.phase-step .phase-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--tt-edge);
+  box-shadow: none;
+}
+
+.phase-step.is-done {
+  color: var(--tt-muted);
+}
+
+.phase-step.is-done .phase-dot {
+  background: color-mix(in srgb, var(--tt-royal) 40%, transparent);
+}
+
+.phase-step.is-current {
+  color: var(--tt-royal);
+  font-weight: 600;
+}
+
+.phase-step.is-current .phase-dot {
+  background: var(--tt-royal);
+}
+
+/* ─── Project workspace: conversation first ─────────────── */
+
+.pw-shell {
+  grid-template-columns: var(--tt-tasks) minmax(0, 1fr) var(--tt-context);
+  max-width: var(--tt-shell-max);
+}
+
+.pw-thread {
+  max-width: var(--tt-measure);
+  margin-inline: auto;
+  width: 100%;
+}
+
+.pw-context {
+  padding: var(--tt-space-8) var(--tt-space-6);
+}
+
+.pw-context-block {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: var(--tt-space-5) 0;
+  border-top: var(--tt-hairline);
+}
+
+.pw-context .pw-context-block:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.pw-card {
+  background: var(--tt-quiet-tint);
+  border: 0;
+  border-left: 2px solid var(--tt-edge);
+  border-radius: 0 var(--tt-radius-md) var(--tt-radius-md) 0;
+  box-shadow: none;
+}
+
+.pw-card.is-attention,
+.pw-attention {
+  border-left-color: var(--tt-gold);
+  background: var(--tt-gold-tint);
+}
+
+.pw-task-row-top,
+.pw-tasks-head {
+  font-size: var(--tt-type-meta);
+}
+
+/* ─── Create project + memory: editorial, not form-like ─── */
+
+.create-page-inner,
+.create-form {
+  max-width: var(--tt-measure);
+  margin-inline: auto;
+}
+
+.create-form {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  display: grid;
+  gap: var(--tt-space-6);
+}
+
+.create-field {
+  border: 0;
+  padding: 0;
+}
+
+.create-access {
+  border: 0;
+  background: transparent;
+  padding: var(--tt-space-6) 0 0;
+  border-top: var(--tt-hairline);
+}
+
+.mem-overview {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.mem-entry-head strong {
+  font-family: var(--tt-font-display);
+  font-size: 20px;
+}
+
+/* ─── Responsive tiers ──────────────────────────────────── */
+
+@media (max-width: 1439px) and (min-width: 1100px) {
+  .home-shell {
+    grid-template-columns: var(--tt-rail) clamp(300px, 24vw, 340px) minmax(0, 1fr);
+  }
+
+  .pw-shell {
+    grid-template-columns: 264px minmax(0, 1fr) 288px;
+  }
+}
+
+@media (max-width: 1099px) and (min-width: 800px) {
+  .home-shell {
+    grid-template-columns: 72px clamp(280px, 32vw, 330px) minmax(0, 1fr);
+  }
+
+  .pw-shell {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .pw-context {
+    display: none;
+  }
+}
+
+@media (max-width: 799px) {
+  .home-shell {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .preview-column {
+    padding: var(--tt-space-4);
+  }
+
+  .preview-panel {
+    border-left: 0;
+    border-radius: var(--tt-radius-md);
+    padding: var(--tt-space-5);
+    min-height: 0;
+  }
+
+  .pw-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .preview-actions {
+    flex-wrap: wrap;
+    gap: var(--tt-space-3);
+  }
+
+  :root {
+    --tt-type-page: 30px;
+    --tt-type-section: 21px;
+  }
+}
+
+/* ─── v3: single-column editorial pages read at a measure ── */
+
+.tt-page,
+.access-surface,
+.project-empty,
+.create-project-main {
+  --tt-page-max: 1040px;
+}
+
+.access-surface p,
+.mem-entry p,
+.act-detail li,
+.access-intro {
+  max-width: 70ch;
+}
+
+.mem-entry-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tt-space-4);
+}
+
+.mem-entry-head .mem-kind,
+.mem-entry-head .mem-weight {
+  flex: 0 0 auto;
 }
