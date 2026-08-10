@@ -1359,6 +1359,7 @@ function mapAccessMethod(row: ProjectAccessMethodRow): ProjectAccessMethod {
     authMethod: row.auth_method,
     lastVerifiedAt: row.last_verified_at ?? "Unknown",
     notes: row.notes,
+    ...(row.credential_reference ? { credentialReference: row.credential_reference } : {}),
   };
 }
 
