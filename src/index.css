@@ -4522,7 +4522,7 @@ button:focus-visible {
 .pw-search-input {
   width: 100%;
   padding: var(--tt-space-2) var(--tt-space-3);
-  border: 1px solid var(--tt-line);
+  border: 1px solid var(--tt-rule);
   border-radius: 999px;
   background: var(--tt-paper);
   color: var(--tt-ink);
@@ -4531,7 +4531,7 @@ button:focus-visible {
 }
 
 .pw-search-input:focus-visible {
-  outline: 2px solid var(--tt-signal);
+  outline: 2px solid var(--tt-royal);
   outline-offset: 1px;
 }
 
@@ -4541,13 +4541,13 @@ button:focus-visible {
   justify-content: space-between;
   gap: var(--tt-space-3);
   font-size: 0.78rem;
-  color: var(--tt-ink-soft);
+  color: var(--tt-muted);
 }
 
 .pw-search-meta button {
   border: 0;
   background: none;
-  color: var(--tt-signal);
+  color: var(--tt-royal);
   font: inherit;
   cursor: pointer;
   padding: 0;
@@ -4566,16 +4566,16 @@ button:focus-visible {
   gap: 2px;
   text-align: left;
   padding: var(--tt-space-2) var(--tt-space-3);
-  border: 1px solid var(--tt-line);
-  border-radius: var(--tt-radius-md, 10px);
-  background: var(--tt-surface, transparent);
+  border: 1px solid var(--tt-rule);
+  border-radius: var(--tt-radius-md);
+  background: var(--tt-white);
   color: inherit;
   font: inherit;
   cursor: pointer;
 }
 
 .pw-search-hit:hover {
-  border-color: var(--tt-signal);
+  border-color: var(--tt-royal);
 }
 
 .pw-search-hit strong {
@@ -4584,23 +4584,23 @@ button:focus-visible {
 
 .pw-search-hit span {
   font-size: 0.78rem;
-  color: var(--tt-ink-soft);
+  color: var(--tt-muted);
 }
 
 .pw-load-earlier {
   align-self: center;
   padding: var(--tt-space-2) var(--tt-space-4);
-  border: 1px solid var(--tt-line);
+  border: 1px solid var(--tt-rule);
   border-radius: 999px;
   background: none;
-  color: var(--tt-ink-soft);
+  color: var(--tt-muted);
   font: inherit;
   font-size: 0.8rem;
   cursor: pointer;
 }
 
 .pw-load-earlier:hover {
-  border-color: var(--tt-signal);
+  border-color: var(--tt-royal);
   color: var(--tt-ink);
 }
 
