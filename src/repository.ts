@@ -1226,6 +1226,13 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     return this.loadWorkspace();
   }
 
+  async applyServerVerification(): Promise<Organization> {
+    // Native path. The `access-secrets` function already wrote the outcome
+    // under its own privileges, and the database guard would refuse a write
+    // from here anyway. Re-reading is the only honest reconciliation.
+    return this.loadWorkspace();
+  }
+
   async listProjectMessages(projectId: string): Promise<ProjectMessage[]> {
     const client = getSupabaseClient();
     const { data, error } = await client
