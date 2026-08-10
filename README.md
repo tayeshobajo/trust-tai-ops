@@ -1,24 +1,47 @@
-# Dark Canvas
+# Ops Trust Tai
 
-Create a blank page with a dark sidebar
+`ops.trust-tai.com` is the TrustTai command center for WordPress engineering work.
 
-This project was built with [Lovable](https://lovable.dev).
+This Phase 1 scaffold proves the product shape before backend wiring:
 
-## Build with Lovable
+- multi-project command center
+- project memory and access map
+- state-driven run view
+- guided new-run intake
+- QA proof surface
+- recommendations and risk ledger
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/79444c46-d25c-47a8-a708-ff496c9d2ad2).
+The app is intentionally product-first instead of chatbot-first. The agent is embedded in a governed workflow, not floating above it.
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+## Current scope
 
-## Development
+The current scaffold includes:
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+- TrustTai-branded command-center shell
+- seeded WordPress projects and environments
+- visible run-state machine
+- guardrail-aware intake behavior
+- local persistence with browser storage
+- repository abstraction for future backend swap-in
+- canonical SQL schema at `db/schema.sql`
+- browser-safe `demo` / `supabase` adapter switching
 
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
-```
+## Run locally
+
+1. `npm install`
+2. `npm run dev`
+
+## Verification
+
+- `npm run typecheck`
+- `npm run build`
+- `npm run lint`
+
+## Supabase
+
+See [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) and [.env.example](./.env.example) for the browser-safe adapter contract.
+
+Important boundary:
+the app now supports a real Supabase adapter, but it still needs auth + RLS or a server/API layer before production-trustworthy live writes.
+
+The current codebase now includes auth-aware UI scaffolding and a first RLS policy contract at `db/rls.sql`.
