@@ -1,19 +1,30 @@
-// Trust Tai Ops — credential submission.
+// Trust Tai Ops — credential submission and verification.
 //
 // One direction only. A signed-in project member may submit a WordPress
 // Application Password; nobody can ever read one back. There is no GET route
 // that returns a secret, and the response carries only a reference plus
 // non-secret metadata.
+//
+// `mode: "verify"` proves a stored credential against the project's own
+// canonical WordPress origin. The browser supplies a project id and nothing
+// else — no URL, no username, no secret — so it cannot aim the check anywhere.
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { authorizeProject } from "../_shared/authz.ts";
 import { authzDeps, executionContextConfigured, secretStoreDeps } from "../_shared/clients.ts";
 import { secretReferenceFor, storeCredential } from "../_shared/secretStore.ts";
+import { verifyStoredWordPressCredential } from "../_shared/verification.ts";
 
 const fail = (code: string, summary: string, status = 200) =>
   Response.json({ ok: false, code, summary }, { status, headers: corsHeaders });
 
 const SUPPORTED = new Set(["wordpress_admin"]);
+
+const AUTH_FAIL_SUMMARY: Record<string, string> = {
+  unauthorized: "Please sign in before sharing access.",
+  forbidden: "This account isn't allowed to manage access for that project.",
+  execution_context_unavailable: "I can't confirm who this project belongs to right now.",
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -34,10 +45,38 @@ Deno.serve(async (req) => {
   const accessType = typeof body.accessType === "string" ? body.accessType.trim() : "";
   const username = typeof body.username === "string" ? body.username.trim() : "";
   const secret = typeof body.secret === "string" ? body.secret.trim() : "";
+  const mode = body.mode === "verify" ? "verify" : "store";
 
   if (!SUPPORTED.has(accessType)) {
     return fail("not_implemented", "That kind of access can't be stored securely yet.");
   }
+
+  if (mode === "verify") {
+    const authz = await authorizeProject(req.headers.get("Authorization"), projectId, authzDeps());
+    if (!authz.ok) return fail(authz.code, AUTH_FAIL_SUMMARY[authz.code]);
+
+    const outcome = await verifyStoredWordPressCredential(
+      secretStoreDeps(),
+      authz.project.projectId,
+      // Server-resolved. An address from the browser is never accepted here.
+      authz.project.canonicalUrl,
+    );
+
+    return Response.json(
+      {
+        ok: outcome.state === "verified",
+        code: outcome.code,
+        summary: outcome.summary,
+        data: {
+          accessType,
+          verificationState: outcome.state,
+          lastVerifiedAt: outcome.lastVerifiedAt,
+        },
+      },
+      { headers: corsHeaders },
+    );
+  }
+
   if (!username || username.length > 200) {
     return fail("invalid_input", "I need the WordPress username for that access.");
   }
@@ -71,13 +110,15 @@ Deno.serve(async (req) => {
   return Response.json(
     {
       ok: true,
-      summary: "WordPress admin access is stored securely.",
+      // Stored is not verified. The wording says exactly what happened.
+      summary: "WordPress admin access is stored securely. It hasn't been checked with WordPress yet.",
       data: {
         secretReference: secretReferenceFor(authz.project.projectId, accessType),
         accessType,
         provider: "wordpress_application_password",
         username,
         verificationState: "unverified",
+        lastVerifiedAt: null,
       },
     },
     { headers: corsHeaders },
