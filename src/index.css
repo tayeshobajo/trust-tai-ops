@@ -122,7 +122,7 @@ select {
   border: 1px solid var(--tt-rule);
   background: var(--tt-white);
   color: var(--tt-ink);
-  padding: 0.7rem 0.85rem;
+  padding: var(--tt-space-3) var(--tt-space-3);
   font-family: var(--tt-font-sans);
   font-size: 14px;
 }
@@ -467,6 +467,7 @@ button:focus-visible {
 .rail .project-card strong {
   color: var(--tt-white);
   font-size: 14px;
+  display: block;
 }
 
 .rail .project-card span {
@@ -489,7 +490,7 @@ button:focus-visible {
   padding-left: 1rem;
   margin: 0;
   display: grid;
-  gap: 0.6rem;
+  gap: var(--tt-space-2);
   font-size: 12.5px;
   line-height: 1.5;
 }
@@ -714,12 +715,13 @@ button:focus-visible {
 .primary-button {
   border: none;
   border-radius: var(--tt-radius-pill);
-  padding: 12px 20px;
+  padding: var(--tt-space-3) var(--tt-space-5);
   background: var(--tt-ink);
   color: var(--tt-paper);
   font-family: var(--tt-font-sans);
   font-weight: 600;
   font-size: 14px;
+  min-height: 44px;
   transition: all var(--tt-duration-fast) var(--tt-ease);
 }
 
@@ -736,11 +738,12 @@ button:focus-visible {
 .ghost-button {
   border: 1px solid var(--tt-rule);
   border-radius: var(--tt-radius-pill);
-  padding: 10px 16px;
+  padding: var(--tt-space-2) var(--tt-space-4);
   background: var(--tt-white);
   color: var(--tt-ink);
   font-size: 13px;
   font-weight: 500;
+  min-height: 40px;
   transition: all var(--tt-duration-fast) var(--tt-ease);
 }
 
@@ -792,10 +795,22 @@ button:focus-visible {
   align-items: center;
 }
 
+.project-top {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.project-top > div,
+.list-card-top > div,
+.section-head > div {
+  min-width: 0;
+}
+
 .project-top strong,
 .list-card strong,
 .info-card strong {
   font-size: 0.95rem;
+  overflow-wrap: anywhere;
 }
 
 .project-metrics {
@@ -810,7 +825,7 @@ button:focus-visible {
   padding-left: 1rem;
   color: var(--tt-muted);
   display: grid;
-  gap: 0.6rem;
+  gap: var(--tt-space-2);
   font-size: 13px;
   line-height: 1.55;
 }
