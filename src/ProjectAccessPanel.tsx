@@ -230,8 +230,9 @@ export function ProjectAccessPanel({
       </header>
 
       <p className="access-intro">
-        Share only what the agent needs. Credential storage will be connected to the secure vault layer before
-        production use, so treat this as connection state rather than a credential store.
+        Share only what the agent needs. A WordPress Application Password is sealed on the server the moment you save
+        it and can never be read back — not by you, not by the agent, not by this page. The other connections record
+        where access lives; their credentials aren't stored here yet.
       </p>
 
       {notice ? <p className="access-notice">{notice}</p> : null}
@@ -340,7 +341,9 @@ export function ProjectAccessPanel({
           >
             <h2>{editing.existingId ? "Replace" : "Add"} {activeDefinition.label}</h2>
             <p className="access-drawer-note">
-              Secrets are masked and are never displayed again after you save.
+              {activeDefinition.executable
+                ? "The password is sent straight to the secure store and is never shown again."
+                : "Connection details only. Don't paste a password here — it wouldn't be stored securely yet."}
             </p>
 
             {activeDefinition.fields.map((field) => (
@@ -353,11 +356,14 @@ export function ProjectAccessPanel({
                   autoComplete="off"
                   onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
                 />
+                {field.hint ? <small className="access-field-hint">{field.hint}</small> : null}
               </label>
             ))}
 
             <p className="access-drawer-note">
-              Credential storage will be connected to the secure vault layer before production use.
+              {activeDefinition.executable
+                ? "You can revoke this Application Password in WordPress at any time, without changing your login."
+                : "Deeper server access will get the same secure treatment as WordPress Admin before it goes live."}
             </p>
 
             <div className="access-drawer-actions">
