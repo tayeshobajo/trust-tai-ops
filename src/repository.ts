@@ -1136,6 +1136,8 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       auth_method: method.authMethod,
       last_verified_at: method.lastVerifiedAt || null,
       notes: method.notes,
+      // A reference, never a value. The secret lives in the server-only store.
+      credential_reference: method.credentialReference ?? null,
     }]);
     return this.loadWorkspace();
   }
