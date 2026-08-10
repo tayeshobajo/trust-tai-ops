@@ -639,6 +639,8 @@ button:focus-visible {
 .workspace-grid > .main-column {
   flex: 1 1 auto;
   min-width: 0;
+  container-type: inline-size;
+  container-name: mainol;
 }
 
 .workspace-grid > .side-column {
@@ -793,6 +795,11 @@ button:focus-visible {
 .badge-row {
   justify-content: space-between;
   align-items: center;
+}
+
+.list-card-top,
+.badge-row {
+  flex-wrap: wrap;
 }
 
 .project-top {
