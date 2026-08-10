@@ -246,52 +246,56 @@ function ProjectPreview({
         <span className={`agent-state agent-state-${signal.agentState}`}>{agentStateCopy[signal.agentState]}</span>
       </header>
 
-      <p className="preview-intro">
-        {project.memoryEntries[0]?.content ?? `${project.clientName} on ${project.primaryDomain}. The agent keeps what it learns here between tasks.`}
-      </p>
-
-      <section className="preview-status">
-        <p className="eyebrow">Current status</p>
-        <h3>{signal.status}</h3>
-        <p>{signal.detail}</p>
-      </section>
-
-      <ol className="phase-track" aria-label="Progress">
-        {HUMAN_PHASES.map((phase, index) => (
-          <li
-            key={phase}
-            className={`phase-step ${index < phaseIndex ? "is-done" : ""} ${index === phaseIndex ? "is-current" : ""}`}
-          >
-            <span className="phase-dot" aria-hidden="true" />
-            {phase}
-          </li>
-        ))}
-      </ol>
-
-      <div className="preview-cards">
-        <section className="preview-card">
-          <p className="eyebrow">What the agent needs</p>
-          <p>{signal.needsYou ?? "Nothing right now."}</p>
-        </section>
-        <section className="preview-card">
-          <p className="eyebrow">Recent activity</p>
-          {activity.length === 0 ? <p>No activity yet.</p> : (
-            <ul>
-              {activity.map((item, index) => <li key={index}>{item}</li>)}
-            </ul>
-          )}
-        </section>
-        <section className="preview-card">
-          <p className="eyebrow">
-            Project memory
-            {project.memoryEntries.length > 0 ? ` · ${project.memoryEntries.length} things known` : ""}
+      <div className="preview-body">
+        <div className="preview-lede">
+          <p className="preview-intro">
+            {project.memoryEntries[0]?.content ?? `${project.clientName} on ${project.primaryDomain}. The agent keeps what it learns here between tasks.`}
           </p>
-          {memory.length === 0 ? <p>The agent has not learned anything durable yet.</p> : (
-            <ul>
-              {memory.map((entry) => <li key={entry.id}>{entry.title}</li>)}
-            </ul>
-          )}
-        </section>
+
+          <section className="preview-status">
+            <p className="eyebrow">Current status</p>
+            <h3>{signal.status}</h3>
+            <p>{signal.detail}</p>
+          </section>
+
+          <ol className="phase-track" aria-label="Progress">
+            {HUMAN_PHASES.map((phase, index) => (
+              <li
+                key={phase}
+                className={`phase-step ${index < phaseIndex ? "is-done" : ""} ${index === phaseIndex ? "is-current" : ""}`}
+              >
+                <span className="phase-dot" aria-hidden="true" />
+                {phase}
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        <div className="preview-cards">
+          <section className="preview-card">
+            <p className="eyebrow">What the agent needs</p>
+            <p>{signal.needsYou ?? "Nothing right now."}</p>
+          </section>
+          <section className="preview-card">
+            <p className="eyebrow">Recent activity</p>
+            {activity.length === 0 ? <p>No activity yet.</p> : (
+              <ul>
+                {activity.map((item, index) => <li key={index}>{item}</li>)}
+              </ul>
+            )}
+          </section>
+          <section className="preview-card">
+            <p className="eyebrow">
+              Project memory
+              {project.memoryEntries.length > 0 ? ` · ${project.memoryEntries.length} things known` : ""}
+            </p>
+            {memory.length === 0 ? <p>The agent has not learned anything durable yet.</p> : (
+              <ul>
+                {memory.map((entry) => <li key={entry.id}>{entry.title}</li>)}
+              </ul>
+            )}
+          </section>
+        </div>
       </div>
 
       <footer className="preview-actions">
