@@ -282,7 +282,7 @@ function App() {
           </div>
           <div className="rail-nav">
             <button
-              className={`rail-nav-button ${workspaceView !== "create_project" ? "is-active" : ""}`}
+              className="rail-nav-button is-active"
               onClick={() => {
                 setWorkspaceView("home");
                 setSaveMessage("");
@@ -293,7 +293,7 @@ function App() {
               <span>Back to the project inbox</span>
             </button>
             <button
-              className={`rail-nav-button ${workspaceView === "create_project" ? "is-active" : ""}`}
+              className="rail-nav-button"
               onClick={() => {
                 setWorkspaceView("create_project");
                 setSaveMessage("");
@@ -301,7 +301,7 @@ function App() {
               }}
             >
               <strong>New Project</strong>
-              <span>Guided onboarding for a fresh site</span>
+              <span>Add a site in under a minute</span>
             </button>
           </div>
         </section>
