@@ -95,6 +95,10 @@ export function ProjectWorkspace({
   const attemptedRef = useRef<Set<string>>(new Set());
   const memoryRef = useRef<Set<string>>(new Set());
   const emitRef = useRef<Set<string>>(new Set());
+  // Synchronous claim on decision actions, taken before any await, so a fast
+  // double click cannot start the same domain action twice while React is
+  // still committing the busy state.
+  const decisionRef = useRef<Set<string>>(new Set());
 
   const activeRun = runs.find((run) => run.id === activeRunId) ?? null;
   const signal = activeRun ? signalForRun(activeRun) : null;
@@ -588,16 +592,26 @@ export function ProjectWorkspace({
             type="button"
             disabled={!canWrite || busy}
             onClick={async () => {
-              await apply(
-                () => workspaceRepository.approveRun(project.id, run.id, "high_risk_execution", "rejected", "Owner asked for a different approach."),
-                "Understood. I'll look for a safer or different route and come back with another option.",
-              );
+              const claim = `decision-approval-rejected-${run.id}`;
+              if (decisionRef.current.has(claim)) return;
+              decisionRef.current.add(claim);
+              try {
+                await apply(
+                  () => workspaceRepository.approveRun(project.id, run.id, "high_risk_execution", "rejected", "Owner asked for a different approach."),
+                  "Understood. I'll look for a safer or different route and come back with another option.",
+                  `decision-approval-rejected-reply-${run.id}`,
+                );
+              } catch (error) {
+                // A failed domain call must stay retryable.
+                decisionRef.current.delete(claim);
+                throw error;
+              }
               await emit({
                 runId: run.id,
                 role: "user",
                 kind: "decision_response",
                 body: ["Use the safer approach instead."],
-                dedupeKey: `decision-approval-rejected-${run.id}`,
+                dedupeKey: claim,
               });
             }}
           >
