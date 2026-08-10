@@ -4987,3 +4987,16 @@ button:focus-visible {
 .act-item {
   border-radius: var(--tt-radius-md);
 }
+
+.act-tag {
+  border: 0;
+  background: var(--tt-layer-sunken);
+  border-radius: var(--tt-radius-md);
+  color: var(--tt-muted);
+}
+
+.act-tag.is-attention,
+.act-tag.is-live {
+  background: rgba(29, 84, 193, 0.09);
+  color: var(--tt-royal);
+}
