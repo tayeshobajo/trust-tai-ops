@@ -113,3 +113,23 @@ export const findHitsOutsideRun = (
       createdAt: message.createdAt,
     }));
 };
+
+/** Splits text into plain and matching segments so a hit can be highlighted. */
+export type HighlightSegment = { text: string; match: boolean };
+
+export const highlightSegments = (text: string, query: string): HighlightSegment[] => {
+  const needle = normalize(query.trim());
+  if (!needle) return [{ text, match: false }];
+  const haystack = normalize(text);
+  const segments: HighlightSegment[] = [];
+  let cursor = 0;
+  let index = haystack.indexOf(needle, cursor);
+  while (index >= 0) {
+    if (index > cursor) segments.push({ text: text.slice(cursor, index), match: false });
+    segments.push({ text: text.slice(index, index + needle.length), match: true });
+    cursor = index + needle.length;
+    index = haystack.indexOf(needle, cursor);
+  }
+  if (cursor < text.length) segments.push({ text: text.slice(cursor), match: false });
+  return segments;
+};
