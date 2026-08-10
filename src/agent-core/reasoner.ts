@@ -35,19 +35,17 @@ const wordpressMarkersPresent = (context: AgentContext): boolean =>
     return false;
   });
 
+/**
+ * The next access to ask for — never a wish list. WordPress Admin answers the
+ * next question for almost every investigation, so server or file access is
+ * only requested when the task genuinely cannot start without it.
+ */
 const minimumAccessFor = (context: AgentContext): AccessType[] => {
-  switch (context.run.taskType) {
-    case "malware":
-      return ["wordpress_admin", "sftp"];
-    case "performance":
-      return ["wordpress_admin"];
-    case "broken_site":
-      return ["wordpress_admin", "sftp"];
-    case "plugin_theme_conflict":
-      return ["wordpress_admin"];
-    default:
-      return ["wordpress_admin"];
+  if (context.capabilities.includes("wordpress_admin")) {
+    // Admin is already in place: only now can a deeper level be justified.
+    return context.run.taskType === "malware" ? ["sftp"] : [];
   }
+  return ["wordpress_admin"];
 };
 
 const emptyPlan = (decision: AgentDecision): AgentPlan => ({
@@ -97,10 +95,29 @@ class DeterministicReasoner implements AgentReasoner {
         toolId: "wordpress.read_health",
         purpose: "Read the site's health signals now that WordPress is confirmed.",
       });
+    } else if (
+      wordpressMarkersPresent(context) &&
+      context.capabilities.includes("wordpress_admin") &&
+      !hasEvidenceFrom(context, "wordpress.list_plugins")
+    ) {
+      // Admin access is now confirmed by the server, so the private reads that
+      // the public surface could not answer become possible.
+      want.push({
+        id: "read-health-authenticated",
+        toolId: "wordpress.read_health",
+        purpose: "Read the private health checks now that admin access is available.",
+      });
+      want.push({
+        id: "list-plugins",
+        toolId: "wordpress.list_plugins",
+        purpose: "Read the installed plugins without changing anything.",
+      });
     }
 
     for (const item of want) {
-      const built = planAction(item.id, item.toolId, context.run.id, { url }, item.purpose);
+      // Private tools resolve their own target server-side from the project.
+      const args = item.toolId === "wordpress.list_plugins" ? {} : { url };
+      const built = planAction(item.id, item.toolId, context.run.id, args, item.purpose);
       if ("error" in built) {
         return emptyPlan({
           intent: "report_findings",
