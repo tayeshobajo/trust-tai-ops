@@ -6,7 +6,7 @@ import { OperationsPanel } from "./OperationsPanel";
 import { ProjectsCommandCenter } from "./ProjectsCommandCenter";
 import { CreateProjectPage } from "./CreateProjectPage";
 import { ProjectEmptyState } from "./ProjectEmptyState";
-import { accessTypeCopy, starterProjectDraft, starterRunDraft, stateCopy, taskTypeOptions, workspaceTabs } from "./data";
+import { starterProjectDraft, starterRunDraft, stateCopy, taskTypeOptions, workspaceTabs } from "./data";
 import {
   countOpenRecommendations,
   countOpenRisks,
