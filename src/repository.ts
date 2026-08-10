@@ -5,6 +5,7 @@ import { advanceRunState } from "./operations";
 import { createSeedWorkspace } from "./seed";
 import { getSupabaseClient } from "./supabase";
 import type {
+  AccessType,
   MemoryEntry,
   NewProjectMessage,
   Organization,
