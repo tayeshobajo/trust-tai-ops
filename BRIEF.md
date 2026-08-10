@@ -104,22 +104,67 @@ If not, it belongs underneath the application layer.
 ## Deployment truth (private read layer)
 
 Nothing in the private WordPress path works from the browser alone. It requires
-a deployed backend, in this order:
+a deployed backend. Bring your own Supabase project and run these eight steps in
+this exact order:
 
-1. **Apply migrations** in `db/migrations/` in filename order. They are
-   idempotent and safe to re-run. `20260816_audit_identity_alignment.sql`
-   converts legacy text identity columns to `uuid` without dropping history;
-   `20260818_verification_integrity.sql` adds `users.auth_user_id` and the
-   trigger that stops the browser from forging a verification timestamp.
-2. **Set the Edge Function secret** `AGENT_SECRET_ENCRYPTION_KEY` (32 bytes).
-   Until it exists, credential storage is refused rather than downgraded.
-3. **Deploy the Edge Functions** `agent-execute` and `access-secrets`.
-4. **Backfill `users.auth_user_id`** for existing members. Tenant identity is
-   resolved from `auth.uid()` first and falls back to email only for rows not
-   yet backfilled. Email is a weaker claim; treat the fallback as temporary.
+1. **Apply migrations.** Run every file in `db/migrations/` in filename order.
+   They are idempotent and safe to re-run.
+   `20260816_audit_identity_alignment.sql` converts legacy text identity columns
+   to `uuid` without dropping history; `20260818_verification_integrity.sql`
+   adds `users.auth_user_id` and the trigger that stops the browser from forging
+   a verification timestamp.
+2. **Configure Edge Function secrets.** At minimum
+   `AGENT_SECRET_ENCRYPTION_KEY` (32 bytes, base64 or 64 hex chars):
+   `supabase secrets set AGENT_SECRET_ENCRYPTION_KEY=...`. Until it exists,
+   credential storage is refused rather than silently downgraded. `SUPABASE_URL`
+   and `SUPABASE_SERVICE_ROLE_KEY` are injected by the platform.
+3. **Deploy `access-secrets`.** This is the only route that may seal a
+   credential or record a verification.
+4. **Deploy `agent-execute`.** This is the only route that may use a sealed
+   credential to read from WordPress.
+5. **Sign in with a real Supabase user mapped to the app `users` organization.**
+   A session that resolves to no organization row is refused, not defaulted.
+6. **Store a WordPress Application Password** through Access & Connections. The
+   value goes straight to `access-secrets` and is never held in the browser.
+7. **Verify it read-only.** Press *Verify access*. The server calls
+   `/wp-json/wp/v2/users/me?context=edit` against the project's own canonical
+   origin and records the outcome itself.
+8. **Run a private plugin/health read** — `wordpress.list_plugins` or
+   `wordpress.read_health` — to confirm the verified credential actually
+   produces private evidence.
 
-Until all four are done, the app runs in its local demo adapter, where no
+Until all eight are done, the app runs in its local demo adapter, where no
 credential is real and no WordPress site is contacted.
+
+### Environment boundary
+
+**Frontend / public only** (compiled into the browser bundle, readable by
+anyone):
+
+- `VITE_OPS_SUPABASE_URL` — the project's public Supabase URL
+- `VITE_OPS_SUPABASE_PUBLISHABLE_KEY` — the public anon/publishable key
+  (`VITE_OPS_SUPABASE_ANON_KEY` is accepted as a legacy alias)
+
+**Edge Function / server only** (never in a `.env` the browser build reads):
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY` — only if used for verifying caller token claims
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `AGENT_SECRET_ENCRYPTION_KEY`
+
+The service-role key and the encryption key must **never** carry a `VITE_`
+prefix and must **never** enter browser env. Anything prefixed `VITE_` is
+compiled into the bundle; a service-role key there is a full database
+compromise, and an encryption key there makes every sealed credential readable.
+
+### Tenant identity: UID first
+
+- `auth_user_id` is the preferred claim. Identity resolves from `auth.uid()`.
+- Email matching is a **transitional fallback for unmigrated rows only**, and it
+  is a weaker claim.
+- **Backfill `users.auth_user_id`** for every existing member during production
+  rollout.
+- **Remove reliance on email matching after the backfill** completes.
 
 ### Stored is not verified
 

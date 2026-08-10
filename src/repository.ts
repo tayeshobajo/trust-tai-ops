@@ -231,6 +231,21 @@ export interface WorkspaceRepository {
    * Password is a server-side act, and the browser is not allowed to claim it.
    */
   verifyAccessMethod(projectId: string, methodId: string, accessType?: AccessType): Promise<Organization>;
+  /**
+   * Reconciles an access method with an outcome the server produced.
+   *
+   * The browser never decides this: the only input is a verification result
+   * that came back from the `access-secrets` function. On the native adapter
+   * the server has already written the row, so this is a pure re-read. On the
+   * local adapter — where there is no database and no real credential — the
+   * server-attested outcome is applied to the local fixture so the rendered
+   * card tells the same truth the server just told.
+   */
+  applyServerVerification(
+    projectId: string,
+    accessType: AccessType,
+    outcome: { state: "verified" | "rejected" | "unverified"; lastVerifiedAt: string | null },
+  ): Promise<Organization>;
   listProjectMessages(projectId: string): Promise<ProjectMessage[]>;
   listRunMessages(projectId: string, runId: string): Promise<ProjectMessage[]>;
   addProjectMessage(projectId: string, message: NewProjectMessage): Promise<ProjectMessage>;
@@ -546,6 +561,42 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
               ),
             }
           : p,
+      ),
+    };
+    await this.saveWorkspace(nextWorkspace);
+    return nextWorkspace;
+  }
+
+  async applyServerVerification(
+    projectId: string,
+    accessType: AccessType,
+    outcome: { state: "verified" | "rejected" | "unverified"; lastVerifiedAt: string | null },
+  ): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    // An unreachable check changed nothing on the server, so it changes
+    // nothing here either.
+    if (outcome.state === "unverified") return workspace;
+    // "Verified" without a server timestamp is not a verification. Refusing is
+    // the only safe reading of a malformed outcome.
+    if (outcome.state === "verified" && !outcome.lastVerifiedAt) return workspace;
+
+    const nextWorkspace: Organization = {
+      ...workspace,
+      projects: workspace.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              accessMethods: p.accessMethods.map((item) =>
+                item.type !== accessType
+                  ? item
+                  : outcome.state === "verified"
+                    ? { ...item, status: "available" as const, lastVerifiedAt: outcome.lastVerifiedAt as string }
+                    : // A rejection is a real fact too: the stamp is cleared and
+                      // the card is asked for attention.
+                      { ...item, status: "stale" as const, lastVerifiedAt: "" },
+              ),
+            },
       ),
     };
     await this.saveWorkspace(nextWorkspace);
@@ -1172,6 +1223,13 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     await (client.from("project_access_methods") as never as {
       update: (v: unknown) => { eq: (k: string, v: string) => Promise<unknown> };
     }).update({ status: "available", last_verified_at: new Date().toISOString() }).eq("id", methodId);
+    return this.loadWorkspace();
+  }
+
+  async applyServerVerification(): Promise<Organization> {
+    // Native path. The `access-secrets` function already wrote the outcome
+    // under its own privileges, and the database guard would refuse a write
+    // from here anyway. Re-reading is the only honest reconciliation.
     return this.loadWorkspace();
   }
 
