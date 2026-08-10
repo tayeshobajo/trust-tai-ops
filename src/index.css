@@ -5255,6 +5255,11 @@ p, li {
   color: var(--tt-success);
 }
 
+.agent-state-complete {
+  background: var(--tt-green-tint);
+  color: var(--tt-success);
+}
+
 .inbox-dot {
   background: var(--tt-gold);
   width: 6px;
