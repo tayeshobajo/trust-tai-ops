@@ -569,10 +569,6 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
 
   private readMessageStore(): Record<string, ProjectMessage[]> {
     if (typeof window === "undefined") return {};
-    return this.readMessageStoreInner();
-  }
-
-  private readMessageStoreInner(): Record<string, ProjectMessage[]> {
     const raw = window.localStorage.getItem(MESSAGE_STORAGE_KEY);
     if (!raw) return {};
     try {
