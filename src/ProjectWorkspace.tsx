@@ -244,7 +244,7 @@ export function ProjectWorkspace({
       const next = await work();
       onWorkspaceUpdate(next);
       if (agentReply && activeRun) {
-        pushLocal(activeRun.id, { id: `local-${Date.now()}`, role: "agent", body: [agentReply] });
+        await say(activeRun.id, [agentReply]);
       }
     } finally {
       setBusy(false);
@@ -330,7 +330,13 @@ export function ProjectWorkspace({
         attemptedRef.current.add(key);
         const narration = workingNarration(target);
         if (narration) {
-          pushLocal(run.id, { id: `auto-${run.id}-${target}`, role: "agent", body: [narration] });
+          await emit({
+            runId: run.id,
+            role: "agent",
+            kind: "status_update",
+            body: [narration],
+            dedupeKey: `auto-${run.id}-${target}`,
+          });
         }
         setBusy(true);
         try {
@@ -361,21 +367,44 @@ export function ProjectWorkspace({
         const next = await workspaceRepository.createRun(project.id, draftFromBrief(project, value));
         onWorkspaceUpdate(next);
         const created = next.projects.find((item) => item.id === project.id)?.runs[0];
+        // The brief becomes the first real message of the new task.
+        const saved = await emit({
+          runId: created?.id ?? null,
+          role: "user",
+          kind: "message",
+          body: [value],
+          dedupeKey: created ? `${created.id}-brief` : `project-brief-${Date.now()}`,
+          sourceKey: created ? `${created.id}-brief` : null,
+        });
         setActiveRunId(created?.id ?? null);
-        setComposerValue("");
+        if (saved) setComposerValue("");
+      } catch {
+        setPersistError("I couldn't start that task. Your message is still here — try again.");
       } finally {
         setBusy(false);
       }
       return;
     }
 
-    pushLocal(activeRun.id, { id: `local-${Date.now()}`, role: "user", body: [value] });
-    pushLocal(activeRun.id, {
-      id: `local-${Date.now()}-agent`,
-      role: "agent",
-      body: ["Noted. I've added that to the task context and I'll factor it into what I do next."],
+    const stamp = Date.now();
+    const saved = await emit({
+      runId: activeRun.id,
+      role: "user",
+      kind: "message",
+      body: [value],
+      dedupeKey: `user-${activeRun.id}-${stamp}`,
     });
+
+    if (!saved) return;
+
     setComposerValue("");
+    await emit({
+      runId: activeRun.id,
+      role: "agent",
+      kind: "message",
+      body: ["Noted. I've added that to the task context and I'll factor it into what I do next."],
+      dedupeKey: `ack-${activeRun.id}-${stamp}`,
+    });
   };
 
   const renderDecision = (run: Run, kind: DecisionKind) => {
