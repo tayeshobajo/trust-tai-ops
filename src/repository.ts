@@ -1110,6 +1110,88 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     return this.loadWorkspace();
   }
 
+  async listProjectMessages(projectId: string): Promise<ProjectMessage[]> {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from("project_messages")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return sortByCreatedAt(((data ?? []) as ProjectMessageRow[]).map(mapProjectMessage));
+  }
+
+  async listRunMessages(projectId: string, runId: string): Promise<ProjectMessage[]> {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from("project_messages")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("run_id", runId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return sortByCreatedAt(((data ?? []) as ProjectMessageRow[]).map(mapProjectMessage));
+  }
+
+  async addProjectMessage(projectId: string, message: NewProjectMessage): Promise<ProjectMessage> {
+    const client = getSupabaseClient();
+    const dedupeKey = message.dedupeKey ?? null;
+
+    if (dedupeKey) {
+      const { data: existing } = await client
+        .from("project_messages")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("dedupe_key", dedupeKey)
+        .limit(1);
+
+      const match = ((existing ?? []) as ProjectMessageRow[])[0];
+      if (match) {
+        return mapProjectMessage(match);
+      }
+    }
+
+    const row: ProjectMessageRow = {
+      id: createMessageId(),
+      project_id: projectId,
+      run_id: message.runId ?? null,
+      role: message.role,
+      kind: message.kind,
+      body: message.body,
+      dedupe_key: dedupeKey,
+      source_key: message.sourceKey ?? null,
+      created_at: new Date().toISOString(),
+    };
+
+    const { error } = await client.from("project_messages").insert([row] as never);
+
+    if (error) {
+      // A concurrent writer may have already stored the same deterministic
+      // message. Prefer the stored record over failing the conversation.
+      if (dedupeKey) {
+        const { data: retry } = await client
+          .from("project_messages")
+          .select("*")
+          .eq("project_id", projectId)
+          .eq("dedupe_key", dedupeKey)
+          .limit(1);
+        const match = ((retry ?? []) as ProjectMessageRow[])[0];
+        if (match) return mapProjectMessage(match);
+      }
+      throw error;
+    }
+
+    return mapProjectMessage(row);
+  }
+
   private async selectIn<TRow>(
     table: string,
     column: string,
