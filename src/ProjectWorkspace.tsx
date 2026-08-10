@@ -412,7 +412,14 @@ export function ProjectWorkspace({
         attemptedRef.current.add(identity);
         setBusy(true);
         try {
-          await executeAgentStep({ project, run, emit, onWorkspaceUpdate });
+          await executeAgentStep({
+            project,
+            run,
+            emit,
+            onWorkspaceUpdate,
+            recentMessages: messages.filter((message) => message.runId === run.id),
+            memory: project.memoryEntries,
+          });
         } finally {
           setBusy(false);
         }

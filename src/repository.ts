@@ -27,9 +27,11 @@ import type {
   RunPhase,
   ProjectDraft,
 } from "./types";
+import type { ExecutionEvent, NewExecutionEvent } from "./agent-core/types";
 
 const STORAGE_KEY = "ops-trust-tai.workspace";
 const MESSAGE_STORAGE_KEY = "ops-trust-tai.messages";
+const EXECUTION_STORAGE_KEY = "ops-trust-tai.execution-events";
 
 type OrganizationRow = {
   id: string;
@@ -224,6 +226,10 @@ export interface WorkspaceRepository {
   listProjectMessages(projectId: string): Promise<ProjectMessage[]>;
   listRunMessages(projectId: string, runId: string): Promise<ProjectMessage[]>;
   addProjectMessage(projectId: string, message: NewProjectMessage): Promise<ProjectMessage>;
+  listExecutionEvents(projectId: string, runId?: string): Promise<ExecutionEvent[]>;
+  findExecutionEvent(projectId: string, invocationKey: string): Promise<ExecutionEvent | null>;
+  /** Upserts on the deterministic invocation key. */
+  saveExecutionEvent(projectId: string, event: NewExecutionEvent): Promise<ExecutionEvent>;
 }
 
 class LocalWorkspaceRepository implements WorkspaceRepository {
@@ -583,6 +589,44 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     };
 
     this.writeMessageStore({ ...store, [projectId]: [...existing, saved] });
+    return saved;
+  }
+
+  private readExecutionStore(): Record<string, ExecutionEvent[]> {
+    if (typeof window === "undefined") return {};
+    const raw = window.localStorage.getItem(EXECUTION_STORAGE_KEY);
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as Record<string, ExecutionEvent[]>;
+    } catch {
+      return {};
+    }
+  }
+
+  private writeExecutionStore(store: Record<string, ExecutionEvent[]>): void {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(EXECUTION_STORAGE_KEY, JSON.stringify(store));
+  }
+
+  async listExecutionEvents(projectId: string, runId?: string): Promise<ExecutionEvent[]> {
+    const events = this.readExecutionStore()[projectId] ?? [];
+    return runId ? events.filter((event) => event.runId === runId) : events;
+  }
+
+  async findExecutionEvent(projectId: string, invocationKey: string): Promise<ExecutionEvent | null> {
+    const events = await this.listExecutionEvents(projectId);
+    return events.find((event) => event.invocationKey === invocationKey) ?? null;
+  }
+
+  async saveExecutionEvent(projectId: string, event: NewExecutionEvent): Promise<ExecutionEvent> {
+    const store = this.readExecutionStore();
+    const existing = store[projectId] ?? [];
+    const match = existing.find((item) => item.invocationKey === event.invocationKey);
+    const saved: ExecutionEvent = { ...event, id: match?.id ?? createMessageId() };
+    const next = match
+      ? existing.map((item) => (item.id === match.id ? saved : item))
+      : [...existing, saved];
+    this.writeExecutionStore({ ...store, [projectId]: next });
     return saved;
   }
 }
@@ -1192,6 +1236,77 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     }
 
     return mapProjectMessage(row);
+  }
+
+  private mapExecutionRow(row: Record<string, unknown>): ExecutionEvent {
+    return {
+      id: String(row.id),
+      projectId: String(row.project_id),
+      runId: (row.run_id as string | null) ?? null,
+      toolId: row.tool_id as ExecutionEvent["toolId"],
+      invocationKey: String(row.invocation_key),
+      status: row.status as ExecutionEvent["status"],
+      risk: row.risk as ExecutionEvent["risk"],
+      startedAt: String(row.started_at),
+      finishedAt: (row.finished_at as string | null) ?? null,
+      inputSummary: String(row.input_summary ?? ""),
+      outputSummary: String(row.output_summary ?? ""),
+      errorCode: (row.error_code as ExecutionEvent["errorCode"]) ?? null,
+      evidenceRefs: (row.evidence_refs as string[] | null) ?? [],
+      evidenceData: (row.evidence_data as Record<string, unknown> | null) ?? null,
+    };
+  }
+
+  async listExecutionEvents(projectId: string, runId?: string): Promise<ExecutionEvent[]> {
+    const client = getSupabaseClient();
+    let query = client
+      .from("agent_execution_events")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("started_at", { ascending: true });
+    if (runId) query = query.eq("run_id", runId);
+    const { data, error } = await query;
+    if (error) throw error;
+    return ((data ?? []) as Record<string, unknown>[]).map((row) => this.mapExecutionRow(row));
+  }
+
+  async findExecutionEvent(projectId: string, invocationKey: string): Promise<ExecutionEvent | null> {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from("agent_execution_events")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("invocation_key", invocationKey)
+      .limit(1);
+    if (error) throw error;
+    const row = ((data ?? []) as Record<string, unknown>[])[0];
+    return row ? this.mapExecutionRow(row) : null;
+  }
+
+  async saveExecutionEvent(projectId: string, event: NewExecutionEvent): Promise<ExecutionEvent> {
+    const client = getSupabaseClient();
+    const existing = await this.findExecutionEvent(projectId, event.invocationKey);
+    const row = {
+      id: existing?.id ?? createMessageId(),
+      project_id: projectId,
+      run_id: event.runId,
+      tool_id: event.toolId,
+      invocation_key: event.invocationKey,
+      status: event.status,
+      risk: event.risk,
+      started_at: event.startedAt,
+      finished_at: event.finishedAt,
+      input_summary: event.inputSummary,
+      output_summary: event.outputSummary,
+      error_code: event.errorCode,
+      evidence_refs: event.evidenceRefs,
+      evidence_data: event.evidenceData ?? null,
+    };
+    const { error } = await client
+      .from("agent_execution_events")
+      .upsert([row] as never, { onConflict: "project_id,invocation_key" } as never);
+    if (error) throw error;
+    return { ...event, id: row.id, projectId };
   }
 
   private async selectIn<TRow>(
