@@ -5000,3 +5000,37 @@ button:focus-visible {
   background: rgba(29, 84, 193, 0.09);
   color: var(--tt-royal);
 }
+
+@media (max-width: 1280px) {
+  .home-shell {
+    grid-template-columns: 76px minmax(280px, 340px) minmax(0, 1fr);
+  }
+
+  .pw-shell {
+    grid-template-columns: 280px minmax(0, 1fr) 280px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .home-shell {
+    grid-template-columns: 76px minmax(260px, 320px) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .home-shell {
+    grid-template-columns: 68px minmax(0, 1fr);
+    box-shadow: none;
+  }
+
+  .preview-panel {
+    min-height: 0;
+    padding: var(--tt-space-5);
+  }
+}
+
+@media (max-width: 900px) {
+  .pw-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
