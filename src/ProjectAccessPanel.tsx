@@ -9,7 +9,13 @@ type Props = {
   focusTypes?: AccessType[];
   onBackToConversation: () => void;
   onWorkspaceUpdate: (next: Organization) => void;
+  // Conversation history only. The panel never passes submitted values here —
+  // the event is built from the predefined connection label and the action.
+  onAccessEvent?: (event: AccessEvent) => void;
 };
+
+export type AccessEventAction = "added" | "replaced" | "reverified" | "removed";
+export type AccessEvent = { type: AccessType; label: string; action: AccessEventAction };
 
 type FieldKind = "text" | "secret";
 type Field = { key: string; label: string; kind: FieldKind; placeholder?: string };
@@ -105,6 +111,7 @@ export function ProjectAccessPanel({
   focusTypes = [],
   onBackToConversation,
   onWorkspaceUpdate,
+  onAccessEvent,
 }: Props) {
   const [editing, setEditing] = useState<{ type: AccessType; existingId?: string } | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -118,12 +125,21 @@ export function ProjectAccessPanel({
 
   const methodFor = (type: AccessType) => project.accessMethods.find((method) => method.type === type) ?? null;
 
-  const run = async (work: () => Promise<Organization>, message: string) => {
+  const run = async (work: () => Promise<Organization>, message: string, event?: AccessEvent) => {
     if (!canWrite || busy) return;
     setBusy(true);
     try {
       onWorkspaceUpdate(await work());
       setNotice(message);
+      // Access persistence has already succeeded. History is best-effort and
+      // must never undo or block the access change.
+      if (event) {
+        try {
+          onAccessEvent?.(event);
+        } catch {
+          // Ignored on purpose.
+        }
+      }
     } finally {
       setBusy(false);
     }
@@ -150,6 +166,7 @@ export function ProjectAccessPanel({
     await run(
       () => workspaceRepository.saveAccessMethod(project.id, method),
       `${definition.label} is connected. Secrets are not shown again.`,
+      { type: definition.type, label: definition.label, action: existing ? "replaced" : "added" },
     );
 
     setValues({});
@@ -202,7 +219,13 @@ export function ProjectAccessPanel({
                       className="ghost-button"
                       type="button"
                       disabled={!canWrite || busy}
-                      onClick={() => void run(() => workspaceRepository.verifyAccessMethod(project.id, method.id), `${definition.label} reverified.`)}
+                      onClick={() =>
+                        void run(
+                          () => workspaceRepository.verifyAccessMethod(project.id, method.id),
+                          `${definition.label} reverified.`,
+                          { type: definition.type, label: definition.label, action: "reverified" },
+                        )
+                      }
                     >
                       Reverify
                     </button>
@@ -221,7 +244,13 @@ export function ProjectAccessPanel({
                       className="ghost-button"
                       type="button"
                       disabled={!canWrite || busy}
-                      onClick={() => void run(() => workspaceRepository.removeAccessMethod(project.id, method.id), `${definition.label} removed.`)}
+                      onClick={() =>
+                        void run(
+                          () => workspaceRepository.removeAccessMethod(project.id, method.id),
+                          `${definition.label} removed.`,
+                          { type: definition.type, label: definition.label, action: "removed" },
+                        )
+                      }
                     >
                       Remove access
                     </button>

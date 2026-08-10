@@ -17,6 +17,7 @@ import { workspaceRepository } from "./repository";
 import { validateAdvance } from "./operations";
 import { autoAdvanceTarget, projectHasUsableAccess, simulateQa, workingNarration } from "./agent";
 import { ProjectAccessPanel } from "./ProjectAccessPanel";
+import type { AccessEvent } from "./ProjectAccessPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { ProjectActivityPanel } from "./ProjectActivityPanel";
 import { deriveMemoryFromRun } from "./memory";
@@ -186,7 +187,7 @@ export function ProjectWorkspace({
 
     for (const message of thread) {
       if (!shouldPersistThreadMessage(message)) continue;
-      if (persistedKeys.has(dedupeKeyForThreadMessage(message, activeRun))) continue;
+      if (persistedKeys.has(dedupeKeyForThreadMessage(message))) continue;
       if (persistedContent.has(contentSignature(message.role, message.body))) continue;
       items.push({
         key: `pending-${message.id}`,
@@ -235,7 +236,7 @@ export function ProjectWorkspace({
     const pending = thread.filter(
       (message) =>
         shouldPersistThreadMessage(message) &&
-        !persistedKeys.has(dedupeKeyForThreadMessage(message, activeRun)) &&
+        !persistedKeys.has(dedupeKeyForThreadMessage(message)) &&
         !persistedContent.has(contentSignature(message.role, message.body)),
     );
 
@@ -252,7 +253,7 @@ export function ProjectWorkspace({
           role: "agent",
           kind: kindForThreadMessage(message),
           body: message.body,
-          dedupeKey: dedupeKeyForThreadMessage(message, activeRun),
+          dedupeKey: dedupeKeyForThreadMessage(message),
           sourceKey: message.id,
         });
       }
@@ -260,22 +261,41 @@ export function ProjectWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRun, canWrite, isNativeRun, messagesLoaded, persistedContent, persistedKeys, thread]);
 
-  const say = async (runId: string | null, body: string[], kind: NewProjectMessage["kind"] = "message") => {
-    await emit({ runId, role: "agent", kind, body, dedupeKey: `agent-${runId ?? "project"}-${Date.now()}` });
+  const say = async (
+    runId: string | null,
+    body: string[],
+    kind: NewProjectMessage["kind"] = "message",
+    dedupeKey?: string,
+  ) => {
+    await emit({ runId, role: "agent", kind, body, dedupeKey: dedupeKey ?? `agent-${runId ?? "project"}-${Date.now()}` });
   };
 
-  const apply = async (work: () => Promise<Organization>, agentReply?: string) => {
+  const apply = async (work: () => Promise<Organization>, agentReply?: string, replyKey?: string) => {
     if (!canWrite || busy) return;
     setBusy(true);
     try {
       const next = await work();
       onWorkspaceUpdate(next);
       if (agentReply && activeRun) {
-        await say(activeRun.id, [agentReply]);
+        await say(activeRun.id, [agentReply], "message", replyKey);
       }
     } finally {
       setBusy(false);
     }
+  };
+
+  // Conversation history for access changes. Built only from the predefined
+  // connection label and the action — never from any submitted form value.
+  const recordAccessEvent = ({ type, label, action }: AccessEvent) => {
+    const runId = activeRun?.id ?? null;
+    const subject = /access$/i.test(label.trim()) ? label : `${label} access`;
+    void emit({
+      runId,
+      role: "user",
+      kind: "decision_response",
+      body: [`${subject} ${action}.`],
+      dedupeKey: `access-${runId ?? "project"}-${type}-${action}-${Date.now()}`,
+    });
   };
 
   const advanceTo = async (run: Run, target: Run["state"]) => {
@@ -452,7 +472,16 @@ export function ProjectWorkspace({
             className="ghost-button"
             type="button"
             disabled={!canWrite || busy}
-            onClick={() => void advanceTo(run, "environment_mapping")}
+            onClick={async () => {
+              await advanceTo(run, "environment_mapping");
+              await emit({
+                runId: run.id,
+                role: "user",
+                kind: "decision_response",
+                body: ["Continue read-only for now."],
+                dedupeKey: `decision-readonly-${run.id}`,
+              });
+            }}
           >
             Continue read-only for now
           </button>
@@ -486,11 +515,24 @@ export function ProjectWorkspace({
             className="ghost-button"
             type="button"
             disabled={busy}
-            onClick={() =>
-              void say(run.id, [
-                "No problem. Most hosts have a one-click backup in their control panel, and plugins like UpdraftPlus can also create one. Tell me who hosts the site and I'll point you to the exact place.",
-              ])
-            }
+            onClick={async () => {
+              await emit({
+                runId: run.id,
+                role: "user",
+                kind: "message",
+                body: ["Help me create a backup first."],
+                dedupeKey: `decision-backup-help-${run.id}`,
+              });
+              await emit({
+                runId: run.id,
+                role: "agent",
+                kind: "message",
+                body: [
+                  "No problem. Most hosts have a one-click backup in their control panel, and plugins like UpdraftPlus can also create one. Tell me who hosts the site and I'll point you to the exact place.",
+                ],
+                dedupeKey: `decision-backup-help-reply-${run.id}`,
+              });
+            }}
           >
             Help me create one
           </button>
@@ -498,9 +540,22 @@ export function ProjectWorkspace({
             className="ghost-button"
             type="button"
             disabled={busy}
-            onClick={() =>
-              void say(run.id, ["Understood. I'll keep this read-only and carry on investigating without changing anything."])
-            }
+            onClick={async () => {
+              await emit({
+                runId: run.id,
+                role: "user",
+                kind: "decision_response",
+                body: ["Investigate only. Do not make changes yet."],
+                dedupeKey: `decision-investigate-only-${run.id}`,
+              });
+              await emit({
+                runId: run.id,
+                role: "agent",
+                kind: "message",
+                body: ["Understood. I'll keep this read-only and carry on investigating without changing anything."],
+                dedupeKey: `decision-investigate-only-reply-${run.id}`,
+              });
+            }}
           >
             Investigate only
           </button>
@@ -536,12 +591,19 @@ export function ProjectWorkspace({
             className="ghost-button"
             type="button"
             disabled={!canWrite || busy}
-            onClick={() =>
-              void apply(
+            onClick={async () => {
+              await apply(
                 () => workspaceRepository.approveRun(project.id, run.id, "high_risk_execution", "rejected", "Owner asked for a different approach."),
                 "Understood. I'll look for a safer or different route and come back with another option.",
-              )
-            }
+              );
+              await emit({
+                runId: run.id,
+                role: "user",
+                kind: "decision_response",
+                body: ["Use the safer approach instead."],
+                dedupeKey: `decision-approval-rejected-${run.id}`,
+              });
+            }}
           >
             Request another approach
           </button>
@@ -560,6 +622,7 @@ export function ProjectWorkspace({
         focusTypes={accessFocus}
         onBackToConversation={() => setSurface("conversation")}
         onWorkspaceUpdate={onWorkspaceUpdate}
+        onAccessEvent={recordAccessEvent}
       />
     );
   }
