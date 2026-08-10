@@ -758,7 +758,7 @@ export function ProjectWorkspace({
             <strong>Engineering Agent</strong>
             <small>{project.name} · {project.primaryDomain}</small>
           </div>
-          <span className="agent-state">{agentStateLabel(activeRun)}</span>
+          <span className={`agent-state ${agentStateTone(activeRun)}`}>{agentStateLabel(activeRun)}</span>
           <button className="pw-pane-toggle" type="button" onClick={() => setMobilePane("context")}>
             Task
           </button>
