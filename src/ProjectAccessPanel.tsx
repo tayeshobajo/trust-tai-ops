@@ -18,8 +18,15 @@ type Props = {
 export type AccessEventAction = "added" | "replaced" | "reverified" | "removed";
 export type AccessEvent = { type: AccessType; label: string; action: AccessEventAction };
 
-type FieldKind = "text" | "secret";
-type Field = { key: string; label: string; kind: FieldKind; placeholder?: string; hint?: string };
+type FieldKind = "text" | "secret" | "secret_multiline";
+type Field = {
+  key: string;
+  label: string;
+  kind: FieldKind;
+  placeholder?: string;
+  hint?: string;
+  optional?: boolean;
+};
 
 const CONNECTION_TYPES: Array<{
   type: AccessType;
@@ -61,10 +68,28 @@ const CONNECTION_TYPES: Array<{
     type: "ssh",
     label: "SSH",
     blurb: "Server-level access for logs, CLI work, and deeper cleanup.",
-    authMethod: "SSH key or password",
+    authMethod: "SSH private key",
+    executable: true,
     fields: [
       { key: "host", label: "Host", kind: "text", placeholder: "example.com" },
-      { key: "user", label: "Username", kind: "text" },
+      { key: "port", label: "Port", kind: "text", placeholder: "22", optional: true },
+      { key: "user", label: "SSH username", kind: "text" },
+      {
+        key: "secret",
+        label: "SSH private key",
+        kind: "secret_multiline",
+        placeholder: "-----BEGIN OPENSSH PRIVATE KEY-----",
+        hint: "Paste the whole private key file. Use a key created just for this agent so it can be revoked on its own.",
+      },
+      { key: "passphrase", label: "Key passphrase", kind: "secret", optional: true, hint: "Only if the key is encrypted." },
+      {
+        key: "wpRoot",
+        label: "WordPress folder on the server",
+        kind: "text",
+        placeholder: "/var/www/html",
+        optional: true,
+        hint: "Leave blank if WP-CLI already runs from the right place when you log in.",
+      },
     ],
   },
   {
