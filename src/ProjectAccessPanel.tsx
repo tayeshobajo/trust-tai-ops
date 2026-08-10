@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { AccessType, Organization, Project, ProjectAccessMethod } from "./types";
 import { workspaceRepository } from "./repository";
 import { getProjectInitials } from "./home";
-import { submitCredential } from "./agent-core/secrets";
+import { submitCredential, verifyStoredCredential } from "./agent-core/secrets";
 
 type Props = {
   project: Project;
