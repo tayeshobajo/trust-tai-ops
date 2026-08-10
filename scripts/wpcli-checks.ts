@@ -44,7 +44,7 @@ const {
 } = await import("../supabase/functions/_shared/sshSafety.ts");
 
 const { runReadOnlyWpCli } = await import("../supabase/functions/_shared/wpCli.ts");
-const { sealSecret } = await import("../supabase/functions/_shared/crypto.ts");
+const { sealSecret, parseEncryptionKey } = await import("../supabase/functions/_shared/crypto.ts");
 const { WP_CLI_READONLY_COMMAND_IDS } = await import("../src/agent-core/wpCliCommands.ts");
 const { TOOL_REGISTRY, planAction } = await import("../src/agent-core/registry.ts");
 
@@ -218,15 +218,9 @@ console.log("\nend-to-end boundary");
 const KEY = Buffer.from(new Uint8Array(32).fill(9)).toString("base64");
 const PRIVATE_KEY = `-----BEGIN OPENSSH PRIVATE KEY-----\n${"b3BlbnNzaC1rZXktdjEAAAAA".repeat(6)}\n-----END OPENSSH PRIVATE KEY-----\n`;
 
-const sealedFor = async (payload: unknown) => {
-  const sealed = await sealSecret(JSON.stringify(payload), (await import("../supabase/functions/_shared/crypto.ts"))
-    .parseEncryptionKey
-    ? (await (await import("../supabase/functions/_shared/crypto.ts")).parseEncryptionKey(KEY) as { key: CryptoKey }).key
-    : (null as never));
-  return sealed;
-};
-
-const sealed = await sealedFor({ privateKey: PRIVATE_KEY });
+const parsedKey = await parseEncryptionKey(KEY);
+if (!parsedKey.ok) throw new Error("test encryption key did not parse");
+const sealed = await sealSecret(JSON.stringify({ privateKey: PRIVATE_KEY }), parsedKey.key);
 
 const rowFor = (overrides: Record<string, unknown> = {}) => ({
   id: "row-1",
