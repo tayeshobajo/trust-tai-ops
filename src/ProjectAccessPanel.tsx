@@ -99,13 +99,28 @@ const CONNECTION_TYPES: Array<{
   },
 ];
 
-const statusLabel = (status: ProjectAccessMethod["status"]) =>
-  status === "available" ? "Connected" : status === "stale" ? "Needs attention" : "Not connected";
+/** True only when a real check has ever succeeded. */
+const isVerified = (method: ProjectAccessMethod | null): boolean => {
+  const stamp = method?.lastVerifiedAt ?? "";
+  if (!stamp || stamp.toLowerCase() === "unknown") return false;
+  return !Number.isNaN(new Date(stamp).getTime());
+};
 
-const formatVerified = (stamp: string) => {
-  if (!stamp || stamp.toLowerCase() === "unknown") return "Not verified yet";
-  const date = new Date(stamp);
-  if (Number.isNaN(date.getTime())) return stamp;
+/**
+ * Stored and verified are different facts, and the label says which one is
+ * true. A credential we hold but WordPress has never accepted is "Stored
+ * securely" — never "Verified".
+ */
+const statusLabel = (method: ProjectAccessMethod | null): string => {
+  if (!method) return "Not connected";
+  if (method.status === "stale") return "Needs attention";
+  if (method.status === "missing") return "Not connected";
+  return isVerified(method) ? "Verified" : "Stored securely";
+};
+
+const formatVerified = (method: ProjectAccessMethod) => {
+  if (!isVerified(method)) return "Not verified yet";
+  const date = new Date(method.lastVerifiedAt);
   return `Last verified ${date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
 };
 
@@ -196,7 +211,9 @@ export function ProjectAccessPanel({
       label: definition.label,
       status: "available",
       authMethod: definition.authMethod,
-      lastVerifiedAt: new Date().toISOString(),
+      // Storing a credential proves nothing about whether it works. The
+      // timestamp stays empty until a real server-side check succeeds.
+      lastVerifiedAt: definition.executable ? "" : new Date().toISOString(),
       notes: detail || existing?.notes || "Connection details shared by the site owner.",
       ...(credentialReference ? { credentialReference } : {}),
     };
@@ -204,7 +221,7 @@ export function ProjectAccessPanel({
     await run(
       () => workspaceRepository.saveAccessMethod(project.id, method),
       definition.executable
-        ? `${definition.label} is connected. The password is stored securely and can never be read back.`
+        ? `${definition.label} is stored securely and can never be read back. It hasn't been checked with WordPress yet — use Verify access when you're ready.`
         : `${definition.label} connection details saved.`,
       { type: definition.type, label: definition.label, action: existing ? "replaced" : "added" },
     );
@@ -214,6 +231,30 @@ export function ProjectAccessPanel({
   };
 
   const activeDefinition = editing ? CONNECTION_TYPES.find((item) => item.type === editing.type) ?? null : null;
+
+  /**
+   * A real, server-side, read-only check. The browser sends only the project
+   * id: it cannot choose the address, and it cannot write the outcome.
+   */
+  const verifyExecutable = async (definition: (typeof CONNECTION_TYPES)[number]) => {
+    if (!canWrite || busy) return;
+    setBusy(true);
+    try {
+      const outcome = await verifyStoredCredential(project.id);
+      setNotice(outcome.summary);
+      // The server already recorded the result; this only re-reads it.
+      onWorkspaceUpdate(await workspaceRepository.loadWorkspace());
+      if (outcome.state === "verified") {
+        try {
+          onAccessEvent?.({ type: definition.type, label: definition.label, action: "reverified" });
+        } catch {
+          // History is best-effort and never undoes a verification.
+        }
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="access-surface">
@@ -241,16 +282,17 @@ export function ProjectAccessPanel({
         {CONNECTION_TYPES.map((definition) => {
           const method = methodFor(definition.type);
           const status = method?.status ?? "missing";
+          const verified = isVerified(method);
           const focused = focusTypes.includes(definition.type) && !method;
 
           return (
             <article key={definition.type} className={`access-card is-${status} ${focused ? "is-focused" : ""}`}>
               <div className="access-card-head">
                 <h3>{definition.label}</h3>
-                <span className={`access-status is-${status}`}>{statusLabel(status)}</span>
+                <span className={`access-status is-${status}`}>{statusLabel(method)}</span>
               </div>
               <p>{method?.notes || definition.blurb}</p>
-              {method ? <small className="access-stamp">{formatVerified(method.lastVerifiedAt)}</small> : null}
+              {method ? <small className="access-stamp">{formatVerified(method)}</small> : null}
               {focused ? <small className="access-stamp is-focus">The agent asked for this one.</small> : null}
 
               <div className="access-card-actions">
@@ -261,14 +303,16 @@ export function ProjectAccessPanel({
                       type="button"
                       disabled={!canWrite || busy}
                       onClick={() =>
-                        void run(
-                          () => workspaceRepository.verifyAccessMethod(project.id, method.id),
-                          `${definition.label} reverified.`,
-                          { type: definition.type, label: definition.label, action: "reverified" },
-                        )
+                        definition.executable
+                          ? void verifyExecutable(definition)
+                          : void run(
+                              () => workspaceRepository.verifyAccessMethod(project.id, method.id, definition.type),
+                              `${definition.label} details confirmed as current.`,
+                              { type: definition.type, label: definition.label, action: "reverified" },
+                            )
                       }
                     >
-                      Reverify
+                      {definition.executable ? (verified ? "Recheck access" : "Verify access") : "Confirm details"}
                     </button>
                     <button
                       className="ghost-button"
