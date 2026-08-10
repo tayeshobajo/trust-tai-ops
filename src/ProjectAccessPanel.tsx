@@ -18,8 +18,15 @@ type Props = {
 export type AccessEventAction = "added" | "replaced" | "reverified" | "removed";
 export type AccessEvent = { type: AccessType; label: string; action: AccessEventAction };
 
-type FieldKind = "text" | "secret";
-type Field = { key: string; label: string; kind: FieldKind; placeholder?: string; hint?: string };
+type FieldKind = "text" | "secret" | "secret_multiline";
+type Field = {
+  key: string;
+  label: string;
+  kind: FieldKind;
+  placeholder?: string;
+  hint?: string;
+  optional?: boolean;
+};
 
 const CONNECTION_TYPES: Array<{
   type: AccessType;
@@ -61,10 +68,28 @@ const CONNECTION_TYPES: Array<{
     type: "ssh",
     label: "SSH",
     blurb: "Server-level access for logs, CLI work, and deeper cleanup.",
-    authMethod: "SSH key or password",
+    authMethod: "SSH private key",
+    executable: true,
     fields: [
       { key: "host", label: "Host", kind: "text", placeholder: "example.com" },
-      { key: "user", label: "Username", kind: "text" },
+      { key: "port", label: "Port", kind: "text", placeholder: "22", optional: true },
+      { key: "user", label: "SSH username", kind: "text" },
+      {
+        key: "secret",
+        label: "SSH private key",
+        kind: "secret_multiline",
+        placeholder: "-----BEGIN OPENSSH PRIVATE KEY-----",
+        hint: "Paste the whole private key file. Use a key created just for this agent so it can be revoked on its own.",
+      },
+      { key: "passphrase", label: "Key passphrase", kind: "secret", optional: true, hint: "Only if the key is encrypted." },
+      {
+        key: "wpRoot",
+        label: "WordPress folder on the server",
+        kind: "text",
+        placeholder: "/var/www/html",
+        optional: true,
+        hint: "Leave blank if WP-CLI already runs from the right place when you log in.",
+      },
     ],
   },
   {
@@ -181,8 +206,18 @@ export function ProjectAccessPanel({
     if (definition.executable) {
       const username = (values.user ?? "").trim();
       const secret = values.secret ?? "";
+      const isSsh = definition.type === "ssh";
+
       if (!username || secret.trim().length < 8) {
-        setNotice("I need the WordPress username and a complete Application Password.");
+        setNotice(
+          isSsh
+            ? "I need the SSH username and the whole private key."
+            : "I need the WordPress username and a complete Application Password.",
+        );
+        return;
+      }
+      if (isSsh && !(values.host ?? "").trim()) {
+        setNotice("I need the server address before I can store SSH access.");
         return;
       }
 
@@ -191,12 +226,20 @@ export function ProjectAccessPanel({
       try {
         stored = await submitCredential({
           projectId: project.id,
-          accessType: "wordpress_admin",
+          accessType: isSsh ? "ssh" : "wordpress_admin",
           username,
           secret,
+          ...(isSsh
+            ? {
+                host: (values.host ?? "").trim(),
+                port: Number((values.port ?? "").trim() || 22),
+                wpRoot: (values.wpRoot ?? "").trim(),
+                passphrase: values.passphrase ?? "",
+              }
+            : {}),
         });
       } finally {
-        // Drop the value from component state before anything else happens.
+        // Drop the key and passphrase from component state immediately.
         setValues({});
         setBusy(false);
       }
@@ -224,7 +267,9 @@ export function ProjectAccessPanel({
     await run(
       () => workspaceRepository.saveAccessMethod(project.id, method),
       definition.executable
-        ? `${definition.label} is stored securely and can never be read back. It hasn't been checked with WordPress yet — use Verify access when you're ready.`
+        ? definition.type === "ssh"
+          ? `${definition.label} is stored securely and can never be read back. I haven't connected yet — use Verify access, and I'll record the server's identity on that first connection.`
+          : `${definition.label} is stored securely and can never be read back. It hasn't been checked with WordPress yet — use Verify access when you're ready.`
         : `${definition.label} connection details saved.`,
       { type: definition.type, label: definition.label, action: existing ? "replaced" : "added" },
     );
@@ -243,7 +288,10 @@ export function ProjectAccessPanel({
     if (!canWrite || busy) return;
     setBusy(true);
     try {
-      const outcome = await verifyStoredCredential(project.id);
+      const outcome = await verifyStoredCredential(
+        project.id,
+        definition.type === "ssh" ? "ssh" : "wordpress_admin",
+      );
       setNotice(outcome.summary);
       // The server decided this. The repository reconciles the stored record
       // with the server's outcome — on the native adapter that is a pure
@@ -281,9 +329,10 @@ export function ProjectAccessPanel({
       </header>
 
       <p className="access-intro">
-        Share only what the agent needs. A WordPress Application Password is sealed on the server the moment you save
-        it and can never be read back — not by you, not by the agent, not by this page. The other connections record
-        where access lives; their credentials aren't stored here yet.
+        Share only what the agent needs. A WordPress Application Password and an SSH private key are sealed on the
+        server the moment you save them and can never be read back — not by you, not by the agent, not by this page.
+        SSH is used for a fixed list of read-only inspections only. The other connections record where access lives;
+        their credentials aren't stored here yet.
       </p>
 
       {notice ? <p className="access-notice">{notice}</p> : null}
@@ -305,7 +354,9 @@ export function ProjectAccessPanel({
               {method ? (
                 <small className="access-stamp">
                   {definition.executable && !isVerified(method)
-                    ? "Stored securely · not yet checked with WordPress"
+                    ? definition.type === "ssh"
+                      ? "Stored securely · server identity not confirmed yet"
+                      : "Stored securely · not yet checked with WordPress"
                     : formatVerified(method)}
                 </small>
               ) : null}
@@ -402,27 +453,46 @@ export function ProjectAccessPanel({
             <h2>{editing.existingId ? "Replace" : "Add"} {activeDefinition.label}</h2>
             <p className="access-drawer-note">
               {activeDefinition.executable
-                ? "The password is sent straight to the secure store and is never shown again."
+                ? activeDefinition.type === "ssh"
+                  ? "The private key is sent straight to the secure store and is never shown again. Only a fixed list of read-only WP-CLI inspections can ever be run with it."
+                  : "The password is sent straight to the secure store and is never shown again."
                 : "Connection details only. Don't paste a password here — it wouldn't be stored securely yet."}
             </p>
 
             {activeDefinition.fields.map((field) => (
               <label key={field.key} className="access-field">
-                <span>{field.label}</span>
-                <input
-                  type={field.kind === "secret" ? "password" : "text"}
-                  value={values[field.key] ?? ""}
-                  placeholder={field.placeholder}
-                  autoComplete="off"
-                  onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
-                />
+                <span>
+                  {field.label}
+                  {field.optional ? <em className="access-field-optional"> · optional</em> : null}
+                </span>
+                {field.kind === "secret_multiline" ? (
+                  <textarea
+                    className="access-field-key"
+                    rows={5}
+                    value={values[field.key] ?? ""}
+                    placeholder={field.placeholder}
+                    autoComplete="off"
+                    spellCheck={false}
+                    onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
+                  />
+                ) : (
+                  <input
+                    type={field.kind === "secret" ? "password" : "text"}
+                    value={values[field.key] ?? ""}
+                    placeholder={field.placeholder}
+                    autoComplete="off"
+                    onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
+                  />
+                )}
                 {field.hint ? <small className="access-field-hint">{field.hint}</small> : null}
               </label>
             ))}
 
             <p className="access-drawer-note">
               {activeDefinition.executable
-                ? "You can revoke this Application Password in WordPress at any time, without changing your login."
+                ? activeDefinition.type === "ssh"
+                  ? "You can remove this key from the server's authorized_keys at any time. Nothing here can write, install, update, or delete."
+                  : "You can revoke this Application Password in WordPress at any time, without changing your login."
                 : "Deeper server access will get the same secure treatment as WordPress Admin before it goes live."}
             </p>
 

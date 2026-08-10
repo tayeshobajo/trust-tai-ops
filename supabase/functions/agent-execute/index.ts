@@ -15,6 +15,8 @@ import { authzDeps, executionContextConfigured, secretStoreDeps } from "../_shar
 import { fetchSafely, readBounded, redact, safeHeaders, validatePublicUrl } from "../_shared/net.ts";
 import { capabilityTruth, resolveCredential } from "../_shared/secretStore.ts";
 import { authenticatedGet, normalizeHealthTest, normalizePlugins } from "../_shared/wordpress.ts";
+import { runReadOnlyWpCli } from "../_shared/wpCli.ts";
+import { denoSshTransport } from "../_shared/sshTransport.ts";
 
 const fail = (code: string, summary: string, retryable: boolean) =>
   Response.json({ ok: false, code, summary, retryable }, { headers: corsHeaders });
@@ -25,7 +27,10 @@ const AUTH_FAIL_SUMMARY: Record<string, string> = {
   execution_context_unavailable: "I can't confirm who this project belongs to right now, so I stopped.",
 };
 
-const PRIVATE_TOOLS = new Set(["wordpress.list_plugins"]);
+const PRIVATE_TOOLS = new Set(["wordpress.list_plugins", "wordpress.run_wp_cli_readonly"]);
+
+/** Every access type whose credential the server can actually resolve. */
+const EXECUTABLE_ACCESS_TYPES = ["wordpress_admin", "ssh"];
 
 // --- public inspections (unchanged behaviour) -------------------------------
 
@@ -331,6 +336,42 @@ const listPlugins = async (projectId: string, canonicalUrl: string | null) => {
 
 // --- entrypoint --------------------------------------------------------------
 
+/**
+ * Read-only WP-CLI over SSH.
+ *
+ * The browser supplies a catalog id and, at most, one bounded detail. The
+ * server resolves the host, port, user, key and WordPress path itself, and the
+ * command is composed from the closed catalog — never from client text.
+ */
+const runWpCli = async (projectId: string, args: Record<string, unknown>) => {
+  const commandId = typeof args.commandId === "string" ? args.commandId : "";
+  if (!commandId) {
+    return fail("invalid_input", "That request didn't name an inspection to run.", false);
+  }
+
+  const params: Record<string, string | undefined> = {};
+  for (const name of ["plugin", "option"]) {
+    const value = args[name];
+    if (typeof value === "string") params[name] = value;
+  }
+
+  const outcome = await runReadOnlyWpCli(secretStoreDeps(), denoSshTransport(), {
+    projectId,
+    commandId,
+    params,
+    // A normal run never trusts a new server identity. Only the explicit
+    // human-initiated verification may record a first pin.
+    allowFirstUse: false,
+  });
+
+  if (!outcome.ok) return fail(outcome.code, outcome.summary, outcome.retryable);
+
+  return Response.json(
+    { ok: true, summary: redact(outcome.summary), data: outcome.data },
+    { headers: corsHeaders },
+  );
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -376,7 +417,7 @@ Deno.serve(async (req) => {
     }
     // `capabilities` are credentials this project holds and can attempt.
     // `verifiedCapabilities` are the ones the provider has already accepted.
-    const truth = await capabilityTruth(secretStoreDeps(), authorizedProjectId, ["wordpress_admin"]);
+    const truth = await capabilityTruth(secretStoreDeps(), authorizedProjectId, EXECUTABLE_ACCESS_TYPES);
     return Response.json(
       {
         ok: true,
@@ -404,6 +445,9 @@ Deno.serve(async (req) => {
     case "wordpress.list_plugins":
       if (!authorizedProjectId) return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
       return await listPlugins(authorizedProjectId, canonicalUrl);
+    case "wordpress.run_wp_cli_readonly":
+      if (!authorizedProjectId) return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
+      return await runWpCli(authorizedProjectId, args);
     default:
       return fail("not_implemented", "That capability is not enabled yet.", false);
   }

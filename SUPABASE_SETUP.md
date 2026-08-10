@@ -50,6 +50,23 @@ The full eight-step production sequence lives in `BRIEF.md` → *Deployment trut
 7. Verify it read-only
 8. Run a private plugin/health read
 
+### Optional: SSH + read-only WP-CLI
+
+Additive to the eight steps, and read-only by construction. Full detail in
+`BRIEF.md` → *SSH + read-only WP-CLI*.
+
+9. Add a dedicated agent SSH key to the server's `authorized_keys`
+10. Store host, port, username, private key and WordPress path via Access &
+    Connections → SSH (the key is sealed with `AGENT_SECRET_ENCRYPTION_KEY`)
+11. Press *Verify access* — the only moment an unknown host key is accepted; the
+    server pins the SHA256 fingerprint it observes
+12. Compare that fingerprint against `ssh-keygen -lf` on the server
+
+After the pin exists, any run against a changed host key is refused before
+authentication. Only the fixed catalog in
+`supabase/functions/_shared/wpCliCatalog.ts` can be executed; there is no
+free-text command path. Verify the safety model with `npm run check:wpcli`.
+
 ## Tenant identity
 
 `auth_user_id` is preferred and resolves from `auth.uid()`. Email matching is a

@@ -87,11 +87,23 @@ export const secretStoreDeps = (): SecretStoreDeps => {
     loadRow: async (projectId, accessType) => {
       const { data } = await service
         .from("project_access_secrets")
-        .select("id, project_id, access_type, provider, username, ciphertext, iv, algorithm, key_version, verification_state")
+        .select(
+          "id, project_id, access_type, provider, username, ciphertext, iv, algorithm, key_version, verification_state, config, host_fingerprint",
+        )
         .eq("project_id", projectId)
         .eq("access_type", accessType)
         .maybeSingle();
       return (data as StoredSecretRow | null) ?? null;
+    },
+    // Written only after a connection actually succeeded, and never
+    // overwritten: a changed key is a rejection, not a new pin.
+    pinHostFingerprint: async (projectId, accessType, fingerprint) => {
+      await service
+        .from("project_access_secrets")
+        .update({ host_fingerprint: fingerprint })
+        .eq("project_id", projectId)
+        .eq("access_type", accessType)
+        .is("host_fingerprint", null);
     },
     markVerification: async (projectId, accessType, state, verifiedAt) => {
       // The secret store is the source of truth, and it is written first so

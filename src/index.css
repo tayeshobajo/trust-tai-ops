@@ -4098,7 +4098,28 @@ button:focus-visible {
   color: var(--tt-ink);
 }
 
-.access-field input:focus-visible {
+.access-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--tt-rule);
+  border-radius: 10px;
+  background: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--tt-ink);
+  resize: vertical;
+}
+
+.access-field-optional {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--tt-ink-soft, rgba(1, 5, 27, 0.55));
+}
+
+.access-field input:focus-visible,
+.access-field textarea:focus-visible {
   outline: 2px solid rgba(29, 84, 193, 0.4);
   outline-offset: 1px;
 }

@@ -21,6 +21,13 @@ export type StoredSecretRow = {
   algorithm: string;
   key_version: string;
   verification_state: string | null;
+  /**
+   * Non-secret connection details (host, port, WordPress path). Never holds a
+   * credential: anything secret goes through `ciphertext`.
+   */
+  config?: Record<string, unknown> | null;
+  /** Pinned SSH host identity, recorded on first successful verify. */
+  host_fingerprint?: string | null;
 };
 
 export type SecretStoreDeps = {
@@ -41,6 +48,11 @@ export type SecretStoreDeps = {
     state: "verified" | "rejected",
     verifiedAt: string | null,
   ) => Promise<void>;
+  /**
+   * Records the server identity observed on a first successful connection.
+   * Separate from `saveRow` so a pin can never be set by a submission.
+   */
+  pinHostFingerprint?: (projectId: string, accessType: string, fingerprint: string) => Promise<void>;
 };
 
 export type WordPressCredential = { username: string; applicationPassword: string };
@@ -53,7 +65,14 @@ export const secretReferenceFor = (projectId: string, accessType: string): strin
 
 export const storeCredential = async (
   deps: SecretStoreDeps,
-  input: { projectId: string; accessType: string; provider: string; username: string; secret: string },
+  input: {
+    projectId: string;
+    accessType: string;
+    provider: string;
+    username: string;
+    secret: string;
+    config?: Record<string, unknown> | null;
+  },
 ): Promise<StoreResult> => {
   const key = await parseEncryptionKey(deps.encryptionKey);
   if (!key.ok) return { ok: false, code: "secret_store_unavailable" };
@@ -69,9 +88,47 @@ export const storeCredential = async (
     algorithm: sealed.algorithm,
     key_version: sealed.keyVersion,
     verification_state: "unverified",
+    config: input.config ?? null,
+    // A new credential always invalidates the previous host pin: it may be a
+    // different server entirely.
+    host_fingerprint: null,
   });
 
   return { ok: true, reference: secretReferenceFor(input.projectId, input.accessType) };
+};
+
+export type RawSecretResult =
+  | { ok: true; plaintext: string; row: StoredSecretRow }
+  | { ok: false; code: SecretFailure };
+
+/**
+ * Opens a stored secret of any shape, together with its non-secret row. Used
+ * by access types whose credential is not a username plus password.
+ */
+export const resolveRawSecret = async (
+  deps: SecretStoreDeps,
+  projectId: string,
+  accessType: string,
+): Promise<RawSecretResult> => {
+  const key = await parseEncryptionKey(deps.encryptionKey);
+  if (!key.ok) return { ok: false, code: "secret_store_unavailable" };
+
+  let row: StoredSecretRow | null = null;
+  try {
+    row = await deps.loadRow(projectId, accessType);
+  } catch {
+    return { ok: false, code: "secret_store_unavailable" };
+  }
+  if (!row) return { ok: false, code: "capability_unavailable" };
+  if (row.project_id !== projectId) return { ok: false, code: "capability_unavailable" };
+
+  const opened = await openSecret(
+    { ciphertext: row.ciphertext, iv: row.iv, algorithm: row.algorithm, keyVersion: row.key_version },
+    key.key,
+  );
+  if (!opened.ok) return { ok: false, code: "secret_store_unavailable" };
+
+  return { ok: true, plaintext: opened.plaintext, row };
 };
 
 export type ResolveResult =

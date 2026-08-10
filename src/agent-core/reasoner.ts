@@ -28,6 +28,20 @@ export interface AgentReasoner {
 const hasEvidenceFrom = (context: AgentContext, toolId: ToolId) =>
   context.evidence.some((item) => item.toolId === toolId);
 
+/**
+ * The catalog inspection each planned WP-CLI action stands for. Named here so
+ * the planner can never assemble a command; it only chooses a catalog id.
+ */
+const WP_CLI_ACTION_COMMANDS: Record<string, string> = {
+  "wp-cli-core-version": "core.version",
+  "wp-cli-core-checksums": "core.verify_checksums",
+};
+
+const wpCliArgsFor = (actionId: string): AgentActionArguments | null => {
+  const commandId = WP_CLI_ACTION_COMMANDS[actionId];
+  return commandId ? { commandId } : null;
+};
+
 /** True only when something actually observed says this is WordPress. */
 const wordpressMarkersPresent = (context: AgentContext): boolean =>
   context.evidence.some((item) => {
@@ -50,10 +64,22 @@ const wordpressMarkersPresent = (context: AgentContext): boolean =>
 const minimumAccessFor = (context: AgentContext): AccessType[] => {
   if (context.capabilities.includes("wordpress_admin")) {
     // Admin is already in place: only now can a deeper level be justified.
-    return context.run.taskType === "malware" ? ["sftp"] : [];
+    // Malware work genuinely needs the filesystem; a core integrity question
+    // genuinely needs the server itself. Nothing else is asked for.
+    if (context.run.taskType === "malware") return ["sftp"];
+    if (!context.capabilities.includes("ssh") && needsServerInspection(context)) return ["ssh"];
+    return [];
   }
   return ["wordpress_admin"];
 };
+
+/**
+ * True only when the public and admin reads have already been done and a
+ * server-side question is genuinely still open.
+ */
+const needsServerInspection = (context: AgentContext): boolean =>
+  hasEvidenceFrom(context, "wordpress.list_plugins") &&
+  ["malware", "performance", "update", "recovery"].includes(context.run.taskType);
 
 const emptyPlan = (decision: AgentDecision): AgentPlan => ({
   decision,
@@ -119,11 +145,29 @@ class DeterministicReasoner implements AgentReasoner {
         toolId: "wordpress.list_plugins",
         purpose: "Read the installed plugins without changing anything.",
       });
+    } else if (
+      context.capabilities.includes("ssh") &&
+      !hasEvidenceFrom(context, "wordpress.run_wp_cli_readonly")
+    ) {
+      // SSH is available, so the questions the HTTP surface cannot answer —
+      // the real installed version, and whether core files were altered —
+      // become answerable. Both are strictly reads.
+      want.push({
+        id: "wp-cli-core-version",
+        toolId: "wordpress.run_wp_cli_readonly",
+        purpose: "Read the WordPress version directly on the server.",
+      });
+      want.push({
+        id: "wp-cli-core-checksums",
+        toolId: "wordpress.run_wp_cli_readonly",
+        purpose: "Compare the core files against the official checksums.",
+      });
     }
 
     for (const item of want) {
       // Private tools resolve their own target server-side from the project.
-      const args: AgentActionArguments = item.toolId === "wordpress.list_plugins" ? {} : { url };
+      const args: AgentActionArguments = wpCliArgsFor(item.id) ??
+        (item.toolId === "wordpress.list_plugins" ? {} : { url });
       const built = planAction(item.id, item.toolId, context.run.id, args, item.purpose);
       if ("error" in built) {
         return emptyPlan({

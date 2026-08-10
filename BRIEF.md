@@ -112,7 +112,9 @@ this exact order:
    `20260816_audit_identity_alignment.sql` converts legacy text identity columns
    to `uuid` without dropping history; `20260818_verification_integrity.sql`
    adds `users.auth_user_id` and the trigger that stops the browser from forging
-   a verification timestamp.
+   a verification timestamp; `20260820_ssh_wp_cli_readonly.sql` adds the
+   non-secret `config` column, the pinned `host_fingerprint`, and extends the
+   forgery guard to SSH.
 2. **Configure Edge Function secrets.** At minimum
    `AGENT_SECRET_ENCRYPTION_KEY` (32 bytes, base64 or 64 hex chars):
    `supabase secrets set AGENT_SECRET_ENCRYPTION_KEY=...`. Until it exists,
@@ -136,6 +138,47 @@ this exact order:
 Until all eight are done, the app runs in its local demo adapter, where no
 credential is real and no WordPress site is contacted.
 
+### SSH + read-only WP-CLI
+
+Optional, and additive to the eight steps above. Nothing here can write.
+
+1. **Create a dedicated SSH key for the agent** and add only its public half to
+   the server's `authorized_keys`. Use a separate key so it can be revoked
+   without touching anyone else's access.
+2. **Store it** through Access & Connections → SSH: host, port, username, the
+   whole private key, an optional passphrase, and the WordPress folder. The key
+   goes straight to `access-secrets` and is sealed with the same
+   `AGENT_SECRET_ENCRYPTION_KEY`. Host, port and path are stored separately, in
+   the clear, because they are not secrets.
+3. **Verify access.** This is the only moment the server will accept an unknown
+   host identity. It connects, records the server's SHA256 host-key fingerprint,
+   and runs one catalog command. Compare the recorded fingerprint with
+   `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server — the
+   formats are identical.
+4. **After that, the pin is enforced.** A normal agent run against an unpinned
+   or changed host key is refused before authentication, so a redirected or
+   impersonated server never receives the key.
+
+Requirements on the server: WP-CLI on `PATH` (or an absolute `wpBinary`), and an
+sshd offering a CTR cipher — Deno's `node:crypto` cannot drive the AES-GCM path
+`ssh2` uses, so GCM is excluded from negotiation rather than left to chance.
+
+**What SSH can and cannot do here.** The agent can run only the fixed catalog in
+`supabase/functions/_shared/wpCliCatalog.ts` — version, checksum, plugin, theme,
+user-count and non-sensitive option reads. There is no free-text command field
+anywhere in the path: the browser sends a catalog id and at most one bounded
+parameter, and every token in the composed command line is re-validated against
+a strict allowlist server-side. Mutating verbs (`install`, `update`, `delete`,
+`activate`, `deactivate`, `regenerate`, `run`, `eval`) are rejected by a guard
+that also runs over the catalog itself, so a mutating command cannot be added by
+mistake. Sensitive options (`auth_key`, `*_salt`, anything matching
+password/secret/token/api key) are refused. Output is truncated at 64 KB, stripped
+of terminal control codes, scrubbed of long secret-shaped tokens, and every run
+is bounded by a 45 s ceiling. `wordpress.execute_wp_cli` — the write path —
+remains unimplemented.
+
+Run `npm run check:wpcli` to execute this safety model rather than trust it.
+
 ### Environment boundary
 
 **Frontend / public only** (compiled into the browser bundle, readable by
@@ -151,6 +194,11 @@ anyone):
 - `SUPABASE_ANON_KEY` — only if used for verifying caller token claims
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `AGENT_SECRET_ENCRYPTION_KEY`
+
+The SSH private key and its passphrase are sealed with
+`AGENT_SECRET_ENCRYPTION_KEY` and never leave the server. `host`, `port`,
+`wpRoot`, `wpBinary` and `host_fingerprint` are deliberately **not** secrets and
+are stored in plain columns so a pin change is auditable.
 
 The service-role key and the encryption key must **never** carry a `VITE_`
 prefix and must **never** enter browser env. Anything prefixed `VITE_` is
@@ -175,7 +223,9 @@ Two distinct facts, never collapsed:
   works.
 - **Verified** — WordPress itself accepted the credential on a read-only
   authenticated call. Only the server may record this, and only after a real
-  200 response.
+   200 response. For SSH, the equivalent proof is a real authenticated
+   connection to the pinned host plus a catalog command that exited 0 — a
+   non-zero exit is a failure, not evidence, and never marks access verified.
 
 `last_verified_at` stays null until then. The agent says "stored securely"
 before verification and "verified" only after, and it distinguishes stored from

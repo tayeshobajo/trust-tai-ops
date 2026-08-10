@@ -47,7 +47,22 @@ check("plugin listing needs wordpress admin", toolIsUsable("wordpress.list_plugi
 check("plugin listing is unusable on public access alone", !toolIsUsable("wordpress.list_plugins", ["public_internet"]));
 check("plugin listing is read only", TOOL_REGISTRY["wordpress.list_plugins"].risk === "read_only");
 check("site health is implemented", TOOL_REGISTRY["wordpress.read_health"].implemented);
-check("only implemented tools are declared so", Object.values(TOOL_REGISTRY).filter((tool) => tool.implemented).length === 4);
+check(
+  "only implemented tools are declared so",
+  JSON.stringify(
+    Object.values(TOOL_REGISTRY)
+      .filter((tool) => tool.implemented)
+      .map((tool) => tool.id)
+      .sort(),
+  ) ===
+    JSON.stringify([
+      "public_http.inspect_site",
+      "wordpress.inspect_public_surface",
+      "wordpress.list_plugins",
+      "wordpress.read_health",
+      "wordpress.run_wp_cli_readonly",
+    ]),
+);
 check(
   "no mutating tool has been implemented",
   Object.values(TOOL_REGISTRY).every((tool) => !tool.implemented || tool.readOnly),

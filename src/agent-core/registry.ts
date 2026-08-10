@@ -9,6 +9,7 @@
 import { classifyRisk } from "./policy";
 import { executionGateway } from "./gateway";
 import { validatePublicUrl, safeSummary } from "./safety";
+import { isWpCliCommandId, WP_CLI_COMMAND_PARAMS, type WpCliCommandId } from "./wpCliCommands";
 import type {
   AgentAction,
   AgentActionArguments,
@@ -80,8 +81,35 @@ const notAvailable = (summary: string): AgentToolResult => ({
  */
 const sensitivityFor = (toolId: ToolId, data: Record<string, unknown>): AgentEvidence["sensitivity"] => {
   if (toolId === "wordpress.list_plugins") return "restricted";
+  if (toolId === "wordpress.run_wp_cli_readonly") return "restricted";
   if (toolId === "wordpress.read_health" && data.authenticatedHealthAvailable === true) return "restricted";
   return "public";
+};
+
+/**
+ * A WP-CLI action names an inspection from the closed catalog and nothing
+ * else. There is no free-text command field to validate, because none exists.
+ * The server re-checks all of this; this is the first gate, not the only one.
+ */
+const requireWpCliCommand = (args: AgentActionArguments): ToolValidation => {
+  const commandId = args.commandId;
+  if (!isWpCliCommandId(commandId)) {
+    return { ok: false, reason: "That isn't one of the read-only server inspections I can run." };
+  }
+
+  const paramName = WP_CLI_COMMAND_PARAMS[commandId as WpCliCommandId];
+  const next: AgentActionArguments = { commandId };
+
+  if (paramName) {
+    const value = args[paramName];
+    if (typeof value !== "string" || !/^[a-z0-9][a-z0-9._-]{0,62}$/.test(value.trim().toLowerCase())) {
+      return { ok: false, reason: "That inspection needs a valid name before I can run it." };
+    }
+    next[paramName] = value.trim().toLowerCase();
+  }
+
+  // Any other argument is dropped rather than forwarded.
+  return { ok: true, args: next };
 };
 
 const evidenceFrom = (
@@ -196,13 +224,16 @@ export const TOOL_REGISTRY: Record<ToolId, ToolDefinition> = {
     true,
     "I can't read the error log yet — that needs file access to the server.",
   ),
-  "wordpress.run_wp_cli_readonly": declared(
-    "wordpress.run_wp_cli_readonly",
-    "Run a read-only WP-CLI inspection command.",
-    "ssh",
-    true,
-    "I can't run server-side inspections yet — that needs SSH access.",
-  ),
+  "wordpress.run_wp_cli_readonly": {
+    id: "wordpress.run_wp_cli_readonly",
+    purpose: "Run a read-only WP-CLI inspection on the server, without changing anything.",
+    capability: "ssh",
+    readOnly: true,
+    risk: classifyRisk("wordpress.run_wp_cli_readonly"),
+    implemented: true,
+    validate: requireWpCliCommand,
+    execute: runThroughGateway,
+  },
   "wordpress.execute_wp_cli": declared(
     "wordpress.execute_wp_cli",
     "Apply a change through WP-CLI.",
