@@ -28,12 +28,10 @@ export function AppSidebar() {
   });
 
   const isActive = (path: string) => currentPath === path;
-  const isExpanded = items.some((item) => isActive(item.url));
-
   return (
     <Sidebar collapsible="icon" className="sidebar-dark border-r-0">
       <SidebarContent>
-        <SidebarGroup defaultOpen={isExpanded}>
+        <SidebarGroup>
           <SidebarGroupLabel>Menu</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
