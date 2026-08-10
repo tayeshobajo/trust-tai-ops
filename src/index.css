@@ -2232,7 +2232,8 @@ button:focus-visible {
    Responsive
    ═══════════════════════════════════════════════════════════ */
 
-@media (max-width: 1400px) {
+/* Run experience adapts to its column width, not just the viewport. */
+@container mainol (max-width: 1040px) {
   .run-experience-card {
     grid-template-columns: minmax(0, 1fr) minmax(0, 280px);
   }
@@ -2247,7 +2248,19 @@ button:focus-visible {
     grid-auto-flow: column;
     grid-auto-columns: minmax(220px, 1fr);
     overflow-x: auto;
+    overscroll-behavior-x: contain;
     padding-bottom: var(--tt-space-1);
+  }
+}
+
+@container mainol (max-width: 720px) {
+  .run-experience-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .run-main-stage {
+    border-right: 0;
+    border-bottom: 1px solid var(--tt-rule);
   }
 }
 
