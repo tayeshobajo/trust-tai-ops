@@ -254,11 +254,6 @@ export function ProjectWorkspace({
 
   const windowKey = activeRunId ?? "project";
 
-  // Remember the reader's expansion per task while not searching.
-  useEffect(() => {
-    if (!searching) windowSizeRef.current.set(windowKey, windowSize);
-  }, [windowKey, windowSize, searching]);
-
   // A search always starts from the end; a task reopens where it was left.
   useEffect(() => {
     setWindowSize(query.trim() ? PAGE_SIZE : windowSizeRef.current.get(windowKey) ?? PAGE_SIZE);
@@ -803,7 +798,14 @@ export function ProjectWorkspace({
 
         <div className="pw-thread">
           {hidden > 0 ? (
-            <button className="pw-load-earlier" type="button" onClick={() => setWindowSize((size) => size + PAGE_SIZE)}>
+            <button className="pw-load-earlier" type="button" onClick={() =>
+                setWindowSize((size) => {
+                  const next = size + PAGE_SIZE;
+                  // Remember the expansion for this task, but never for a search view.
+                  if (!searching) windowSizeRef.current.set(windowKey, next);
+                  return next;
+                })
+              }>
               Show earlier messages ({hidden})
             </button>
           ) : null}
