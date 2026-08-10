@@ -126,6 +126,13 @@ export function ProjectWorkspace({
     [runMessages],
   );
 
+  // Second guard: the same sentence is never shown or stored twice, even if the
+  // reconstruction produces it again under a different id later in the task.
+  const persistedContent = useMemo(
+    () => new Set(runMessages.map((message) => contentSignature(message.role, message.body))),
+    [runMessages],
+  );
+
   // A task is "native" when its opening brief was written to the conversation
   // record. Older tasks keep their deterministic reconstruction and are never
   // backfilled with history that was never actually stored.
@@ -179,6 +186,7 @@ export function ProjectWorkspace({
     for (const message of thread) {
       if (!shouldPersistThreadMessage(message)) continue;
       if (persistedKeys.has(dedupeKeyForThreadMessage(message, activeRun))) continue;
+      if (persistedContent.has(contentSignature(message.role, message.body))) continue;
       items.push({
         key: `pending-${message.id}`,
         role: message.role,
@@ -190,7 +198,7 @@ export function ProjectWorkspace({
     }
 
     return items;
-  }, [activeRun, isNativeRun, persistedKeys, runMessages, thread]);
+  }, [activeRun, isNativeRun, persistedContent, persistedKeys, runMessages, thread]);
 
   useEffect(() => {
     composerRef.current?.focus();
@@ -225,13 +233,19 @@ export function ProjectWorkspace({
 
     const pending = thread.filter(
       (message) =>
-        shouldPersistThreadMessage(message) && !persistedKeys.has(dedupeKeyForThreadMessage(message, activeRun)),
+        shouldPersistThreadMessage(message) &&
+        !persistedKeys.has(dedupeKeyForThreadMessage(message, activeRun)) &&
+        !persistedContent.has(contentSignature(message.role, message.body)),
     );
 
     if (pending.length === 0) return;
 
     void (async () => {
+      const written = new Set<string>();
       for (const message of pending) {
+        const signature = contentSignature(message.role, message.body);
+        if (written.has(signature)) continue;
+        written.add(signature);
         await emit({
           runId: activeRun.id,
           role: "agent",
@@ -243,7 +257,7 @@ export function ProjectWorkspace({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRun, canWrite, isNativeRun, messagesLoaded, persistedKeys, thread]);
+  }, [activeRun, canWrite, isNativeRun, messagesLoaded, persistedContent, persistedKeys, thread]);
 
   const say = async (runId: string | null, body: string[], kind: NewProjectMessage["kind"] = "message") => {
     await emit({ runId, role: "agent", kind, body, dedupeKey: `agent-${runId ?? "project"}-${Date.now()}` });
