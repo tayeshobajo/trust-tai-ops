@@ -2225,16 +2225,56 @@ button:focus-visible {
    Responsive
    ═══════════════════════════════════════════════════════════ */
 
+@media (max-width: 1400px) {
+  .run-experience-card {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 280px);
+  }
+
+  .run-conversation-rail {
+    grid-column: 1 / -1;
+    border-right: 0;
+    border-bottom: 1px solid var(--tt-rule);
+  }
+
+  .run-conversation-list {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(220px, 1fr);
+    overflow-x: auto;
+    padding-bottom: var(--tt-space-1);
+  }
+}
+
 @media (max-width: 1180px) {
   .app-shell {
-    grid-template-columns: 1fr;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mobile-topbar {
+    display: flex;
   }
 
   .rail {
-    position: static;
-    min-height: auto;
-    border-right: 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 50;
+    width: min(320px, 88vw);
+    min-height: 100vh;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 0;
+    transform: translateX(-100%);
+    transition: transform var(--tt-duration-base) var(--tt-ease);
+    overscroll-behavior: contain;
+  }
+
+  .rail-is-open .rail {
+    transform: translateX(0);
+  }
+
+  .rail-is-open .rail-scrim {
+    display: block;
   }
 
   .workspace-grid {
@@ -2247,7 +2287,7 @@ button:focus-visible {
   }
 
   .create-project-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .create-project-sidebar {
@@ -2255,13 +2295,19 @@ button:focus-visible {
   }
 
   .run-experience-card {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .run-conversation-rail,
   .run-main-stage {
     border-right: 0;
     border-bottom: 1px solid var(--tt-rule);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail {
+    transition: none;
   }
 }
 
@@ -2273,12 +2319,25 @@ button:focus-visible {
   .two-up,
   .create-form-grid,
   .access-card-grid,
+  .run-task-meta,
   .create-project-sidebar {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .tab-chip {
+    flex: 1 1 100%;
     min-width: 0;
+  }
+
+  .workspace {
+    padding: var(--tt-space-6) var(--tt-space-6) var(--tt-space-10);
+  }
+
+  .workspace-head,
+  .section-card,
+  .builder-card,
+  .guidance-card {
+    padding: var(--tt-space-5);
   }
 
   .create-project-hero,
@@ -2288,18 +2347,21 @@ button:focus-visible {
     align-items: flex-start;
   }
 
-  .create-button {
+  .create-button,
+  .primary-button,
+  .danger-button {
     width: 100%;
+  }
+
+  .ops-button-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
 @media (max-width: 640px) {
-  .app-shell {
-    width: 100%;
-  }
-
   .workspace {
     padding: var(--tt-space-5) var(--tt-space-4) var(--tt-space-8);
+    gap: var(--tt-space-4);
   }
 
   .workspace-head,
@@ -2332,7 +2394,24 @@ button:focus-visible {
     align-items: flex-start;
   }
 
+  .stat-card {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
   .thread-card.is-operator {
     width: 100%;
+    margin-left: 0;
+  }
+
+  .run-composer-actions {
+    gap: var(--tt-space-3);
+  }
+
+  .ops-decision-row,
+  .ops-actions,
+  .qa-result-top {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
