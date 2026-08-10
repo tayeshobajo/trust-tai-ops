@@ -47,6 +47,30 @@ revoke all on function public.can_access_project(uuid) from public, anon;
 grant execute on function public.current_member_organization() to authenticated;
 grant execute on function public.can_access_project(uuid) to authenticated;
 
+-- Type-agnostic membership proof.
+--
+-- The audit table's `project_id` is uuid on a fresh database, but a legacy
+-- database may still hold text. Casting uuid to text always succeeds, while
+-- casting arbitrary text to uuid raises and would break the whole policy, so
+-- the comparison is made on the text side in both directions.
+create or replace function public.can_access_project_ref(_project_ref text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.projects p
+    where p.id::text = _project_ref
+      and p.organization_id = public.current_member_organization()
+  )
+$$;
+
+revoke all on function public.can_access_project_ref(text) from public, anon;
+grant execute on function public.can_access_project_ref(text) to authenticated;
+
 -- ---------------------------------------------------------------------------
 -- Encrypted credential store. Ciphertext only; never a plaintext column.
 -- ---------------------------------------------------------------------------
@@ -125,7 +149,7 @@ begin
       on public.agent_execution_events
       for select
       to authenticated
-      using (public.can_access_project(project_id::uuid));
+      using (public.can_access_project_ref(project_id::text));
   end if;
 
   -- Writes belong to the execution gateway, which runs as the service role.
