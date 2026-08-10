@@ -5479,12 +5479,22 @@ p, li {
   max-width: 70ch;
 }
 
-/* Measure-limited text must stay on the page's left edge, not re-centre */
+/* Centre the whole reading column via surface padding so measure-limited
+   paragraphs stay on the column's left edge instead of re-centring. */
+.access-surface {
+  padding-inline: max(var(--tt-space-8), calc((100% - var(--tt-page-max)) / 2));
+}
+
+.access-surface > * {
+  max-width: var(--tt-page-max);
+  margin-inline: 0;
+}
+
 .access-surface > p,
 .access-surface > .access-intro,
 .access-surface > .mem-overview,
 .access-surface > .mem-empty {
-  margin-inline: 0;
+  max-width: 70ch;
 }
 
 .mem-entry-head {
