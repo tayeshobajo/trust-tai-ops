@@ -10,7 +10,14 @@
 
 import type { AccessType } from "../types";
 import { planAction } from "./registry";
-import type { AgentAction, AgentContext, AgentDecision, AgentPlan, ToolId } from "./types";
+import type {
+  AgentAction,
+  AgentActionArguments,
+  AgentContext,
+  AgentDecision,
+  AgentPlan,
+  ToolId,
+} from "./types";
 
 export interface AgentReasoner {
   readonly id: string;
