@@ -3888,7 +3888,11 @@ button:focus-visible {
     cursor: pointer;
   }
 
+  .pw-chat-head { padding: var(--tt-space-3) var(--tt-space-4); gap: var(--tt-space-2); }
+  .pw-chat-title { order: -1; flex-basis: 100%; }
   .pw-chat-title strong { font-size: 1.05rem; }
+  .pw-chat-title small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .pw-chat-head .agent-state { margin-left: auto; }
   .pw-thread { padding: var(--tt-space-5) var(--tt-space-4); gap: var(--tt-space-5); }
   .pw-composer { padding: var(--tt-space-3) var(--tt-space-4); }
 }
