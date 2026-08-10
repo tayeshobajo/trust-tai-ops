@@ -116,7 +116,7 @@ class DeterministicReasoner implements AgentReasoner {
 
     for (const item of want) {
       // Private tools resolve their own target server-side from the project.
-      const args = item.toolId === "wordpress.list_plugins" ? {} : { url };
+      const args: AgentActionArguments = item.toolId === "wordpress.list_plugins" ? {} : { url };
       const built = planAction(item.id, item.toolId, context.run.id, args, item.purpose);
       if ("error" in built) {
         return emptyPlan({
