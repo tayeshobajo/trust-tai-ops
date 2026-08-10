@@ -491,6 +491,13 @@ export function ProjectWorkspace({
             onClick={async () => {
               await apply(() => workspaceRepository.approveRun(project.id, run.id, "high_risk_execution", "approved", "Owner approved the recommended fix in conversation."));
               await apply(() => workspaceRepository.advanceRun(project.id, run.id, "execution"));
+              await emit({
+                runId: run.id,
+                role: "user",
+                kind: "decision_response",
+                body: ["Approved. Proceed with the recommended fix."],
+                dedupeKey: `decision-approval-${run.id}`,
+              });
             }}
           >
             Proceed with fix
@@ -625,37 +632,54 @@ export function ProjectWorkspace({
             </div>
           ) : null}
 
-          {thread.map((message) => (
-            <article key={message.id} className={`pw-msg pw-msg-${message.role}`}>
-              {message.role === "agent" ? <span className="pw-msg-who">Engineering Agent</span> : null}
-              {message.body.map((paragraph, index) => (
-                <p key={index}>{paragraph}</p>
-              ))}
-              {message.card ? (
-                <div className="pw-card">
-                  <h4>{message.card.title}</h4>
-                  <ul>
-                    {message.card.items.map((item, index) => (
-                      <li key={index} className={`tone-${item.tone ?? "neutral"}`}>
-                        <strong>{item.label}</strong>
-                        <span>{item.detail}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              {activeRun && message.decision ? renderDecision(activeRun, message.decision) : null}
-            </article>
-          ))}
+          {visible.map((message, position) => {
+            const previous = position > 0 ? visible[position - 1] : null;
+            const divider =
+              message.createdAt && (!previous?.createdAt || dayLabel(previous.createdAt) !== dayLabel(message.createdAt))
+                ? dayLabel(message.createdAt)
+                : null;
 
-          {extras.map((message) => (
-            <article key={message.id} className={`pw-msg pw-msg-${message.role}`}>
-              {message.role === "agent" ? <span className="pw-msg-who">Engineering Agent</span> : null}
-              {message.body.map((paragraph, index) => (
-                <p key={index}>{paragraph}</p>
-              ))}
-            </article>
-          ))}
+            return (
+              <div key={message.key} className="pw-msg-wrap">
+                {divider ? <p className="pw-day-divider"><span>{divider}</span></p> : null}
+                <article className={`pw-msg pw-msg-${message.role}`}>
+                  {message.role === "agent" ? (
+                    <span className="pw-msg-who">
+                      Engineering Agent
+                      {message.createdAt ? <time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time> : null}
+                    </span>
+                  ) : null}
+                  {message.body.map((paragraph, index) => (
+                    <p key={index}>{paragraph}</p>
+                  ))}
+                  {message.card ? (
+                    <div className="pw-card">
+                      <h4>{message.card.title}</h4>
+                      <ul>
+                        {message.card.items.map((item, index) => (
+                          <li key={index} className={`tone-${item.tone ?? "neutral"}`}>
+                            <strong>{item.label}</strong>
+                            <span>{item.detail}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {activeRun && message.decision ? renderDecision(activeRun, message.decision) : null}
+                  {message.role === "user" && message.createdAt ? (
+                    <time className="pw-msg-time" dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time>
+                  ) : null}
+                </article>
+              </div>
+            );
+          })}
+
+          {persistError ? (
+            <p className="pw-persist-error" role="status">
+              {persistError}
+              <button type="button" onClick={() => setPersistError(null)}>Dismiss</button>
+            </p>
+          ) : null}
           <div ref={threadEndRef} />
         </div>
 
