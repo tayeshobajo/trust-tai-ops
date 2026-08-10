@@ -11,6 +11,15 @@ const accessInitials: Record<ProjectDraft["accessSelections"][number]["type"], s
   cdn: "CD",
 };
 
+// Only these four are offered during initial project creation. Database and
+// CDN/Cloudflare stay in the domain model but are added later from Access & Connections.
+const visibleAccessTypes: ProjectDraft["accessSelections"][number]["type"][] = [
+  "wordpress_admin",
+  "sftp",
+  "ssh",
+  "hosting_portal",
+];
+
 export function CreateProjectPage({
   canCreateProject,
   draft,
@@ -92,7 +101,11 @@ export function CreateProjectPage({
             </div>
 
             <div className="create-access-grid">
-              {draft.accessSelections.map((selection) => {
+              {visibleAccessTypes.map((type) => {
+                const selection = draft.accessSelections.find((item) => item.type === type) ?? {
+                  type,
+                  enabled: false,
+                };
                 const copy = accessTypeCopy[selection.type];
 
                 return (
@@ -104,9 +117,11 @@ export function CreateProjectPage({
                     onClick={() =>
                       onDraftChange((current) => ({
                         ...current,
-                        accessSelections: current.accessSelections.map((item) =>
-                          item.type === selection.type ? { ...item, enabled: !item.enabled } : item,
-                        ),
+                        accessSelections: current.accessSelections.some((item) => item.type === type)
+                          ? current.accessSelections.map((item) =>
+                              item.type === type ? { ...item, enabled: !item.enabled } : item,
+                            )
+                          : [...current.accessSelections, { type, enabled: true }],
                       }))
                     }
                   >
