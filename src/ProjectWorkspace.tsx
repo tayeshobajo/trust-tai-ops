@@ -4,6 +4,8 @@ import { buildThread, draftFromBrief } from "./conversation";
 import type { DecisionKind, ThreadCard, ThreadMessage } from "./conversation";
 import {
   dayLabel,
+  findHitsOutsideRun,
+  matchesQuery,
   contentSignature,
   dedupeKeyForThreadMessage,
   kindForThreadMessage,
@@ -15,12 +17,17 @@ import { formatActivityStamp, getProjectInitials, signalForRun } from "./home";
 import { HUMAN_PHASES } from "./home";
 import { workspaceRepository } from "./repository";
 import { validateAdvance } from "./operations";
-import { autoAdvanceTarget, projectHasUsableAccess, simulateQa, workingNarration } from "./agent";
+import { projectHasUsableAccess } from "./agent";
+import { agentStepIdentity, executeAgentStep } from "./agentExecutor";
 import { ProjectAccessPanel } from "./ProjectAccessPanel";
 import type { AccessEvent } from "./ProjectAccessPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { ProjectActivityPanel } from "./ProjectActivityPanel";
 import { deriveMemoryFromRun } from "./memory";
+
+// Long conversations render in a trailing window and grow on request, so a
+// task with hundreds of messages opens as fast as a fresh one.
+const PAGE_SIZE = 40;
 
 type ProjectWorkspaceProps = {
   project: Project;
@@ -81,6 +88,8 @@ export function ProjectWorkspace({
   const [mobilePane, setMobilePane] = useState<"tasks" | "chat" | "context">("chat");
   const [surface, setSurface] = useState<"conversation" | "access" | "memory" | "activity">(initialSurface);
   const [accessFocus, setAccessFocus] = useState<AccessType[]>([]);
+  const [query, setQuery] = useState("");
+  const [windowSize, setWindowSize] = useState(PAGE_SIZE);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
@@ -202,14 +211,38 @@ export function ProjectWorkspace({
     return items;
   }, [activeRun, isNativeRun, persistedContent, persistedKeys, runMessages, thread]);
 
+  const searching = query.trim().length > 0;
+
+  const filtered = useMemo(
+    () => (searching ? visible.filter((item) => matchesQuery(item.body, query)) : visible),
+    [visible, query, searching],
+  );
+
+  const hidden = Math.max(0, filtered.length - windowSize);
+  const windowed = useMemo(() => (hidden > 0 ? filtered.slice(hidden) : filtered), [filtered, hidden]);
+
+  const otherHits = useMemo(
+    () => (searching ? findHitsOutsideRun(messages, activeRun?.id ?? null, query) : []),
+    [messages, activeRun, query, searching],
+  );
+
+  // A new task, a new search, or a cleared search always starts from the end.
+  useEffect(() => {
+    setWindowSize(PAGE_SIZE);
+  }, [activeRunId, query]);
+
+  useEffect(() => {
+    setQuery("");
+  }, [activeRunId]);
+
   useEffect(() => {
     composerRef.current?.focus();
   }, [activeRunId]);
 
   useEffect(() => {
-    if (!messagesLoaded) return;
+    if (!messagesLoaded || searching) return;
     threadEndRef.current?.scrollIntoView({ block: "end" });
-  }, [messagesLoaded, visible.length, surface]);
+  }, [messagesLoaded, visible.length, surface, searching]);
 
   // Single write path for every message the user actually sees.
   const emit = async (input: NewProjectMessage): Promise<ProjectMessage | null> => {
@@ -335,59 +368,22 @@ export function ProjectWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, runs, canWrite]);
 
-  // The agent moves itself through every lawful step that needs no human judgment.
+  // The agent moves itself through every lawful step that needs no human
+  // judgment. The executor owns what it says and how that is persisted.
   useEffect(() => {
     if (!canWrite || busy || !activeRun) return;
 
     const run = activeRun;
-    const key = `${run.id}:${run.state}:${run.qaReport.verdict}`;
-    if (attemptedRef.current.has(key)) return;
-
-    if (run.state === "qa") {
-      const simulation = simulateQa(run);
-      if (!simulation) return;
-      const timer = window.setTimeout(() => {
-        void (async () => {
-          if (attemptedRef.current.has(key)) return;
-          attemptedRef.current.add(key);
-          setBusy(true);
-          try {
-            for (const update of simulation.updates) {
-              await workspaceRepository.updateQaResult(project.id, run.id, update.id, update.result, update.notes);
-            }
-            let next = await workspaceRepository.setQaVerdict(project.id, run.id, simulation.verdict, simulation.summary);
-            if (simulation.verdict !== "failed") {
-              next = await workspaceRepository.advanceRun(project.id, run.id, "recommendations");
-            }
-            onWorkspaceUpdate(next);
-          } finally {
-            setBusy(false);
-          }
-        })();
-      }, 900);
-      return () => window.clearTimeout(timer);
-    }
-
-    const target = autoAdvanceTarget(project, run);
-    if (!target) return;
+    const identity = agentStepIdentity(project, run);
+    if (!identity || attemptedRef.current.has(identity)) return;
 
     const timer = window.setTimeout(() => {
       void (async () => {
-        if (attemptedRef.current.has(key)) return;
-        attemptedRef.current.add(key);
-        const narration = workingNarration(target);
-        if (narration) {
-          await emit({
-            runId: run.id,
-            role: "agent",
-            kind: "status_update",
-            body: [narration],
-            dedupeKey: `auto-${run.id}-${target}`,
-          });
-        }
+        if (attemptedRef.current.has(identity)) return;
+        attemptedRef.current.add(identity);
         setBusy(true);
         try {
-          onWorkspaceUpdate(await workspaceRepository.advanceRun(project.id, run.id, target));
+          await executeAgentStep({ project, run, emit, onWorkspaceUpdate });
         } finally {
           setBusy(false);
         }
@@ -714,7 +710,57 @@ export function ProjectWorkspace({
           </button>
         </header>
 
+        <div className="pw-search">
+          <input
+            type="search"
+            className="pw-search-input"
+            value={query}
+            placeholder="Search this conversation"
+            aria-label="Search this conversation"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          {searching ? (
+            <div className="pw-search-meta">
+              <span>
+                {filtered.length === 0
+                  ? "No messages match"
+                  : `${filtered.length} ${filtered.length === 1 ? "message" : "messages"} in this task`}
+              </span>
+              <button type="button" onClick={() => setQuery("")}>Clear</button>
+            </div>
+          ) : null}
+        </div>
+
+        {searching && otherHits.length > 0 ? (
+          <div className="pw-search-other">
+            <p className="eyebrow">Also found in other tasks</p>
+            {otherHits.map((hit, index) => {
+              const hitRun = hit.runId ? runs.find((run) => run.id === hit.runId) ?? null : null;
+              return (
+                <button
+                  key={`${hit.runId ?? "project"}-${index}`}
+                  type="button"
+                  className="pw-search-hit"
+                  onClick={() => {
+                    setActiveRunId(hit.runId);
+                    setMobilePane("chat");
+                  }}
+                >
+                  <strong>{hitRun ? hitRun.title : "Project conversation"}</strong>
+                  <span>{hit.role === "user" ? "You" : "Engineering Agent"} · {hit.excerpt}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
         <div className="pw-thread">
+          {hidden > 0 ? (
+            <button className="pw-load-earlier" type="button" onClick={() => setWindowSize((size) => size + PAGE_SIZE)}>
+              Show earlier messages ({hidden})
+            </button>
+          ) : null}
+
           {!activeRun ? (
             <div className="conversation-intro">
               <h2>New task</h2>
@@ -722,8 +768,8 @@ export function ProjectWorkspace({
             </div>
           ) : null}
 
-          {visible.map((message, position) => {
-            const previous = position > 0 ? visible[position - 1] : null;
+          {windowed.map((message, position) => {
+            const previous = position > 0 ? windowed[position - 1] : null;
             const divider =
               message.createdAt && (!previous?.createdAt || dayLabel(previous.createdAt) !== dayLabel(message.createdAt))
                 ? dayLabel(message.createdAt)

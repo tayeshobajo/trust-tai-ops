@@ -4509,3 +4509,101 @@ button:focus-visible {
   .pw-msg-who time,
   .pw-msg-time { opacity: 0.6; }
 }
+
+
+/* Conversation search + progressive loading */
+.pw-search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-3) var(--tt-space-6) 0;
+}
+
+.pw-search-input {
+  width: 100%;
+  padding: var(--tt-space-2) var(--tt-space-3);
+  border: 1px solid var(--tt-rule);
+  border-radius: 999px;
+  background: var(--tt-paper);
+  color: var(--tt-ink);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.pw-search-input:focus-visible {
+  outline: 2px solid var(--tt-royal);
+  outline-offset: 1px;
+}
+
+.pw-search-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tt-space-3);
+  font-size: 0.78rem;
+  color: var(--tt-muted);
+}
+
+.pw-search-meta button {
+  border: 0;
+  background: none;
+  color: var(--tt-royal);
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.pw-search-other {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-3) var(--tt-space-6) 0;
+}
+
+.pw-search-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: var(--tt-space-2) var(--tt-space-3);
+  border: 1px solid var(--tt-rule);
+  border-radius: var(--tt-radius-md);
+  background: var(--tt-white);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pw-search-hit:hover {
+  border-color: var(--tt-royal);
+}
+
+.pw-search-hit strong {
+  font-size: 0.85rem;
+}
+
+.pw-search-hit span {
+  font-size: 0.78rem;
+  color: var(--tt-muted);
+}
+
+.pw-load-earlier {
+  align-self: center;
+  padding: var(--tt-space-2) var(--tt-space-4);
+  border: 1px solid var(--tt-rule);
+  border-radius: 999px;
+  background: none;
+  color: var(--tt-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.pw-load-earlier:hover {
+  border-color: var(--tt-royal);
+  color: var(--tt-ink);
+}
+
+@media (max-width: 900px) {
+  .pw-search, .pw-search-other { padding-left: var(--tt-space-4); padding-right: var(--tt-space-4); }
+}

@@ -64,3 +64,52 @@ export const sortMessages = (messages: ProjectMessage[]): ProjectMessage[] =>
 
 export const countMessagesForRun = (messages: ProjectMessage[], runId: string): number =>
   messages.filter((message) => message.runId === runId).length;
+
+// ---------------------------------------------------------------------------
+// Conversation search
+// ---------------------------------------------------------------------------
+
+const normalize = (value: string) => value.toLowerCase();
+
+export const matchesQuery = (body: string[], query: string): boolean => {
+  const needle = normalize(query.trim());
+  if (!needle) return true;
+  return normalize(body.join("\n")).includes(needle);
+};
+
+export type SearchHit = {
+  runId: string | null;
+  excerpt: string;
+  role: ProjectMessage["role"];
+  createdAt: string;
+};
+
+/** Excerpt around the first match, so a hit reads like the sentence it came from. */
+export const excerptFor = (body: string[], query: string, radius = 70): string => {
+  const text = body.join(" ").replace(/\s+/g, " ").trim();
+  const index = normalize(text).indexOf(normalize(query.trim()));
+  if (index < 0) return text.slice(0, radius * 2);
+  const start = Math.max(0, index - radius);
+  const end = Math.min(text.length, index + query.trim().length + radius);
+  return `${start > 0 ? "…" : ""}${text.slice(start, end)}${end < text.length ? "…" : ""}`;
+};
+
+/** Matches in other tasks of the same project, newest first. */
+export const findHitsOutsideRun = (
+  messages: ProjectMessage[],
+  activeRunId: string | null,
+  query: string,
+  limit = 6,
+): SearchHit[] => {
+  if (!query.trim()) return [];
+  return sortMessages(messages)
+    .reverse()
+    .filter((message) => message.runId !== activeRunId && matchesQuery(message.body, query))
+    .slice(0, limit)
+    .map((message) => ({
+      runId: message.runId,
+      excerpt: excerptFor(message.body, query),
+      role: message.role,
+      createdAt: message.createdAt,
+    }));
+};
