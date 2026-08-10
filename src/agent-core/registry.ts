@@ -74,6 +74,16 @@ const notAvailable = (summary: string): AgentToolResult => ({
   retryable: false,
 });
 
+/**
+ * Evidence read through private access is marked `restricted` so the rest of
+ * the system can keep it separate from anything publicly observable.
+ */
+const sensitivityFor = (toolId: ToolId, data: Record<string, unknown>): AgentEvidence["sensitivity"] => {
+  if (toolId === "wordpress.list_plugins") return "restricted";
+  if (toolId === "wordpress.read_health" && data.authenticatedHealthAvailable === true) return "restricted";
+  return "public";
+};
+
 const evidenceFrom = (
   toolId: ToolId,
   invocationKey: string,
@@ -84,12 +94,12 @@ const evidenceFrom = (
   toolId,
   summary: safeSummary(summary),
   data,
-  sensitivity: "public",
+  sensitivity: sensitivityFor(toolId, data),
   redacted: true,
   observedAt: new Date().toISOString(),
 });
 
-/** Both implemented tools run entirely server-side, through the gateway. */
+/** Every implemented tool runs entirely server-side, through the gateway. */
 const runThroughGateway = async (
   action: AgentAction,
   projectId: string,
@@ -155,13 +165,18 @@ export const TOOL_REGISTRY: Record<ToolId, ToolDefinition> = {
     validate: requireUrl,
     execute: runThroughGateway,
   },
-  "wordpress.list_plugins": declared(
-    "wordpress.list_plugins",
-    "List installed plugins and their versions.",
-    "wordpress_admin",
-    true,
-    "I can't list the plugins yet — that needs WordPress admin access.",
-  ),
+  "wordpress.list_plugins": {
+    id: "wordpress.list_plugins",
+    purpose: "Read the installed plugins and their versions, without changing anything.",
+    capability: "wordpress_admin",
+    readOnly: true,
+    risk: classifyRisk("wordpress.list_plugins"),
+    implemented: true,
+    // The site address is resolved server-side from the authorized project, so
+    // no client-supplied URL is accepted for a credentialed call.
+    validate: () => ({ ok: true, args: {} }),
+    execute: runThroughGateway,
+  },
   "wordpress.read_health": {
     id: "wordpress.read_health",
     purpose: "Read the site's health signals, and check what needs admin access.",
