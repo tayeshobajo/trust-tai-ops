@@ -5384,6 +5384,17 @@ p, li {
   border-top: var(--tt-hairline);
 }
 
+/* Keep access options in a balanced 2-up grid instead of an orphan row */
+.create-access-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 600px) {
+  .create-access-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .mem-overview {
   border: 0;
   background: transparent;
