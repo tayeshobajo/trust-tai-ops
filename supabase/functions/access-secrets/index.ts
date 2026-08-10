@@ -14,11 +14,15 @@ import { authorizeProject } from "../_shared/authz.ts";
 import { authzDeps, executionContextConfigured, secretStoreDeps } from "../_shared/clients.ts";
 import { secretReferenceFor, storeCredential } from "../_shared/secretStore.ts";
 import { verifyStoredWordPressCredential } from "../_shared/verification.ts";
+import { runReadOnlyWpCli } from "../_shared/wpCli.ts";
+import { denoSshTransport } from "../_shared/sshTransport.ts";
+import { validatePrivateKey, validateSshDestination, validateSshUsername } from "../_shared/sshSafety.ts";
+import { validateWpBinary, validateWpRoot } from "../_shared/wpCliCatalog.ts";
 
 const fail = (code: string, summary: string, status = 200) =>
   Response.json({ ok: false, code, summary }, { status, headers: corsHeaders });
 
-const SUPPORTED = new Set(["wordpress_admin"]);
+const SUPPORTED = new Set(["wordpress_admin", "ssh"]);
 
 const AUTH_FAIL_SUMMARY: Record<string, string> = {
   unauthorized: "Please sign in before sharing access.",
@@ -49,6 +53,97 @@ Deno.serve(async (req) => {
 
   if (!SUPPORTED.has(accessType)) {
     return fail("not_implemented", "That kind of access can't be stored securely yet.");
+  }
+
+  // --- SSH -----------------------------------------------------------------
+  //
+  // SSH is stored as a sealed JSON payload holding only secret material. The
+  // host, port and paths are non-secret connection details and live beside it.
+  if (accessType === "ssh") {
+    const authz = await authorizeProject(req.headers.get("Authorization"), projectId, authzDeps());
+    if (!authz.ok) return fail(authz.code, AUTH_FAIL_SUMMARY[authz.code]);
+
+    if (mode === "verify") {
+      // The one place a first host identity may be recorded: a person asked
+      // for this check, so trust-on-first-use is bounded and deliberate.
+      const outcome = await runReadOnlyWpCli(secretStoreDeps(), denoSshTransport(), {
+        projectId: authz.project.projectId,
+        commandId: "core.is_installed",
+        allowFirstUse: true,
+      });
+
+      return Response.json(
+        {
+          ok: outcome.ok,
+          code: outcome.ok ? null : outcome.code,
+          summary: outcome.ok
+            ? "The server accepted that SSH key and WordPress answered. I recorded the server's identity."
+            : outcome.summary,
+          data: {
+            accessType,
+            verificationState: outcome.ok ? "verified" : outcome.code === "auth_failed" ? "rejected" : "unverified",
+            lastVerifiedAt: outcome.ok ? new Date().toISOString() : null,
+          },
+        },
+        { headers: corsHeaders },
+      );
+    }
+
+    const user = validateSshUsername(username);
+    if (!user.ok) return fail("invalid_input", user.reason);
+
+    const destination = validateSshDestination(
+      typeof body.host === "string" ? body.host : "",
+      body.port,
+    );
+    if (!destination.ok) return fail("invalid_input", destination.reason);
+
+    const key = validatePrivateKey(secret);
+    if (!key.ok) return fail("invalid_input", key.reason);
+
+    const root = validateWpRoot(typeof body.wpRoot === "string" ? body.wpRoot : null);
+    if (!root.ok) return fail("invalid_input", root.reason);
+
+    const binary = validateWpBinary(typeof body.wpBinary === "string" ? body.wpBinary : null);
+    if (!binary.ok) return fail("invalid_input", binary.reason);
+
+    const passphrase = typeof body.passphrase === "string" ? body.passphrase : "";
+    if (passphrase.length > 512) return fail("invalid_input", "That key passphrase is too long.");
+
+    const storedSsh = await storeCredential(secretStoreDeps(), {
+      projectId: authz.project.projectId,
+      accessType,
+      provider: "ssh_private_key",
+      username: user.username,
+      secret: JSON.stringify({ privateKey: key.key, passphrase: passphrase || undefined }),
+      config: {
+        host: destination.host,
+        port: destination.port,
+        wpRoot: root.path,
+        wpBinary: binary.binary,
+      },
+    });
+
+    if (!storedSsh.ok) {
+      return fail(storedSsh.code, "The secure credential store isn't configured, so I did not store anything.");
+    }
+
+    return Response.json(
+      {
+        ok: true,
+        summary:
+          "SSH access is stored securely. I haven't connected yet — checking it will also record the server's identity.",
+        data: {
+          secretReference: secretReferenceFor(authz.project.projectId, accessType),
+          accessType,
+          provider: "ssh_private_key",
+          username: user.username,
+          verificationState: "unverified",
+          lastVerifiedAt: null,
+        },
+      },
+      { headers: corsHeaders },
+    );
   }
 
   if (mode === "verify") {
