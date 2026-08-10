@@ -1249,7 +1249,37 @@ function mapMemoryEntry(row: MemoryEntryRow): MemoryEntry {
     type: row.memory_type,
     importance: row.importance,
     content: row.content,
+    sourceRunId: row.source_run_id ?? null,
+    sourceMessageId: row.source_message_id ?? null,
   };
+}
+
+function mapProjectMessage(row: ProjectMessageRow): ProjectMessage {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    runId: row.run_id ?? null,
+    role: row.role,
+    kind: row.kind,
+    body: row.body ?? [],
+    createdAt: row.created_at,
+    dedupeKey: row.dedupe_key ?? null,
+    sourceKey: row.source_key ?? null,
+  };
+}
+
+function sortByCreatedAt(messages: ProjectMessage[]): ProjectMessage[] {
+  return [...messages].sort((a, b) => {
+    const delta = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    return delta !== 0 ? delta : a.id.localeCompare(b.id);
+  });
+}
+
+function createMessageId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `message-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function mapQaRule(row: QaRuleRow): QaRule {
