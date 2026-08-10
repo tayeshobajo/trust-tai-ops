@@ -9,7 +9,7 @@
 
 import type { AccessType, MemoryEntry, Organization, NewProjectMessage, Project, ProjectMessage, Run } from "../types";
 import { workspaceRepository } from "../repository";
-import { describePublicSurface, describeSiteInspection, findingFromEvidence } from "./evidence";
+import { describeHealth, describePublicSurface, describeSiteInspection, findingFromEvidence } from "./evidence";
 import { evaluateAction } from "./policy";
 import { getTool } from "./registry";
 import { executionGateway } from "./gateway";
@@ -121,6 +121,8 @@ const describe = (evidence: AgentEvidence): string[] => {
       return describeSiteInspection(evidence);
     case "wordpress.inspect_public_surface":
       return describePublicSurface(evidence);
+    case "wordpress.read_health":
+      return describeHealth(evidence);
     default:
       return [evidence.summary];
   }
