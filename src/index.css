@@ -122,7 +122,7 @@ select {
   border: 1px solid var(--tt-rule);
   background: var(--tt-white);
   color: var(--tt-ink);
-  padding: 0.7rem 0.85rem;
+  padding: var(--tt-space-3) var(--tt-space-3);
   font-family: var(--tt-font-sans);
   font-size: 14px;
 }
@@ -156,6 +156,93 @@ button:focus-visible {
   grid-template-columns: 280px minmax(0, 1fr);
   gap: 0;
   min-height: 100vh;
+}
+
+/* ─── Mobile topbar + drawer scrim ──────────────────────── */
+
+.mobile-topbar {
+  display: none;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  align-items: center;
+  gap: var(--tt-space-3);
+  padding: var(--tt-space-3) var(--tt-space-4);
+  background: var(--tt-ink);
+  color: var(--tt-paper);
+}
+
+.mobile-topbar-title {
+  min-width: 0;
+}
+
+.mobile-topbar .eyebrow {
+  margin: 0;
+  color: rgba(252, 250, 246, 0.45);
+}
+
+.mobile-topbar-title strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tt-paper);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--tt-radius-pill);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(252, 250, 246, 0.85);
+  padding: var(--tt-space-2) var(--tt-space-3);
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 40px;
+}
+
+.rail-toggle-bars,
+.rail-toggle-bars::before,
+.rail-toggle-bars::after {
+  display: block;
+  width: 16px;
+  height: 1.5px;
+  background: currentColor;
+  border-radius: var(--tt-radius-pill);
+}
+
+.rail-toggle-bars {
+  position: relative;
+}
+
+.rail-toggle-bars::before,
+.rail-toggle-bars::after {
+  content: "";
+  position: absolute;
+  left: 0;
+}
+
+.rail-toggle-bars::before {
+  top: -5px;
+}
+
+.rail-toggle-bars::after {
+  top: 5px;
+}
+
+.rail-scrim {
+  display: none;
+  border: 0;
+  padding: 0;
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(1, 5, 27, 0.5);
 }
 
 /* ─── Ink Sidebar (Rail) ────────────────────────────────── */
@@ -315,7 +402,7 @@ button:focus-visible {
 
 .rail-nav-button span {
   display: block;
-  margin-top: 3px;
+  margin-top: var(--tt-space-1);
   color: rgba(252, 250, 246, 0.4);
   font-size: 12px;
 }
@@ -380,6 +467,7 @@ button:focus-visible {
 .rail .project-card strong {
   color: var(--tt-white);
   font-size: 14px;
+  display: block;
 }
 
 .rail .project-card span {
@@ -402,7 +490,7 @@ button:focus-visible {
   padding-left: 1rem;
   margin: 0;
   display: grid;
-  gap: 0.6rem;
+  gap: var(--tt-space-2);
   font-size: 12.5px;
   line-height: 1.5;
 }
@@ -537,7 +625,7 @@ button:focus-visible {
 .info-card small {
   color: var(--tt-muted);
   display: block;
-  margin-top: 3px;
+  margin-top: var(--tt-space-1);
 }
 
 /* ─── Workspace Grid ────────────────────────────────────── */
@@ -551,6 +639,8 @@ button:focus-visible {
 .workspace-grid > .main-column {
   flex: 1 1 auto;
   min-width: 0;
+  container-type: inline-size;
+  container-name: mainol;
 }
 
 .workspace-grid > .side-column {
@@ -587,7 +677,7 @@ button:focus-visible {
 
 .tab-chip span {
   display: block;
-  margin-top: 3px;
+  margin-top: var(--tt-space-1);
   color: var(--tt-muted);
   font-size: 12px;
 }
@@ -627,12 +717,13 @@ button:focus-visible {
 .primary-button {
   border: none;
   border-radius: var(--tt-radius-pill);
-  padding: 12px 20px;
+  padding: var(--tt-space-3) var(--tt-space-5);
   background: var(--tt-ink);
   color: var(--tt-paper);
   font-family: var(--tt-font-sans);
   font-weight: 600;
   font-size: 14px;
+  min-height: 44px;
   transition: all var(--tt-duration-fast) var(--tt-ease);
 }
 
@@ -649,11 +740,12 @@ button:focus-visible {
 .ghost-button {
   border: 1px solid var(--tt-rule);
   border-radius: var(--tt-radius-pill);
-  padding: 10px 16px;
+  padding: var(--tt-space-2) var(--tt-space-4);
   background: var(--tt-white);
   color: var(--tt-ink);
   font-size: 13px;
   font-weight: 500;
+  min-height: 40px;
   transition: all var(--tt-duration-fast) var(--tt-ease);
 }
 
@@ -705,10 +797,43 @@ button:focus-visible {
   align-items: center;
 }
 
+.list-card-top,
+.badge-row {
+  flex-wrap: wrap;
+}
+
+.list-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.list-card-top > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.list-card-top .pill {
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
+.project-top {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.project-top > div,
+.list-card-top > div,
+.section-head > div {
+  min-width: 0;
+}
+
 .project-top strong,
 .list-card strong,
 .info-card strong {
   font-size: 0.95rem;
+  overflow-wrap: anywhere;
 }
 
 .project-metrics {
@@ -723,7 +848,7 @@ button:focus-visible {
   padding-left: 1rem;
   color: var(--tt-muted);
   display: grid;
-  gap: 0.6rem;
+  gap: var(--tt-space-2);
   font-size: 13px;
   line-height: 1.55;
 }
@@ -780,7 +905,7 @@ button:focus-visible {
 .check input[type="radio"] {
   width: 18px;
   height: 18px;
-  margin-top: 2px;
+  margin-top: var(--tt-space-1);
   accent-color: var(--tt-royal);
 }
 
@@ -791,7 +916,7 @@ button:focus-visible {
 
 .check small {
   display: block;
-  margin-top: 4px;
+  margin-top: var(--tt-space-1);
   color: var(--tt-muted);
   font-size: 12px;
   line-height: 1.45;
@@ -823,7 +948,7 @@ button:focus-visible {
   background: var(--tt-secondary);
   color: var(--tt-muted);
   font-size: 10.5px;
-  padding: 3px 10px;
+  padding: var(--tt-space-1) var(--tt-space-3);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-family: var(--tt-font-mono);
@@ -1186,9 +1311,10 @@ button:focus-visible {
 .access-toggle,
 .create-button {
   border-radius: var(--tt-radius-pill);
-  padding: 8px 14px;
+  padding: var(--tt-space-2) var(--tt-space-4);
   font-weight: 600;
   font-size: 12.5px;
+  min-height: 40px;
 }
 
 .access-toggle {
@@ -1339,7 +1465,7 @@ button:focus-visible {
 
 .run-experience-card {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 240px) minmax(320px, 1fr) minmax(0, 280px);
   gap: 0;
   overflow: hidden;
   padding: 0;
@@ -1436,6 +1562,7 @@ button:focus-visible {
   font-weight: 500;
   letter-spacing: -0.02em;
   color: var(--tt-ink);
+  overflow-wrap: anywhere;
 }
 
 .run-thread {
@@ -1660,7 +1787,7 @@ button:focus-visible {
 
 .task-phase-item strong {
   display: block;
-  margin-bottom: 3px;
+  margin-bottom: var(--tt-space-1);
   font-size: 12.5px;
 }
 
@@ -1765,7 +1892,7 @@ button:focus-visible {
   width: 22px;
   height: 22px;
   border-radius: var(--tt-radius-pill);
-  margin-top: 3px;
+  margin-top: var(--tt-space-1);
   border: 2px solid var(--tt-rule);
   background: var(--tt-white);
   z-index: 1;
@@ -1783,7 +1910,7 @@ button:focus-visible {
 
 .timeline-item strong {
   display: block;
-  margin-bottom: 4px;
+  margin-bottom: var(--tt-space-1);
   font-size: 13px;
 }
 
@@ -1998,13 +2125,14 @@ button:focus-visible {
 }
 
 .danger-button {
-  padding: 10px 18px;
+  padding: var(--tt-space-3) var(--tt-space-5);
   background: var(--tt-danger);
   color: var(--tt-white);
   border: none;
   border-radius: var(--tt-radius-pill);
   font-weight: 600;
   font-size: 13px;
+  min-height: 44px;
   transition: all var(--tt-duration-fast) var(--tt-ease);
 }
 
@@ -2120,20 +2248,74 @@ button:focus-visible {
    Responsive
    ═══════════════════════════════════════════════════════════ */
 
+/* Run experience adapts to its column width, not just the viewport. */
+@container mainol (max-width: 1040px) {
+  .run-experience-card {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 280px);
+  }
+
+  .run-conversation-rail {
+    grid-column: 1 / -1;
+    border-right: 0;
+    border-bottom: 1px solid var(--tt-rule);
+  }
+
+  .run-conversation-list {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(220px, 1fr);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding-bottom: var(--tt-space-1);
+  }
+}
+
+@container mainol (max-width: 720px) {
+  .run-experience-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .run-main-stage {
+    border-right: 0;
+    border-bottom: 1px solid var(--tt-rule);
+  }
+}
+
 @media (max-width: 1180px) {
   .app-shell {
-    grid-template-columns: 1fr;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mobile-topbar {
+    display: flex;
   }
 
   .rail {
-    position: static;
-    min-height: auto;
-    border-right: 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 50;
+    width: min(320px, 88vw);
+    min-height: 100vh;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 0;
+    transform: translateX(-100%);
+    transition: transform var(--tt-duration-base) var(--tt-ease);
+    overscroll-behavior: contain;
+  }
+
+  .rail-is-open .rail {
+    transform: translateX(0);
+  }
+
+  .rail-is-open .rail-scrim {
+    display: block;
   }
 
   .workspace-grid {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .side-column {
@@ -2141,8 +2323,12 @@ button:focus-visible {
     max-width: none;
   }
 
+  .workspace-grid > .main-column {
+    width: 100%;
+  }
+
   .create-project-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .create-project-sidebar {
@@ -2150,13 +2336,19 @@ button:focus-visible {
   }
 
   .run-experience-card {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .run-conversation-rail,
   .run-main-stage {
     border-right: 0;
     border-bottom: 1px solid var(--tt-rule);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail {
+    transition: none;
   }
 }
 
@@ -2168,12 +2360,25 @@ button:focus-visible {
   .two-up,
   .create-form-grid,
   .access-card-grid,
+  .run-task-meta,
   .create-project-sidebar {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .tab-chip {
+    flex: 1 1 100%;
     min-width: 0;
+  }
+
+  .workspace {
+    padding: var(--tt-space-6) var(--tt-space-6) var(--tt-space-10);
+  }
+
+  .workspace-head,
+  .section-card,
+  .builder-card,
+  .guidance-card {
+    padding: var(--tt-space-5);
   }
 
   .create-project-hero,
@@ -2183,18 +2388,16 @@ button:focus-visible {
     align-items: flex-start;
   }
 
+  .create-button,
   .create-button {
     width: 100%;
   }
 }
 
 @media (max-width: 640px) {
-  .app-shell {
-    width: 100%;
-  }
-
   .workspace {
     padding: var(--tt-space-5) var(--tt-space-4) var(--tt-space-8);
+    gap: var(--tt-space-4);
   }
 
   .workspace-head,
@@ -2227,7 +2430,30 @@ button:focus-visible {
     align-items: flex-start;
   }
 
+  .stat-card {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
   .thread-card.is-operator {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .run-composer-actions {
+    gap: var(--tt-space-3);
+  }
+
+  .ops-decision-row,
+  .ops-actions,
+  .qa-result-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ops-btn,
+  .ops-actions > *,
+  .ops-decision-row > * {
     width: 100%;
   }
 }

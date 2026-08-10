@@ -42,6 +42,7 @@ function App() {
   const [draft, setDraft] = useState<RunDraft>(starterRunDraft(seedWorkspace.projects[0]?.environments[0]?.id ?? ""));
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(starterProjectDraft());
   const [saveMessage, setSaveMessage] = useState("");
+  const [railOpen, setRailOpen] = useState(false);
   const [repositoryHealth, setRepositoryHealth] = useState<RepositoryHealth>({
     adapter: "demo",
     ok: true,
@@ -180,8 +181,31 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
-      <aside className="rail">
+    <div className={`app-shell ${railOpen ? "rail-is-open" : ""}`}>
+      <header className="mobile-topbar">
+        <button
+          className="rail-toggle"
+          aria-expanded={railOpen}
+          aria-controls="tt-rail"
+          onClick={() => setRailOpen((open) => !open)}
+        >
+          <span className="rail-toggle-bars" aria-hidden="true" />
+          {railOpen ? "Close" : "Menu"}
+        </button>
+        <div className="mobile-topbar-title">
+          <p className="eyebrow">Ops</p>
+          <strong>{selectedProject?.name ?? "Command center"}</strong>
+        </div>
+      </header>
+
+      <button
+        className="rail-scrim"
+        aria-label="Close navigation"
+        tabIndex={railOpen ? 0 : -1}
+        onClick={() => setRailOpen(false)}
+      />
+
+      <aside className="rail" id="tt-rail">
         <div className="rail-brand">
           <img src="/trust-tai-logo-white.png" alt="Trust Tai" className="tt-rail-logo" />
           <p className="eyebrow">Ops</p>
@@ -211,6 +235,7 @@ function App() {
               onClick={() => {
                 setWorkspaceView("workspace");
                 setSaveMessage("");
+                setRailOpen(false);
               }}
             >
               <strong>Projects</strong>
@@ -221,6 +246,7 @@ function App() {
               onClick={() => {
                 setWorkspaceView("create_project");
                 setSaveMessage("");
+                setRailOpen(false);
               }}
             >
               <strong>New Project</strong>
@@ -253,6 +279,7 @@ function App() {
                     setSelectedProjectId(project.id);
                     setWorkspaceView("workspace");
                     setSaveMessage("");
+                    setRailOpen(false);
                   }}
                 >
                   <div className="project-top">
