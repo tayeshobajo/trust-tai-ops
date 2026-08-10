@@ -26,6 +26,11 @@ const agentStateLabel = (run: Run | null) => {
       return "Applying fix";
     case "qa":
       return "Running final checks";
+    case "recommendations":
+      return "Wrapping up";
+    case "intake":
+    case "access_check":
+      return "Getting started";
     case "complete":
       return "Ready";
     default:
