@@ -415,3 +415,23 @@ with check (
     where r.id = run_recommendations.run_id and p.organization_id = current_organization_id() and can_write_ops()
   )
 );
+
+alter table project_messages enable row level security;
+
+create policy project_messages_same_org
+on project_messages
+for all
+using (
+  exists (
+    select 1 from projects p
+    where p.id = project_messages.project_id and p.organization_id = current_organization_id()
+  )
+)
+with check (
+  exists (
+    select 1 from projects p
+    where p.id = project_messages.project_id
+      and p.organization_id = current_organization_id()
+      and can_write_ops()
+  )
+);

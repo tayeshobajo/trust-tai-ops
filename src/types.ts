@@ -79,6 +79,38 @@ export type MemoryEntry = {
   type: "stack_note" | "incident_note" | "risk_note" | "qa_rule" | "procedure";
   importance: "medium" | "high" | "critical";
   content: string;
+  // Optional provenance. Older entries legitimately have no source.
+  sourceRunId?: string | null;
+  sourceMessageId?: string | null;
+};
+
+export type MessageRole = "user" | "agent" | "system";
+
+// Internal only. Never rendered as a raw enum in the interface.
+export type MessageKind = "message" | "status_update" | "decision_request" | "decision_response";
+
+export type ProjectMessage = {
+  id: string;
+  projectId: string;
+  runId: string | null;
+  role: MessageRole;
+  kind: MessageKind;
+  body: string[];
+  createdAt: string;
+  // Deterministic write key. Prevents duplicate agent messages on rerender.
+  dedupeKey: string | null;
+  // Links a persisted message back to the deterministic thread element that
+  // produced it, so live cards/decisions can be rehydrated from run data.
+  sourceKey: string | null;
+};
+
+export type NewProjectMessage = {
+  runId: string | null;
+  role: MessageRole;
+  kind: MessageKind;
+  body: string[];
+  dedupeKey?: string | null;
+  sourceKey?: string | null;
 };
 
 export type Recommendation = {
