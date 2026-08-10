@@ -17,7 +17,7 @@ export type ProjectSignal = {
 
 const shortTitle = (run: Run) => run.title.replace(/\.$/, "").toLowerCase();
 
-const signalForRun = (run: Run): ProjectSignal => {
+export const signalForRun = (run: Run): ProjectSignal => {
   const base = { updatedAt: run.updatedAt } as const;
 
   switch (run.state) {
