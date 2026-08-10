@@ -925,7 +925,7 @@ button:focus-visible {
   background: var(--tt-secondary);
   color: var(--tt-muted);
   font-size: 10.5px;
-  padding: 3px 10px;
+  padding: var(--tt-space-1) var(--tt-space-3);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-family: var(--tt-font-mono);
@@ -1288,9 +1288,10 @@ button:focus-visible {
 .access-toggle,
 .create-button {
   border-radius: var(--tt-radius-pill);
-  padding: 8px 14px;
+  padding: var(--tt-space-2) var(--tt-space-4);
   font-weight: 600;
   font-size: 12.5px;
+  min-height: 40px;
 }
 
 .access-toggle {
@@ -2100,13 +2101,14 @@ button:focus-visible {
 }
 
 .danger-button {
-  padding: 10px 18px;
+  padding: var(--tt-space-3) var(--tt-space-5);
   background: var(--tt-danger);
   color: var(--tt-white);
   border: none;
   border-radius: var(--tt-radius-pill);
   font-weight: 600;
   font-size: 13px;
+  min-height: 44px;
   transition: all var(--tt-duration-fast) var(--tt-ease);
 }
 
