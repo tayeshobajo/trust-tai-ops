@@ -245,8 +245,15 @@ export function ProjectAccessPanel({
     try {
       const outcome = await verifyStoredCredential(project.id);
       setNotice(outcome.summary);
-      // The server already recorded the result; this only re-reads it.
-      onWorkspaceUpdate(await workspaceRepository.loadWorkspace());
+      // The server decided this. The repository reconciles the stored record
+      // with the server's outcome — on the native adapter that is a pure
+      // re-read, because the function already wrote the row.
+      onWorkspaceUpdate(
+        await workspaceRepository.applyServerVerification(project.id, definition.type, {
+          state: outcome.state,
+          lastVerifiedAt: outcome.lastVerifiedAt,
+        }),
+      );
       if (outcome.state === "verified") {
         try {
           onAccessEvent?.({ type: definition.type, label: definition.label, action: "reverified" });
