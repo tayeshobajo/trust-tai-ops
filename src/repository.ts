@@ -223,7 +223,13 @@ export interface WorkspaceRepository {
   addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string; sourceRunId?: string | null; sourceMessageId?: string | null }): Promise<Organization>;
   saveAccessMethod(projectId: string, method: ProjectAccessMethod): Promise<Organization>;
   removeAccessMethod(projectId: string, methodId: string): Promise<Organization>;
-  verifyAccessMethod(projectId: string, methodId: string): Promise<Organization>;
+  /**
+   * Records a human re-confirmation of a metadata-only access note.
+   *
+   * It cannot verify an executable credential: proving a WordPress Application
+   * Password is a server-side act, and the browser is not allowed to claim it.
+   */
+  verifyAccessMethod(projectId: string, methodId: string, accessType?: AccessType): Promise<Organization>;
   listProjectMessages(projectId: string): Promise<ProjectMessage[]>;
   listRunMessages(projectId: string, runId: string): Promise<ProjectMessage[]>;
   addProjectMessage(projectId: string, message: NewProjectMessage): Promise<ProjectMessage>;
