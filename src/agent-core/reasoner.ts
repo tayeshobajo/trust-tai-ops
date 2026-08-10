@@ -28,6 +28,20 @@ export interface AgentReasoner {
 const hasEvidenceFrom = (context: AgentContext, toolId: ToolId) =>
   context.evidence.some((item) => item.toolId === toolId);
 
+/**
+ * The catalog inspection each planned WP-CLI action stands for. Named here so
+ * the planner can never assemble a command; it only chooses a catalog id.
+ */
+const WP_CLI_ACTION_COMMANDS: Record<string, string> = {
+  "wp-cli-core-version": "core.version",
+  "wp-cli-core-checksums": "core.verify_checksums",
+};
+
+const wpCliArgsFor = (actionId: string): AgentActionArguments | null => {
+  const commandId = WP_CLI_ACTION_COMMANDS[actionId];
+  return commandId ? { commandId } : null;
+};
+
 /** True only when something actually observed says this is WordPress. */
 const wordpressMarkersPresent = (context: AgentContext): boolean =>
   context.evidence.some((item) => {
