@@ -571,12 +571,19 @@ export function ProjectWorkspace({
             className="ghost-button"
             type="button"
             disabled={!canWrite || busy}
-            onClick={() =>
-              void apply(
+            onClick={async () => {
+              await apply(
                 () => workspaceRepository.approveRun(project.id, run.id, "high_risk_execution", "rejected", "Owner asked for a different approach."),
                 "Understood. I'll look for a safer or different route and come back with another option.",
-              )
-            }
+              );
+              await emit({
+                runId: run.id,
+                role: "user",
+                kind: "decision_response",
+                body: ["Use the safer approach instead."],
+                dedupeKey: `decision-approval-rejected-${run.id}`,
+              });
+            }}
           >
             Request another approach
           </button>
