@@ -119,8 +119,8 @@ const wrongKey = await resolveCredential(
 );
 check("a wrong key never yields plaintext", !wrongKey.ok && wrongKey.code === "secret_store_unavailable");
 check("tampered ciphertext is rejected", (await openSecret(
-  { ...(await sealSecret("x", parseEncryptionKey(KEY).ok ? (parseEncryptionKey(KEY) as { key: Uint8Array }).key : new Uint8Array(32))), ciphertext: "AAAA" },
-  (parseEncryptionKey(KEY) as { key: Uint8Array }).key,
+  { ...(await sealSecret("x", (await parseEncryptionKey(KEY)).ok ? ((await parseEncryptionKey(KEY)) as { key: Uint8Array }).key : new Uint8Array(32))), ciphertext: "AAAA" },
+  ((await parseEncryptionKey(KEY)) as { key: Uint8Array }).key,
 )).ok === false);
 
 console.log("\nserver-confirmed capabilities");

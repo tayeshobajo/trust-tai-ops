@@ -46,7 +46,7 @@ export const storeCredential = async (
   deps: SecretStoreDeps,
   input: { projectId: string; accessType: string; provider: string; username: string; secret: string },
 ): Promise<StoreResult> => {
-  const key = parseEncryptionKey(deps.encryptionKey);
+  const key = await parseEncryptionKey(deps.encryptionKey);
   if (!key.ok) return { ok: false, code: "secret_store_unavailable" };
 
   const sealed = await sealSecret(input.secret, key.key);
@@ -75,7 +75,7 @@ export const resolveCredential = async (
   projectId: string,
   accessType: string,
 ): Promise<ResolveResult> => {
-  const key = parseEncryptionKey(deps.encryptionKey);
+  const key = await parseEncryptionKey(deps.encryptionKey);
   if (!key.ok) return { ok: false, code: "secret_store_unavailable" };
 
   let row: StoredSecretRow | null = null;
