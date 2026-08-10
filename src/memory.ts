@@ -119,6 +119,7 @@ export const deriveMemoryFromRun = (project: Project, run: Run): DerivedMemory[]
         ]
           .filter(Boolean)
           .join(" "),
+        sourceRunId: run.id,
       });
     }
   }
@@ -134,6 +135,7 @@ export const deriveMemoryFromRun = (project: Project, run: Run): DerivedMemory[]
       type: "risk_note",
       importance: finding.severity === "critical" ? "critical" : "high",
       content: `${finding.summary.trim()} Found while working on ${run.title.replace(/\.$/, "")}.`,
+      sourceRunId: run.id,
     });
   }
 
