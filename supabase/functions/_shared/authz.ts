@@ -30,6 +30,12 @@ export type AuthzDeps = {
   >;
   /** Service-role read of the caller's organization membership. */
   loadMembership: (email: string) => Promise<{ organizationId: string } | null>;
+  /**
+   * Preferred membership lookup: the app user row bound to this auth UID by
+   * key. Email matching stays only as a transitional fallback for rows created
+   * before `users.auth_user_id` existed.
+   */
+  loadMembershipByAuthId?: (authUserId: string) => Promise<{ organizationId: string } | null>;
   /** Service-role read of the project's canonical environment. */
   loadEnvironment: (projectId: string) => Promise<{ id: string; primaryUrl: string } | null>;
 };
@@ -71,7 +77,10 @@ export const authorizeProject = async (
   let project: Awaited<ReturnType<AuthzDeps["loadProject"]>>;
   let membership: Awaited<ReturnType<AuthzDeps["loadMembership"]>>;
   try {
-    [project, membership] = await Promise.all([deps.loadProject(projectId), deps.loadMembership(caller.email)]);
+    project = await deps.loadProject(projectId);
+    // UID first. Identity by key beats identity by string comparison.
+    membership = deps.loadMembershipByAuthId ? await deps.loadMembershipByAuthId(caller.userId) : null;
+    if (!membership) membership = await deps.loadMembership(caller.email);
   } catch {
     return { ok: false, code: "execution_context_unavailable" };
   }
