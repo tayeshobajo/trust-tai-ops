@@ -206,8 +206,18 @@ export function ProjectAccessPanel({
     if (definition.executable) {
       const username = (values.user ?? "").trim();
       const secret = values.secret ?? "";
+      const isSsh = definition.type === "ssh";
+
       if (!username || secret.trim().length < 8) {
-        setNotice("I need the WordPress username and a complete Application Password.");
+        setNotice(
+          isSsh
+            ? "I need the SSH username and the whole private key."
+            : "I need the WordPress username and a complete Application Password.",
+        );
+        return;
+      }
+      if (isSsh && !(values.host ?? "").trim()) {
+        setNotice("I need the server address before I can store SSH access.");
         return;
       }
 
@@ -216,12 +226,20 @@ export function ProjectAccessPanel({
       try {
         stored = await submitCredential({
           projectId: project.id,
-          accessType: "wordpress_admin",
+          accessType: isSsh ? "ssh" : "wordpress_admin",
           username,
           secret,
+          ...(isSsh
+            ? {
+                host: (values.host ?? "").trim(),
+                port: Number((values.port ?? "").trim() || 22),
+                wpRoot: (values.wpRoot ?? "").trim(),
+                passphrase: values.passphrase ?? "",
+              }
+            : {}),
         });
       } finally {
-        // Drop the value from component state before anything else happens.
+        // Drop the key and passphrase from component state immediately.
         setValues({});
         setBusy(false);
       }
@@ -249,7 +267,9 @@ export function ProjectAccessPanel({
     await run(
       () => workspaceRepository.saveAccessMethod(project.id, method),
       definition.executable
-        ? `${definition.label} is stored securely and can never be read back. It hasn't been checked with WordPress yet — use Verify access when you're ready.`
+        ? definition.type === "ssh"
+          ? `${definition.label} is stored securely and can never be read back. I haven't connected yet — use Verify access, and I'll record the server's identity on that first connection.`
+          : `${definition.label} is stored securely and can never be read back. It hasn't been checked with WordPress yet — use Verify access when you're ready.`
         : `${definition.label} connection details saved.`,
       { type: definition.type, label: definition.label, action: existing ? "replaced" : "added" },
     );
@@ -268,7 +288,10 @@ export function ProjectAccessPanel({
     if (!canWrite || busy) return;
     setBusy(true);
     try {
-      const outcome = await verifyStoredCredential(project.id);
+      const outcome = await verifyStoredCredential(
+        project.id,
+        definition.type === "ssh" ? "ssh" : "wordpress_admin",
+      );
       setNotice(outcome.summary);
       // The server decided this. The repository reconciles the stored record
       // with the server's outcome — on the native adapter that is a pure
