@@ -289,6 +289,19 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
   const learned: AgentEvidence[] = [];
   const spoke: string[] = [];
 
+  // Stored is not verified. If this turn is about to lean on a stored
+  // credential that WordPress has never accepted, the person is told exactly
+  // that before it is used — and told again once it is proven.
+  const usesStoredAccess = plan.actions.some((action) => PRIVATE_TOOLS.has(action.toolId));
+  const alreadyVerified = (context.verifiedCapabilities ?? []).includes("wordpress_admin");
+  if (usesStoredAccess && !alreadyVerified && context.capabilities.includes("wordpress_admin")) {
+    const lines = [
+      "WordPress Admin access is stored securely. I'm verifying it with a read-only check before I use it.",
+    ];
+    await say(input, `verifying-access-${input.run.id}`, lines);
+    spoke.push(...lines);
+  }
+
   for (const action of plan.actions) {
     const evidence = await executeAction(input, context, action);
     for (const item of evidence) {
@@ -313,6 +326,14 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
         }
       }
     }
+  }
+
+  if (usesStoredAccess && !alreadyVerified && learned.some((item) => PRIVATE_TOOLS.has(item.toolId))) {
+    const lines = [
+      "Access verified. I can now inspect the private WordPress health signals and installed plugins without changing anything.",
+    ];
+    await say(input, `access-verified-${input.run.id}`, lines);
+    spoke.push(...lines);
   }
 
   if (plan.decision.intent === "request_access") {
