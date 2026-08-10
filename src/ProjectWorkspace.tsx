@@ -4,7 +4,6 @@ import { buildThread, draftFromBrief } from "./conversation";
 import type { DecisionKind, ThreadCard, ThreadMessage } from "./conversation";
 import {
   dayLabel,
-  excerptFor,
   findHitsOutsideRun,
   matchesQuery,
   contentSignature,
