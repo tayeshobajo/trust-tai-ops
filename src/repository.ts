@@ -1064,7 +1064,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     return this.loadWorkspace();
   }
 
-  async addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string }): Promise<Organization> {
+  async addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string; sourceRunId?: string | null; sourceMessageId?: string | null }): Promise<Organization> {
     const client = getSupabaseClient();
     await client.from("project_memory_entries").insert([{
       id: crypto.randomUUID(),
@@ -1073,6 +1073,8 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       importance: entry.importance,
       title: entry.title,
       content: entry.content,
+      ...(entry.sourceRunId ? { source_run_id: entry.sourceRunId } : {}),
+      ...(entry.sourceMessageId ? { source_message_id: entry.sourceMessageId } : {}),
     }] as never);
     return this.loadWorkspace();
   }
