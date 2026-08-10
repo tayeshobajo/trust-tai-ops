@@ -5479,6 +5479,14 @@ p, li {
   max-width: 70ch;
 }
 
+/* Measure-limited text must stay on the page's left edge, not re-centre */
+.access-surface > p,
+.access-surface > .access-intro,
+.access-surface > .mem-overview,
+.access-surface > .mem-empty {
+  margin-inline: 0;
+}
+
 .mem-entry-head {
   display: flex;
   align-items: baseline;
