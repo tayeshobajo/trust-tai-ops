@@ -15,6 +15,8 @@ import { authzDeps, executionContextConfigured, secretStoreDeps } from "../_shar
 import { fetchSafely, readBounded, redact, safeHeaders, validatePublicUrl } from "../_shared/net.ts";
 import { capabilityTruth, resolveCredential } from "../_shared/secretStore.ts";
 import { authenticatedGet, normalizeHealthTest, normalizePlugins } from "../_shared/wordpress.ts";
+import { runReadOnlyWpCli } from "../_shared/wpCli.ts";
+import { denoSshTransport } from "../_shared/sshTransport.ts";
 
 const fail = (code: string, summary: string, retryable: boolean) =>
   Response.json({ ok: false, code, summary, retryable }, { headers: corsHeaders });
@@ -25,7 +27,10 @@ const AUTH_FAIL_SUMMARY: Record<string, string> = {
   execution_context_unavailable: "I can't confirm who this project belongs to right now, so I stopped.",
 };
 
-const PRIVATE_TOOLS = new Set(["wordpress.list_plugins"]);
+const PRIVATE_TOOLS = new Set(["wordpress.list_plugins", "wordpress.run_wp_cli_readonly"]);
+
+/** Every access type whose credential the server can actually resolve. */
+const EXECUTABLE_ACCESS_TYPES = ["wordpress_admin", "ssh"];
 
 // --- public inspections (unchanged behaviour) -------------------------------
 
@@ -377,6 +382,7 @@ Deno.serve(async (req) => {
     // `capabilities` are credentials this project holds and can attempt.
     // `verifiedCapabilities` are the ones the provider has already accepted.
     const truth = await capabilityTruth(secretStoreDeps(), authorizedProjectId, ["wordpress_admin"]);
+    void EXECUTABLE_ACCESS_TYPES;
     return Response.json(
       {
         ok: true,
