@@ -284,7 +284,7 @@ const listPlugins = async (projectId: string, canonicalUrl: string | null) => {
   if (!outcome.ok) {
     if (outcome.kind === "unauthorized") {
       await deps.markVerification?.(projectId, "wordpress_admin", "rejected", null);
-      return fail("unauthorized", "WordPress rejected the stored admin credential.", false);
+      return fail("unauthorized", "WordPress did not accept that Application Password. Please replace the WordPress Admin access.", false);
     }
     if (outcome.kind === "forbidden") {
       await deps.markVerification?.(projectId, "wordpress_admin", "rejected", null);
