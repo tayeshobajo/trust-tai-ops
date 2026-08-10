@@ -329,9 +329,10 @@ export function ProjectAccessPanel({
       </header>
 
       <p className="access-intro">
-        Share only what the agent needs. A WordPress Application Password is sealed on the server the moment you save
-        it and can never be read back — not by you, not by the agent, not by this page. The other connections record
-        where access lives; their credentials aren't stored here yet.
+        Share only what the agent needs. A WordPress Application Password and an SSH private key are sealed on the
+        server the moment you save them and can never be read back — not by you, not by the agent, not by this page.
+        SSH is used for a fixed list of read-only inspections only. The other connections record where access lives;
+        their credentials aren't stored here yet.
       </p>
 
       {notice ? <p className="access-notice">{notice}</p> : null}
@@ -353,7 +354,9 @@ export function ProjectAccessPanel({
               {method ? (
                 <small className="access-stamp">
                   {definition.executable && !isVerified(method)
-                    ? "Stored securely · not yet checked with WordPress"
+                    ? definition.type === "ssh"
+                      ? "Stored securely · server identity not confirmed yet"
+                      : "Stored securely · not yet checked with WordPress"
                     : formatVerified(method)}
                 </small>
               ) : null}
