@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "check:agent": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/agent-core-checks.ts",
     "check:private": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/private-access-checks.ts",
+    "check:wpcli": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/wpcli-checks.ts",
     "check:migrations": "node --experimental-strip-types --no-warnings scripts/migration-checks.ts"
   },
   "dependencies": {
