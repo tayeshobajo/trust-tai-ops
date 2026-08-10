@@ -231,6 +231,21 @@ export interface WorkspaceRepository {
    * Password is a server-side act, and the browser is not allowed to claim it.
    */
   verifyAccessMethod(projectId: string, methodId: string, accessType?: AccessType): Promise<Organization>;
+  /**
+   * Reconciles an access method with an outcome the server produced.
+   *
+   * The browser never decides this: the only input is a verification result
+   * that came back from the `access-secrets` function. On the native adapter
+   * the server has already written the row, so this is a pure re-read. On the
+   * local adapter — where there is no database and no real credential — the
+   * server-attested outcome is applied to the local fixture so the rendered
+   * card tells the same truth the server just told.
+   */
+  applyServerVerification(
+    projectId: string,
+    accessType: AccessType,
+    outcome: { state: "verified" | "rejected" | "unverified"; lastVerifiedAt: string | null },
+  ): Promise<Organization>;
   listProjectMessages(projectId: string): Promise<ProjectMessage[]>;
   listRunMessages(projectId: string, runId: string): Promise<ProjectMessage[]>;
   addProjectMessage(projectId: string, message: NewProjectMessage): Promise<ProjectMessage>;
