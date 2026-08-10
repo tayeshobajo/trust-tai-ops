@@ -50,6 +50,17 @@ export const authzDeps = (): AuthzDeps => {
       if (!data || (data.status && data.status === "disabled")) return null;
       return { organizationId: String(data.organization_id) };
     },
+    // Preferred path. Falls back to email only when the column is absent
+    // (older schema) or the row has not been bound to an auth UID yet.
+    loadMembershipByAuthId: async (authUserId) => {
+      const { data, error } = await service
+        .from("users")
+        .select("organization_id, status")
+        .eq("auth_user_id", authUserId)
+        .maybeSingle();
+      if (error || !data || data.status === "disabled") return null;
+      return { organizationId: String(data.organization_id) };
+    },
     loadEnvironment: async (projectId) => {
       const { data } = await service
         .from("project_environments")
@@ -82,10 +93,24 @@ export const secretStoreDeps = (): SecretStoreDeps => {
         .maybeSingle();
       return (data as StoredSecretRow | null) ?? null;
     },
-    markVerification: async (projectId, accessType, state) => {
+    markVerification: async (projectId, accessType, state, verifiedAt) => {
+      // The secret store is the source of truth, and it is written first so
+      // the database guard can recognise the matching public timestamp.
       await service
         .from("project_access_secrets")
-        .update({ verification_state: state, last_verified_at: new Date().toISOString() })
+        .update({ verification_state: state, last_verified_at: verifiedAt })
+        .eq("project_id", projectId)
+        .eq("access_type", accessType);
+
+      // Then the public metadata the workspace reads. A rejection clears the
+      // timestamp rather than leaving a stale claim behind.
+      await service
+        .from("project_access_methods")
+        .update(
+          state === "verified"
+            ? { status: "available", last_verified_at: verifiedAt }
+            : { status: "stale", last_verified_at: null },
+        )
         .eq("project_id", projectId)
         .eq("access_type", accessType);
     },

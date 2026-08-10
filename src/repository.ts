@@ -5,6 +5,7 @@ import { advanceRunState } from "./operations";
 import { createSeedWorkspace } from "./seed";
 import { getSupabaseClient } from "./supabase";
 import type {
+  AccessType,
   MemoryEntry,
   NewProjectMessage,
   Organization,
@@ -223,7 +224,13 @@ export interface WorkspaceRepository {
   addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string; sourceRunId?: string | null; sourceMessageId?: string | null }): Promise<Organization>;
   saveAccessMethod(projectId: string, method: ProjectAccessMethod): Promise<Organization>;
   removeAccessMethod(projectId: string, methodId: string): Promise<Organization>;
-  verifyAccessMethod(projectId: string, methodId: string): Promise<Organization>;
+  /**
+   * Records a human re-confirmation of a metadata-only access note.
+   *
+   * It cannot verify an executable credential: proving a WordPress Application
+   * Password is a server-side act, and the browser is not allowed to claim it.
+   */
+  verifyAccessMethod(projectId: string, methodId: string, accessType?: AccessType): Promise<Organization>;
   listProjectMessages(projectId: string): Promise<ProjectMessage[]>;
   listRunMessages(projectId: string, runId: string): Promise<ProjectMessage[]>;
   addProjectMessage(projectId: string, message: NewProjectMessage): Promise<ProjectMessage>;
@@ -522,7 +529,10 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     return nextWorkspace;
   }
 
-  async verifyAccessMethod(projectId: string, methodId: string): Promise<Organization> {
+  async verifyAccessMethod(projectId: string, methodId: string, accessType?: AccessType): Promise<Organization> {
+    // Demo adapter. Nothing here is real verification, and nothing here can
+    // reach the native path — the seeded workspace lives in this browser only.
+    if (accessType === "wordpress_admin") return this.loadWorkspace();
     const workspace = await this.loadWorkspace();
     const stamp = new Date().toISOString();
     const nextWorkspace: Organization = {
@@ -1151,7 +1161,13 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     return this.loadWorkspace();
   }
 
-  async verifyAccessMethod(_projectId: string, methodId: string): Promise<Organization> {
+  async verifyAccessMethod(_projectId: string, methodId: string, accessType?: AccessType): Promise<Organization> {
+    // An executable credential is proven by the server or not at all. This
+    // path must never stamp a verification time for one, even if asked: the
+    // database guard would refuse the write anyway, and pretending here would
+    // be worse than refusing.
+    if (accessType === "wordpress_admin") return this.loadWorkspace();
+
     const client = getSupabaseClient();
     await (client.from("project_access_methods") as never as {
       update: (v: unknown) => { eq: (k: string, v: string) => Promise<unknown> };

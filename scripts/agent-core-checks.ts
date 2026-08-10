@@ -152,7 +152,7 @@ let calls = 0;
 const spoken: string[][] = [];
 setExecutionGateway({
   available: () => true,
-  confirmedCapabilities: async () => [],
+  projectCapabilities: async () => ({ stored: [], verified: [] }),
   invoke: async () => {
     calls += 1;
     return {

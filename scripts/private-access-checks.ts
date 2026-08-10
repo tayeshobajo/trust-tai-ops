@@ -29,9 +29,10 @@ const check = (name: string, condition: boolean) => {
 
 const { authorizeProject, bearerToken } = await import("../supabase/functions/_shared/authz.ts");
 const { openSecret, parseEncryptionKey, sealSecret } = await import("../supabase/functions/_shared/crypto.ts");
-const { resolvableCapabilities, resolveCredential, storeCredential } = await import(
+const { capabilityTruth, storedCapabilities, resolveCredential, storeCredential } = await import(
   "../supabase/functions/_shared/secretStore.ts"
 );
+const { verifyStoredWordPressCredential } = await import("../supabase/functions/_shared/verification.ts");
 const { authenticatedGet, basicAuthHeader, normalizeHealthTest, normalizePlugins } = await import(
   "../supabase/functions/_shared/wordpress.ts"
 );
@@ -84,6 +85,15 @@ const storeDeps = (key: string | undefined) => ({
   saveRow: async (row: Record<string, unknown>) => void rows.set(`${row.project_id}:${row.access_type}`, row),
   loadRow: async (projectId: string, accessType: string) =>
     (rows.get(`${projectId}:${accessType}`) as never) ?? null,
+  markVerification: async (
+    projectId: string,
+    accessType: string,
+    state: string,
+    verifiedAt: string | null,
+  ) => {
+    const row = rows.get(`${projectId}:${accessType}`);
+    if (row) rows.set(`${projectId}:${accessType}`, { ...row, verification_state: state, last_verified_at: verifiedAt });
+  },
 });
 
 const noKey = await storeCredential(storeDeps(undefined) as never, {
@@ -128,14 +138,68 @@ check("an absent key is refused", (await parseEncryptionKey(undefined)).ok === f
 
 console.log("\nserver-confirmed capabilities");
 check(
-  "capability is confirmed only where a secret resolves",
-  JSON.stringify(await resolvableCapabilities(storeDeps(KEY) as never, "p1", ["wordpress_admin", "ssh"])) ===
+  "capability is stored only where a secret resolves",
+  JSON.stringify(await storedCapabilities(storeDeps(KEY) as never, "p1", ["wordpress_admin", "ssh"])) ===
     JSON.stringify(["wordpress_admin"]),
 );
 check(
-  "no capability is confirmed without the encryption key",
-  (await resolvableCapabilities(storeDeps(undefined) as never, "p1", ["wordpress_admin"])).length === 0,
+  "no capability is stored without the encryption key",
+  (await storedCapabilities(storeDeps(undefined) as never, "p1", ["wordpress_admin"])).length === 0,
 );
+{
+  const truth = await capabilityTruth(storeDeps(KEY) as never, "p1", ["wordpress_admin"]);
+  check(
+    "a stored credential is never reported as verified",
+    truth.stored.includes("wordpress_admin") && truth.verified.length === 0,
+  );
+}
+
+// --- verification semantics --------------------------------------------------
+
+console.log("\nverification semantics");
+{
+  const okFetch = async () =>
+    new Response(JSON.stringify({ id: 1 }), { status: 200, headers: { "content-type": "application/json" } });
+  const rejectFetch = async () => new Response("", { status: 401 });
+  const downFetch = async () => new Response("", { status: 500 });
+
+  const noUrl = await verifyStoredWordPressCredential(storeDeps(KEY) as never, "p1", null, okFetch as never);
+  check("verification without a server-resolved address never runs", noUrl.state === "unverified" && noUrl.lastVerifiedAt === null);
+
+  const rejected = await verifyStoredWordPressCredential(
+    storeDeps(KEY) as never,
+    "p1",
+    "https://example.com",
+    rejectFetch as never,
+  );
+  check("a rejected credential is rejected, with no timestamp", rejected.state === "rejected" && rejected.lastVerifiedAt === null);
+  check("a rejection is recorded in the store", rows.get("p1:wordpress_admin")?.verification_state === "rejected");
+  check("a rejection never explains the credential", !JSON.stringify(rejected).includes(APP_PASSWORD.replace(/\s+/g, "")));
+
+  const unreachable = await verifyStoredWordPressCredential(
+    storeDeps(KEY) as never,
+    "p1",
+    "https://example.com",
+    downFetch as never,
+  );
+  check("an unreachable site does not claim verification", unreachable.state === "unverified" && unreachable.lastVerifiedAt === null);
+
+  const accepted = await verifyStoredWordPressCredential(
+    storeDeps(KEY) as never,
+    "p1",
+    "https://example.com",
+    okFetch as never,
+  );
+  check("an accepted credential verifies with a real timestamp", accepted.state === "verified" && typeof accepted.lastVerifiedAt === "string");
+  check(
+    "the store and the returned timestamp agree",
+    rows.get("p1:wordpress_admin")?.last_verified_at === accepted.lastVerifiedAt,
+  );
+  check("verification never returns the credential", !JSON.stringify(accepted).includes("abcd"));
+
+  const truth = await capabilityTruth(storeDeps(KEY) as never, "p1", ["wordpress_admin"]);
+  check("verified capability appears only after a real acceptance", truth.verified.includes("wordpress_admin"));
+}
 
 // --- credential handling over the wire --------------------------------------
 

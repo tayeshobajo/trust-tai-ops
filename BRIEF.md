@@ -100,3 +100,38 @@ does the user need this to create a project, give the agent what it needs, make 
 or trust the completed work?
 
 If not, it belongs underneath the application layer.
+
+## Deployment truth (private read layer)
+
+Nothing in the private WordPress path works from the browser alone. It requires
+a deployed backend, in this order:
+
+1. **Apply migrations** in `db/migrations/` in filename order. They are
+   idempotent and safe to re-run. `20260816_audit_identity_alignment.sql`
+   converts legacy text identity columns to `uuid` without dropping history;
+   `20260818_verification_integrity.sql` adds `users.auth_user_id` and the
+   trigger that stops the browser from forging a verification timestamp.
+2. **Set the Edge Function secret** `AGENT_SECRET_ENCRYPTION_KEY` (32 bytes).
+   Until it exists, credential storage is refused rather than downgraded.
+3. **Deploy the Edge Functions** `agent-execute` and `access-secrets`.
+4. **Backfill `users.auth_user_id`** for existing members. Tenant identity is
+   resolved from `auth.uid()` first and falls back to email only for rows not
+   yet backfilled. Email is a weaker claim; treat the fallback as temporary.
+
+Until all four are done, the app runs in its local demo adapter, where no
+credential is real and no WordPress site is contacted.
+
+### Stored is not verified
+
+Two distinct facts, never collapsed:
+
+- **Stored** — the credential is sealed in the server-only secret store and
+  can be decrypted by the Edge Function. It proves nothing about whether it
+  works.
+- **Verified** — WordPress itself accepted the credential on a read-only
+  authenticated call. Only the server may record this, and only after a real
+  200 response.
+
+`last_verified_at` stays null until then. The agent says "stored securely"
+before verification and "verified" only after, and it distinguishes stored from
+verified capabilities when deciding what it may attempt.

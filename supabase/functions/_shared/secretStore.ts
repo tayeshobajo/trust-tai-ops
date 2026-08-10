@@ -30,8 +30,17 @@ export type SecretStoreDeps = {
   saveRow: (row: Omit<StoredSecretRow, "id"> & { id?: string }) => Promise<void>;
   /** Service-role read by project + access type. */
   loadRow: (projectId: string, accessType: string) => Promise<StoredSecretRow | null>;
-  /** Records the outcome of a real authenticated call. Never stores secrets. */
-  markVerification?: (projectId: string, accessType: string, state: "verified" | "rejected") => Promise<void>;
+  /**
+   * Records the outcome of a real authenticated call. Never stores secrets.
+   * `verifiedAt` is null for a rejection: a rejected credential must not keep
+   * or gain a verification timestamp.
+   */
+  markVerification?: (
+    projectId: string,
+    accessType: string,
+    state: "verified" | "rejected",
+    verifiedAt: string | null,
+  ) => Promise<void>;
 };
 
 export type WordPressCredential = { username: string; applicationPassword: string };
@@ -104,16 +113,42 @@ export const resolveCredential = async (
   };
 };
 
-/** Server truth about what private capabilities this project can actually use. */
-export const resolvableCapabilities = async (
+/**
+ * Server truth, in two distinct grades:
+ *
+ *   stored   — a credential exists for this project and decrypts cleanly.
+ *   verified — the provider has actually accepted that credential at least once.
+ *
+ * A stored credential is enough to *attempt* a read-only private call. It is
+ * never enough to tell a person their access is verified.
+ */
+export type CapabilityTruth = { stored: string[]; verified: string[] };
+
+export const capabilityTruth = async (
   deps: SecretStoreDeps,
   projectId: string,
   candidates: string[],
-): Promise<string[]> => {
-  const usable: string[] = [];
+): Promise<CapabilityTruth> => {
+  const stored: string[] = [];
+  const verified: string[] = [];
   for (const accessType of candidates) {
     const resolved = await resolveCredential(deps, projectId, accessType);
-    if (resolved.ok) usable.push(accessType);
+    if (!resolved.ok) continue;
+    stored.push(accessType);
+    let row: StoredSecretRow | null = null;
+    try {
+      row = await deps.loadRow(projectId, accessType);
+    } catch {
+      row = null;
+    }
+    if (row?.verification_state === "verified") verified.push(accessType);
   }
-  return usable;
+  return { stored, verified };
 };
+
+/** Credentials this project holds. Decryptable, not proven acceptable. */
+export const storedCapabilities = async (
+  deps: SecretStoreDeps,
+  projectId: string,
+  candidates: string[],
+): Promise<string[]> => (await capabilityTruth(deps, projectId, candidates)).stored;

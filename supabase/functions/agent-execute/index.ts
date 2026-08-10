@@ -13,7 +13,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { authorizeProject } from "../_shared/authz.ts";
 import { authzDeps, executionContextConfigured, secretStoreDeps } from "../_shared/clients.ts";
 import { fetchSafely, readBounded, redact, safeHeaders, validatePublicUrl } from "../_shared/net.ts";
-import { resolvableCapabilities, resolveCredential } from "../_shared/secretStore.ts";
+import { capabilityTruth, resolveCredential } from "../_shared/secretStore.ts";
 import { authenticatedGet, normalizeHealthTest, normalizePlugins } from "../_shared/wordpress.ts";
 
 const fail = (code: string, summary: string, retryable: boolean) =>
@@ -212,11 +212,11 @@ const authenticatedHealth = async (baseUrl: string, projectId: string) => {
   }
 
   if (unauthorized || forbidden) {
-    await deps.markVerification?.(projectId, "wordpress_admin", "rejected");
+    await deps.markVerification?.(projectId, "wordpress_admin", "rejected", null);
     return { available: false as const, code: unauthorized ? "unauthorized" : "forbidden" };
   }
   if (readable.length > 0) {
-    await deps.markVerification?.(projectId, "wordpress_admin", "verified");
+    await deps.markVerification?.(projectId, "wordpress_admin", "verified", new Date().toISOString());
   }
 
   return { available: reachable && readable.length > 0, tests: readable, code: null };
@@ -283,11 +283,11 @@ const listPlugins = async (projectId: string, canonicalUrl: string | null) => {
   const outcome = await authenticatedGet(canonicalUrl, "/wp-json/wp/v2/plugins", resolved.credential);
   if (!outcome.ok) {
     if (outcome.kind === "unauthorized") {
-      await deps.markVerification?.(projectId, "wordpress_admin", "rejected");
-      return fail("unauthorized", "WordPress rejected the stored admin credential.", false);
+      await deps.markVerification?.(projectId, "wordpress_admin", "rejected", null);
+      return fail("unauthorized", "WordPress did not accept that Application Password. Please replace the WordPress Admin access.", false);
     }
     if (outcome.kind === "forbidden") {
-      await deps.markVerification?.(projectId, "wordpress_admin", "rejected");
+      await deps.markVerification?.(projectId, "wordpress_admin", "rejected", null);
       return fail("forbidden", "That WordPress account is not allowed to read the plugin list.", false);
     }
     if (outcome.kind === "endpoint_unavailable") {
@@ -309,7 +309,7 @@ const listPlugins = async (projectId: string, canonicalUrl: string | null) => {
     return fail("not_implemented", "WordPress answered, but not with a readable plugin list.", false);
   }
 
-  await deps.markVerification?.(projectId, "wordpress_admin", "verified");
+  await deps.markVerification?.(projectId, "wordpress_admin", "verified", new Date().toISOString());
 
   return Response.json(
     {
@@ -374,9 +374,15 @@ Deno.serve(async (req) => {
     if (!authorizedProjectId) {
       return fail("execution_context_unavailable", "I can't confirm what access this project has.", false);
     }
-    const capabilities = await resolvableCapabilities(secretStoreDeps(), authorizedProjectId, ["wordpress_admin"]);
+    // `capabilities` are credentials this project holds and can attempt.
+    // `verifiedCapabilities` are the ones the provider has already accepted.
+    const truth = await capabilityTruth(secretStoreDeps(), authorizedProjectId, ["wordpress_admin"]);
     return Response.json(
-      { ok: true, summary: "Confirmed the access this project can actually use.", data: { capabilities } },
+      {
+        ok: true,
+        summary: "Confirmed the access this project actually holds.",
+        data: { capabilities: truth.stored, verifiedCapabilities: truth.verified },
+      },
       { headers: corsHeaders },
     );
   }

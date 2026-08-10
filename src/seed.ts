@@ -74,9 +74,11 @@ export const createSeedWorkspace = (): Organization => ({
           type: "wordpress_admin",
           label: "WordPress Admin",
           status: "available",
-          authMethod: "Username + password",
-          lastVerifiedAt: "2026-08-04 21:40 CDT",
-          notes: "Production admin verified. MFA path still manual.",
+          authMethod: "Application Password",
+          // Seed data cannot verify anything: no WordPress has ever answered
+          // for these fixtures, so the stamp stays empty.
+          lastVerifiedAt: "",
+          notes: "Stored securely. Not yet checked against the live site.",
         },
         {
           id: "epay-sftp",
@@ -264,8 +266,8 @@ export const createSeedWorkspace = (): Organization => ({
           type: "wordpress_admin",
           label: "WordPress Admin",
           status: "available",
-          authMethod: "Saved credential reference",
-          lastVerifiedAt: "2026-08-02 18:10 CDT",
+          authMethod: "Application Password",
+          lastVerifiedAt: "",
           notes: "Use cautiously; public delivery path is partially decoupled.",
         },
         {
