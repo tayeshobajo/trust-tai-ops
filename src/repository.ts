@@ -72,6 +72,7 @@ type ProjectAccessMethodRow = {
   auth_method: string;
   last_verified_at: string | null;
   notes: string;
+  credential_reference?: string | null;
 };
 
 type MemoryEntryRow = {
