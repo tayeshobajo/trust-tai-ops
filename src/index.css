@@ -2315,11 +2315,16 @@ button:focus-visible {
 
   .workspace-grid {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .side-column {
     width: 100%;
     max-width: none;
+  }
+
+  .workspace-grid > .main-column {
+    width: 100%;
   }
 
   .create-project-shell {
