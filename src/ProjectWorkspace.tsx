@@ -17,6 +17,7 @@ import { workspaceRepository } from "./repository";
 import { validateAdvance } from "./operations";
 import { autoAdvanceTarget, projectHasUsableAccess, simulateQa, workingNarration } from "./agent";
 import { ProjectAccessPanel } from "./ProjectAccessPanel";
+import type { AccessEvent } from "./ProjectAccessPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { ProjectActivityPanel } from "./ProjectActivityPanel";
 import { deriveMemoryFromRun } from "./memory";
@@ -620,6 +621,7 @@ export function ProjectWorkspace({
         focusTypes={accessFocus}
         onBackToConversation={() => setSurface("conversation")}
         onWorkspaceUpdate={onWorkspaceUpdate}
+        onAccessEvent={recordAccessEvent}
       />
     );
   }
