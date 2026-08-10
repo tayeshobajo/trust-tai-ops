@@ -529,7 +529,10 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     return nextWorkspace;
   }
 
-  async verifyAccessMethod(projectId: string, methodId: string): Promise<Organization> {
+  async verifyAccessMethod(projectId: string, methodId: string, accessType?: AccessType): Promise<Organization> {
+    // Demo adapter. Nothing here is real verification, and nothing here can
+    // reach the native path — the seeded workspace lives in this browser only.
+    if (accessType === "wordpress_admin") return this.loadWorkspace();
     const workspace = await this.loadWorkspace();
     const stamp = new Date().toISOString();
     const nextWorkspace: Organization = {
