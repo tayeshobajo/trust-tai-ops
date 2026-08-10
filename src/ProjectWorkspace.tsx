@@ -30,6 +30,24 @@ import { deriveMemoryFromRun } from "./memory";
 // task with hundreds of messages opens as fast as a fresh one.
 const PAGE_SIZE = 40;
 
+/** Marks the searched phrase inside a line so results are scannable. */
+function Highlight({ text, query }: { text: string; query: string }) {
+  const segments = highlightSegments(text, query);
+  return (
+    <>
+      {segments.map((segment, index) =>
+        segment.match ? (
+          <mark key={index} className="pw-hit-mark">
+            {segment.text}
+          </mark>
+        ) : (
+          <span key={index}>{segment.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 type ProjectWorkspaceProps = {
   project: Project;
   canWrite: boolean;

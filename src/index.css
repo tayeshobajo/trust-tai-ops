@@ -4607,3 +4607,12 @@ button:focus-visible {
 @media (max-width: 900px) {
   .pw-search, .pw-search-other { padding-left: var(--tt-space-4); padding-right: var(--tt-space-4); }
 }
+
+/* Search match highlight */
+.pw-hit-mark {
+  background: color-mix(in srgb, var(--tt-royal) 22%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+  box-decoration-break: clone;
+}
