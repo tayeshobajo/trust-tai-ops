@@ -2348,13 +2348,8 @@ button:focus-visible {
   }
 
   .create-button,
-  .primary-button,
-  .danger-button {
+  .create-button {
     width: 100%;
-  }
-
-  .ops-button-row {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -2413,5 +2408,11 @@ button:focus-visible {
   .qa-result-top {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .ops-btn,
+  .ops-actions > *,
+  .ops-decision-row > * {
+    width: 100%;
   }
 }
