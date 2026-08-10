@@ -5449,3 +5449,31 @@ p, li {
     --tt-type-section: 21px;
   }
 }
+
+/* ─── v3: single-column editorial pages read at a measure ── */
+
+.tt-page,
+.access-surface,
+.project-empty,
+.create-project-main {
+  --tt-page-max: 1040px;
+}
+
+.access-surface p,
+.mem-entry p,
+.act-detail li,
+.access-intro {
+  max-width: 70ch;
+}
+
+.mem-entry-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tt-space-4);
+}
+
+.mem-entry-head .mem-kind,
+.mem-entry-head .mem-weight {
+  flex: 0 0 auto;
+}
