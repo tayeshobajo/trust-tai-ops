@@ -123,7 +123,7 @@ export const starterProjectDraft = (): ProjectDraft => ({
   phpVersion: "Unknown",
   createProductionEnvironment: true,
   accessSelections: [
-    { type: "wordpress_admin", enabled: true },
+    { type: "wordpress_admin", enabled: false },
     { type: "sftp", enabled: false },
     { type: "ssh", enabled: false },
     { type: "hosting_portal", enabled: false },
