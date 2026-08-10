@@ -567,6 +567,42 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     return nextWorkspace;
   }
 
+  async applyServerVerification(
+    projectId: string,
+    accessType: AccessType,
+    outcome: { state: "verified" | "rejected" | "unverified"; lastVerifiedAt: string | null },
+  ): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    // An unreachable check changed nothing on the server, so it changes
+    // nothing here either.
+    if (outcome.state === "unverified") return workspace;
+    // "Verified" without a server timestamp is not a verification. Refusing is
+    // the only safe reading of a malformed outcome.
+    if (outcome.state === "verified" && !outcome.lastVerifiedAt) return workspace;
+
+    const nextWorkspace: Organization = {
+      ...workspace,
+      projects: workspace.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              accessMethods: p.accessMethods.map((item) =>
+                item.type !== accessType
+                  ? item
+                  : outcome.state === "verified"
+                    ? { ...item, status: "available" as const, lastVerifiedAt: outcome.lastVerifiedAt as string }
+                    : // A rejection is a real fact too: the stamp is cleared and
+                      // the card is asked for attention.
+                      { ...item, status: "stale" as const, lastVerifiedAt: "" },
+              ),
+            },
+      ),
+    };
+    await this.saveWorkspace(nextWorkspace);
+    return nextWorkspace;
+  }
+
   private readMessageStore(): Record<string, ProjectMessage[]> {
     if (typeof window === "undefined") return {};
     const raw = window.localStorage.getItem(MESSAGE_STORAGE_KEY);
