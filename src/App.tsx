@@ -4,6 +4,8 @@ import { loadAuthState, signOutIfSupported } from "./auth";
 import { AuthScreen } from "./AuthScreen";
 import { OperationsPanel } from "./OperationsPanel";
 import { ProjectsCommandCenter } from "./ProjectsCommandCenter";
+import { CreateProjectPage } from "./CreateProjectPage";
+import { ProjectEmptyState } from "./ProjectEmptyState";
 import { accessTypeCopy, starterProjectDraft, starterRunDraft, stateCopy, taskTypeOptions, workspaceTabs } from "./data";
 import {
   countOpenRecommendations,
@@ -141,11 +143,8 @@ function App() {
 
     setWorkspace(nextWorkspace);
     setSelectedProjectId(nextProject?.id ?? null);
-    setWorkspaceView("first_run");
+    setWorkspaceView("project_home");
     setActiveTab("active_run");
-    if (nextProject) {
-      setDraft(createFirstRunDraft(nextProject));
-    }
     setProjectDraft(starterProjectDraft());
     setSaveMessage(`Project created for ${nextProject?.name ?? "the new site"}.`);
   };
@@ -208,6 +207,14 @@ function App() {
           }
           setSaveMessage("");
           setWorkspaceView("first_run");
+        }}
+      />
+    ) : workspaceView === "project_home" && selectedProject ? (
+      <ProjectEmptyState
+        project={selectedProject}
+        onBackToProjects={() => {
+          setSaveMessage("");
+          setWorkspaceView("home");
         }}
       />
     ) : (
@@ -635,243 +642,6 @@ function App() {
       </main>
     </div>
     )
-  );
-}
-
-function CreateProjectPage({
-  canCreateProject,
-  draft,
-  onBack,
-  onCreateProject,
-  onDraftChange,
-  saveMessage,
-}: {
-  canCreateProject: boolean;
-  draft: ProjectDraft;
-  onBack: () => void;
-  onCreateProject: () => void;
-  onDraftChange: Dispatch<SetStateAction<ProjectDraft>>;
-  saveMessage: string;
-}) {
-  const selectedAccessCount = draft.accessSelections.filter((selection) => selection.enabled).length;
-
-  return (
-    <section className="create-project-page">
-      <div className="create-project-topbar">
-        <div className="breadcrumb-row">
-          <span>Projects</span>
-          <span>/</span>
-          <strong>New Project</strong>
-        </div>
-        <div className="topbar-status">
-          <span className="status-dot" />
-          <div>
-            <strong>Agent ready</strong>
-            <small>Ready to work</small>
-          </div>
-        </div>
-      </div>
-
-      <div className="create-project-shell">
-        <div className="create-project-main">
-          <button className="back-link" onClick={onBack}>
-            Back
-          </button>
-
-          <div className="create-project-hero">
-            <div>
-              <h2>Create New Project</h2>
-              <p>
-                Add the basics and connect the access your agent may need.
-                You can always update these details later.
-              </p>
-            </div>
-            <div className="hero-orbit" aria-hidden="true" />
-          </div>
-
-          <section className="create-section">
-            <div className="create-section-head">
-              <span className="step-badge">1</span>
-              <div>
-                <h3>Project details</h3>
-                <p>Name the site clearly and give the system the minimum context it needs to start well.</p>
-              </div>
-            </div>
-
-            <div className="create-form-grid">
-              <label className="light-field">
-                <span>Project name</span>
-                <input
-                  value={draft.name}
-                  onChange={(event) => onDraftChange((current) => ({ ...current, name: event.target.value, clientName: current.clientName || event.target.value }))}
-                  placeholder="Real Leaders Website"
-                />
-              </label>
-
-              <label className="light-field">
-                <span>Website URL</span>
-                <input
-                  value={draft.websiteUrl}
-                  onChange={(event) => onDraftChange((current) => ({ ...current, websiteUrl: event.target.value }))}
-                  placeholder="https://realleaders.com"
-                />
-                <small>Include `https://` for the cleanest environment record.</small>
-              </label>
-            </div>
-
-            <div className="create-form-grid">
-              <label className="light-field">
-                <span>Client name</span>
-                <input
-                  value={draft.clientName}
-                  onChange={(event) => onDraftChange((current) => ({ ...current, clientName: event.target.value }))}
-                  placeholder="Real Leaders"
-                />
-              </label>
-
-              <label className="light-field">
-                <span>Hosting provider</span>
-                <input
-                  value={draft.hostingProvider}
-                  onChange={(event) => onDraftChange((current) => ({ ...current, hostingProvider: event.target.value }))}
-                  placeholder="WP Engine"
-                />
-              </label>
-            </div>
-
-            <div className="create-form-grid">
-              <label className="light-field">
-                <span>WordPress version</span>
-                <input
-                  value={draft.wordpressVersion}
-                  onChange={(event) => onDraftChange((current) => ({ ...current, wordpressVersion: event.target.value }))}
-                  placeholder="Latest / unknown"
-                />
-              </label>
-
-              <label className="light-field">
-                <span>PHP version</span>
-                <input
-                  value={draft.phpVersion}
-                  onChange={(event) => onDraftChange((current) => ({ ...current, phpVersion: event.target.value }))}
-                  placeholder="Unknown"
-                />
-              </label>
-            </div>
-
-            <label className="light-field">
-              <span>Description</span>
-              <textarea
-                rows={4}
-                maxLength={300}
-                value={draft.description}
-                onChange={(event) => onDraftChange((current) => ({ ...current, description: event.target.value }))}
-                placeholder="WordPress membership site with WooCommerce and custom integrations."
-              />
-              <small>{draft.description.length}/300</small>
-            </label>
-          </section>
-
-          <section className="create-section">
-            <div className="create-section-head">
-              <span className="step-badge">2</span>
-              <div>
-                <h3>Access connections</h3>
-                <p>Add the access methods the agent may need. You can add one or all now, or skip and add later.</p>
-              </div>
-            </div>
-
-            <div className="access-card-grid">
-              {draft.accessSelections.map((selection) => {
-                const copy = accessTypeCopy[selection.type];
-
-                return (
-                  <article key={selection.type} className={`access-card ${selection.enabled ? "is-enabled" : ""}`}>
-                    <div className="access-icon">{selection.type === "wordpress_admin" ? "WP" : selection.type === "sftp" ? "SF" : selection.type === "ssh" ? "SH" : "HO"}</div>
-                    <div className="access-copy">
-                      <strong>{copy.label}</strong>
-                      <p>{copy.detail}</p>
-                      <small>{copy.blurb}</small>
-                    </div>
-                    <button
-                      className={`access-toggle ${selection.enabled ? "is-enabled" : ""}`}
-                      onClick={() =>
-                        onDraftChange((current) => ({
-                          ...current,
-                          accessSelections: current.accessSelections.map((item) =>
-                            item.type === selection.type ? { ...item, enabled: !item.enabled } : item,
-                          ),
-                        }))
-                      }
-                    >
-                      {selection.enabled ? "Added" : "Add Access"}
-                    </button>
-                  </article>
-                );
-              })}
-            </div>
-
-            <div className="create-page-actions">
-              <button className="text-button" onClick={onBack}>
-                Skip for now
-              </button>
-              <button className="create-button" onClick={onCreateProject} disabled={!canCreateProject || !draft.name.trim() || !draft.websiteUrl.trim()}>
-                Create Project
-              </button>
-            </div>
-
-            {!canCreateProject ? (
-              <p className="light-message">
-                Project creation is blocked until the operator is authenticated with a role above `viewer`.
-              </p>
-            ) : null}
-
-            {saveMessage ? <p className="light-message">{saveMessage}</p> : null}
-          </section>
-        </div>
-
-        <aside className="create-project-sidebar">
-          <section className="create-side-card">
-            <div className="side-icon">S</div>
-            <div>
-              <h3>Your data is secure</h3>
-              <p>
-                All access details are encrypted and stored securely. We only use them to complete the work you request.
-              </p>
-            </div>
-          </section>
-
-          <section className="create-side-card side-steps">
-            <h3>What happens next?</h3>
-            <div className="step-list">
-              <div className="step-item">
-                <span>1</span>
-                <p>Your agent reviews the project and confirms which doors are actually open.</p>
-              </div>
-              <div className="step-item">
-                <span>2</span>
-                <p>A backup is recommended before any write-capable work begins.</p>
-              </div>
-              <div className="step-item">
-                <span>3</span>
-                <p>The agent diagnoses, recommends, executes, and verifies with care.</p>
-              </div>
-              <div className="step-item">
-                <span>4</span>
-                <p>Every action is documented and saved into project memory.</p>
-              </div>
-            </div>
-          </section>
-
-          <section className="create-side-visual">
-            <div className="visual-badge">
-              <strong>{selectedAccessCount} access path{selectedAccessCount === 1 ? "" : "s"} selected</strong>
-              <small>Enough for a cleaner first run and faster environment mapping.</small>
-            </div>
-          </section>
-        </aside>
-      </div>
-    </section>
   );
 }
 
