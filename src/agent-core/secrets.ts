@@ -9,12 +9,25 @@
 import { hasSupabasePublicConfig, resolveOpsEnv } from "../env";
 import { getSupabaseClient } from "../supabase";
 
+/** Access types with a credential the server can actually execute with. */
+export type ExecutableAccessType = "wordpress_admin" | "ssh";
+
 export type SubmitCredentialInput = {
   projectId: string;
-  accessType: "wordpress_admin";
+  accessType: ExecutableAccessType;
   username: string;
   /** Held only for the duration of this call. */
   secret: string;
+  /**
+   * Non-secret connection details for SSH. Never a credential, and ignored
+   * for every other access type.
+   */
+  host?: string;
+  port?: number;
+  wpRoot?: string;
+  wpBinary?: string;
+  /** Held only for the duration of this call, like `secret`. */
+  passphrase?: string;
 };
 
 export type SubmitCredentialResult =
@@ -47,6 +60,15 @@ export const submitCredential = async (input: SubmitCredentialInput): Promise<Su
         accessType: input.accessType,
         username: input.username,
         secret: input.secret,
+        ...(input.accessType === "ssh"
+          ? {
+              host: input.host ?? "",
+              port: input.port ?? 22,
+              wpRoot: input.wpRoot ?? "",
+              wpBinary: input.wpBinary ?? "",
+              passphrase: input.passphrase ?? "",
+            }
+          : {}),
       },
     });
     if (error) return UNAVAILABLE;
@@ -85,7 +107,7 @@ export const submitCredential = async (input: SubmitCredentialInput): Promise<Su
  */
 export const verifyStoredCredential = async (
   projectId: string,
-  accessType: "wordpress_admin" = "wordpress_admin",
+  accessType: ExecutableAccessType = "wordpress_admin",
 ): Promise<VerifyCredentialResult> => {
   const unreachable: VerifyCredentialResult = {
     state: "unverified",
