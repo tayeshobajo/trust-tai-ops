@@ -6,10 +6,12 @@ import { createSeedWorkspace } from "./seed";
 import { getSupabaseClient } from "./supabase";
 import type {
   MemoryEntry,
+  NewProjectMessage,
   Organization,
   Project,
   ProjectAccessMethod,
   ProjectEnvironment,
+  ProjectMessage,
   QaReport,
   QaResult,
   QaRule,
@@ -27,6 +29,7 @@ import type {
 } from "./types";
 
 const STORAGE_KEY = "ops-trust-tai.workspace";
+const MESSAGE_STORAGE_KEY = "ops-trust-tai.messages";
 
 type OrganizationRow = {
   id: string;
@@ -76,6 +79,20 @@ type MemoryEntryRow = {
   importance: MemoryEntry["importance"];
   title: string;
   content: string;
+  source_run_id?: string | null;
+  source_message_id?: string | null;
+};
+
+type ProjectMessageRow = {
+  id: string;
+  project_id: string;
+  run_id: string | null;
+  role: ProjectMessage["role"];
+  kind: ProjectMessage["kind"];
+  body: string[] | null;
+  dedupe_key: string | null;
+  source_key: string | null;
+  created_at: string;
 };
 
 type QaRuleRow = {
@@ -200,10 +217,13 @@ export interface WorkspaceRepository {
   setQaVerdict(projectId: string, runId: string, verdict: "passed" | "failed" | "partial" | "waived", summary: string): Promise<Organization>;
   addEvidence(projectId: string, runId: string, artifactType: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report", title: string, summary: string): Promise<Organization>;
   addRecommendation(projectId: string, runId: string | null, category: Recommendation["category"], priority: Recommendation["priority"], title: string, summary: string): Promise<Organization>;
-  addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string }): Promise<Organization>;
+  addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string; sourceRunId?: string | null; sourceMessageId?: string | null }): Promise<Organization>;
   saveAccessMethod(projectId: string, method: ProjectAccessMethod): Promise<Organization>;
   removeAccessMethod(projectId: string, methodId: string): Promise<Organization>;
   verifyAccessMethod(projectId: string, methodId: string): Promise<Organization>;
+  listProjectMessages(projectId: string): Promise<ProjectMessage[]>;
+  listRunMessages(projectId: string, runId: string): Promise<ProjectMessage[]>;
+  addProjectMessage(projectId: string, message: NewProjectMessage): Promise<ProjectMessage>;
 }
 
 class LocalWorkspaceRepository implements WorkspaceRepository {
