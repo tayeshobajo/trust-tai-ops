@@ -5355,13 +5355,15 @@ p, li {
 
 /* ─── Create project + memory: editorial, not form-like ─── */
 
-.create-page-inner,
-.create-form {
+.create-page-inner {
   max-width: var(--tt-measure);
   margin-inline: auto;
 }
 
 .create-form {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
   border: 0;
   background: transparent;
   box-shadow: none;
