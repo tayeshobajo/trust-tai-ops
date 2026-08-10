@@ -187,7 +187,7 @@ export function ProjectWorkspace({
 
     for (const message of thread) {
       if (!shouldPersistThreadMessage(message)) continue;
-      if (persistedKeys.has(dedupeKeyForThreadMessage(message, activeRun))) continue;
+      if (persistedKeys.has(dedupeKeyForThreadMessage(message))) continue;
       if (persistedContent.has(contentSignature(message.role, message.body))) continue;
       items.push({
         key: `pending-${message.id}`,
@@ -236,7 +236,7 @@ export function ProjectWorkspace({
     const pending = thread.filter(
       (message) =>
         shouldPersistThreadMessage(message) &&
-        !persistedKeys.has(dedupeKeyForThreadMessage(message, activeRun)) &&
+        !persistedKeys.has(dedupeKeyForThreadMessage(message)) &&
         !persistedContent.has(contentSignature(message.role, message.body)),
     );
 
@@ -253,7 +253,7 @@ export function ProjectWorkspace({
           role: "agent",
           kind: kindForThreadMessage(message),
           body: message.body,
-          dedupeKey: dedupeKeyForThreadMessage(message, activeRun),
+          dedupeKey: dedupeKeyForThreadMessage(message),
           sourceKey: message.id,
         });
       }

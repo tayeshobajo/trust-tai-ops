@@ -1,4 +1,4 @@
-import type { MessageKind, ProjectMessage, Run } from "./types";
+import type { MessageKind, ProjectMessage } from "./types";
 import type { ThreadMessage } from "./conversation";
 
 // Thread elements whose wording legitimately changes as the task moves on.
@@ -20,7 +20,7 @@ const bodySignature = (body: string[]): string => {
 
 // Volatile lines are keyed by their wording, not by run state, so the same
 // sentence is never written twice while genuinely new wording still lands.
-export const dedupeKeyForThreadMessage = (message: ThreadMessage, _run: Run): string =>
+export const dedupeKeyForThreadMessage = (message: ThreadMessage): string =>
   isVolatile(message.id) ? `${message.id}:${bodySignature(message.body)}` : message.id;
 
 export const contentSignature = (role: string, body: string[]): string =>
