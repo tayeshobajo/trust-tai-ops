@@ -308,15 +308,20 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
 
   if (plan.decision.intent === "request_access") {
     const requested = plan.decision.requestedAccess ?? [];
+    const wordpressOnly = requested.length === 1 && requested[0] === "wordpress_admin";
     const lines =
       plan.decision.message ??
-      [
-        requested.length > 0
-          ? `To go further than the public checks I'd need ${requested
-              .map((type) => ACCESS_LABELS[type])
-              .join(" or ")} access. Everything I've said so far is only what I could see from outside.`
-          : "I've gone as far as the public checks allow.",
-      ];
+      (wordpressOnly
+        ? [
+            "I can see this is WordPress. To inspect the installed plugins and the private health checks, I need WordPress Admin access. An Application Password is the safest option — it can be revoked on its own and I never need your login password.",
+          ]
+        : [
+            requested.length > 0
+              ? `To go further than the public checks I'd need ${requested
+                  .map((type) => ACCESS_LABELS[type])
+                  .join(" or ")} access. Everything I've said so far is only what I could see from outside.`
+              : "I've gone as far as the public checks allow.",
+          ]);
     await say(input, `access-${requested.join("-") || "none"}`, lines);
     spoke.push(...lines);
     return { learned, acted: true, awaiting: "access", spoke };
