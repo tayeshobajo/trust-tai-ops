@@ -87,6 +87,14 @@ const agentStateLabel = (run: Run | null) => {
   }
 };
 
+const agentStateTone = (run: Run | null) => {
+  if (!run) return "";
+  const signal = signalForRun(run);
+  if (signal.agentState === "needs_you") return "agent-state-needs_you";
+  if (run.state === "complete") return "agent-state-complete";
+  return "agent-state-working";
+};
+
 export function ProjectWorkspace({
   project,
   canWrite,
@@ -750,7 +758,7 @@ export function ProjectWorkspace({
             <strong>Engineering Agent</strong>
             <small>{project.name} · {project.primaryDomain}</small>
           </div>
-          <span className="agent-state">{agentStateLabel(activeRun)}</span>
+          <span className={`agent-state ${agentStateTone(activeRun)}`}>{agentStateLabel(activeRun)}</span>
           <button className="pw-pane-toggle" type="button" onClick={() => setMobilePane("context")}>
             Task
           </button>
