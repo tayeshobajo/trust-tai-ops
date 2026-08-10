@@ -37,8 +37,16 @@ export type AgentContext = {
   /** Most recent conversation, oldest first. Bounded by the caller. */
   recentMessages: ProjectMessage[];
   memory: MemoryEntry[];
-  /** Capabilities currently believed to be usable. */
+  /**
+   * Credentials the server holds for this project. Enough to attempt a
+   * read-only private call, never enough to call access "verified".
+   */
   capabilities: Capability[];
+  /**
+   * The subset the provider has actually accepted at least once. Only these
+   * may be described to a person as verified.
+   */
+  verifiedCapabilities?: Capability[];
   evidence: AgentEvidence[];
   environment: {
     primaryUrl: string | null;
