@@ -282,7 +282,10 @@ function ProjectPreview({
           )}
         </section>
         <section className="preview-card">
-          <p className="eyebrow">Project memory</p>
+          <p className="eyebrow">
+            Project memory
+            {project.memoryEntries.length > 0 ? ` · ${project.memoryEntries.length} things known` : ""}
+          </p>
           {memory.length === 0 ? <p>The agent has not learned anything durable yet.</p> : (
             <ul>
               {memory.map((entry) => <li key={entry.id}>{entry.title}</li>)}
