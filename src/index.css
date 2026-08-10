@@ -402,7 +402,7 @@ button:focus-visible {
 
 .rail-nav-button span {
   display: block;
-  margin-top: 3px;
+  margin-top: var(--tt-space-1);
   color: rgba(252, 250, 246, 0.4);
   font-size: 12px;
 }
@@ -625,7 +625,7 @@ button:focus-visible {
 .info-card small {
   color: var(--tt-muted);
   display: block;
-  margin-top: 3px;
+  margin-top: var(--tt-space-1);
 }
 
 /* ─── Workspace Grid ────────────────────────────────────── */
@@ -675,7 +675,7 @@ button:focus-visible {
 
 .tab-chip span {
   display: block;
-  margin-top: 3px;
+  margin-top: var(--tt-space-1);
   color: var(--tt-muted);
   font-size: 12px;
 }
@@ -882,7 +882,7 @@ button:focus-visible {
 .check input[type="radio"] {
   width: 18px;
   height: 18px;
-  margin-top: 2px;
+  margin-top: var(--tt-space-1);
   accent-color: var(--tt-royal);
 }
 
@@ -893,7 +893,7 @@ button:focus-visible {
 
 .check small {
   display: block;
-  margin-top: 4px;
+  margin-top: var(--tt-space-1);
   color: var(--tt-muted);
   font-size: 12px;
   line-height: 1.45;
@@ -1763,7 +1763,7 @@ button:focus-visible {
 
 .task-phase-item strong {
   display: block;
-  margin-bottom: 3px;
+  margin-bottom: var(--tt-space-1);
   font-size: 12.5px;
 }
 
@@ -1868,7 +1868,7 @@ button:focus-visible {
   width: 22px;
   height: 22px;
   border-radius: var(--tt-radius-pill);
-  margin-top: 3px;
+  margin-top: var(--tt-space-1);
   border: 2px solid var(--tt-rule);
   background: var(--tt-white);
   z-index: 1;
@@ -1886,7 +1886,7 @@ button:focus-visible {
 
 .timeline-item strong {
   display: block;
-  margin-bottom: 4px;
+  margin-bottom: var(--tt-space-1);
   font-size: 13px;
 }
 
