@@ -126,9 +126,12 @@ export function ProjectWorkspace({
     [runMessages],
   );
 
-  // Runs created before conversation persistence existed keep their
-  // deterministic reconstruction. They are never backfilled with invented history.
-  const hasStoredConversation = runMessages.length > 0;
+  // A task is "native" when its opening brief was written to the conversation
+  // record. Older tasks keep their deterministic reconstruction and are never
+  // backfilled with history that was never actually stored.
+  const isNativeRun = Boolean(
+    activeRun && runMessages.some((message) => message.sourceKey === `${activeRun.id}-brief`),
+  );
 
   const visible = useMemo<ViewItem[]>(() => {
     if (!activeRun) {
@@ -140,15 +143,24 @@ export function ProjectWorkspace({
       }));
     }
 
-    if (!hasStoredConversation) {
-      return thread.map((message) => ({
-        key: message.id,
-        role: message.role,
-        body: message.body,
-        createdAt: null,
-        card: message.card,
-        decision: message.decision,
-      }));
+    if (!isNativeRun) {
+      // Fallback: reconstructed thread first, then anything genuinely stored since.
+      return [
+        ...thread.map((message) => ({
+          key: message.id,
+          role: message.role,
+          body: message.body,
+          createdAt: null,
+          card: message.card,
+          decision: message.decision,
+        })),
+        ...runMessages.map((message) => ({
+          key: message.id,
+          role: message.role,
+          body: message.body,
+          createdAt: message.createdAt,
+        })),
+      ];
     }
 
     const derivedBySource = new Map(thread.map((message) => [message.id, message]));
@@ -178,7 +190,7 @@ export function ProjectWorkspace({
     }
 
     return items;
-  }, [activeRun, hasStoredConversation, persistedKeys, runMessages, thread]);
+  }, [activeRun, isNativeRun, persistedKeys, runMessages, thread]);
 
   useEffect(() => {
     composerRef.current?.focus();
@@ -209,7 +221,7 @@ export function ProjectWorkspace({
 
   // Bridge: once a task has a real conversation record, keep it complete.
   useEffect(() => {
-    if (!canWrite || !messagesLoaded || !activeRun || !hasStoredConversation) return;
+    if (!canWrite || !messagesLoaded || !activeRun || !isNativeRun) return;
 
     const pending = thread.filter(
       (message) =>
@@ -231,7 +243,7 @@ export function ProjectWorkspace({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRun, canWrite, hasStoredConversation, messagesLoaded, persistedKeys, thread]);
+  }, [activeRun, canWrite, isNativeRun, messagesLoaded, persistedKeys, thread]);
 
   const say = async (runId: string | null, body: string[], kind: NewProjectMessage["kind"] = "message") => {
     await emit({ runId, role: "agent", kind, body, dedupeKey: `agent-${runId ?? "project"}-${Date.now()}` });
