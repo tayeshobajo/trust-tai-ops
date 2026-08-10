@@ -79,6 +79,7 @@ export type DerivedMemory = {
   type: MemoryEntry["type"];
   importance: MemoryEntry["importance"];
   content: string;
+  sourceRunId?: string | null;
 };
 
 const qaSentence = (run: Run) => {
