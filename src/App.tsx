@@ -47,6 +47,7 @@ function App() {
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(starterProjectDraft());
   const [saveMessage, setSaveMessage] = useState("");
   const [railOpen, setRailOpen] = useState(false);
+  const [workspaceSurface, setWorkspaceSurface] = useState<"conversation" | "access">("conversation");
   const [startInNewTask, setStartInNewTask] = useState(false);
   const [repositoryHealth, setRepositoryHealth] = useState<RepositoryHealth>({
     adapter: "demo",
@@ -209,6 +210,7 @@ function App() {
           const project = getProjectById(workspace, projectId);
           setSelectedProjectId(projectId);
           setStartInNewTask(false);
+          setWorkspaceSurface("conversation");
           setWorkspaceView(project && project.runs.length === 0 ? "project_home" : "workspace");
           setActiveTab("active_run");
         }}
@@ -220,6 +222,7 @@ function App() {
           setSelectedProjectId(projectId);
           setSaveMessage("");
           setStartInNewTask(true);
+          setWorkspaceSurface("conversation");
           setWorkspaceView("workspace");
         }}
       />
@@ -243,12 +246,17 @@ function App() {
           setWorkspaceView("home");
         }}
         onSubmitBrief={handleFirstBrief}
+        onOpenAccess={() => {
+          setWorkspaceSurface("access");
+          setWorkspaceView("workspace");
+        }}
       />
     ) : workspaceView === "workspace" && selectedProject ? (
       <ProjectWorkspace
         project={selectedProject}
         canWrite={canCreateProject}
         startInNewTask={startInNewTask}
+        initialSurface={workspaceSurface}
         onBackToProjects={() => {
           setSaveMessage("");
           setStartInNewTask(false);

@@ -12,7 +12,7 @@ export type ThreadCard = {
   items: ThreadCardItem[];
 };
 
-export type DecisionKind = "access" | "backup" | "approval" | "verify" | "continue" | null;
+export type DecisionKind = "access" | "backup" | "approval" | null;
 
 export type ThreadMessage = {
   id: string;
@@ -196,15 +196,14 @@ export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
           decision: "approval",
         });
       } else {
-        messages.push({ id: `${run.id}-decision-continue`, role: "agent", body: ["I'll carry on and apply the fix."], decision: "continue" });
+        messages.push({ id: `${run.id}-plan-working`, role: "agent", body: ["I'll carry on and apply the fix now."] });
       }
       break;
     case "qa":
       messages.push({
-        id: `${run.id}-decision-verify`,
+        id: `${run.id}-qa-working`,
         role: "agent",
         body: ["Give me a moment while I confirm the site is behaving properly, then I'll write up the result."],
-        decision: "verify",
       });
       break;
     case "complete":
@@ -224,7 +223,6 @@ export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
         id: `${run.id}-decision-human`,
         role: "agent",
         body: [run.operatorPrompt || "I've stopped here on purpose and need a decision from you before continuing."],
-        decision: "continue",
       });
       break;
     case "rolled_back":
@@ -239,7 +237,6 @@ export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
         id: `${run.id}-working`,
         role: "agent",
         body: [run.nextAction || "I'm working through this now."],
-        decision: "continue",
       });
   }
 

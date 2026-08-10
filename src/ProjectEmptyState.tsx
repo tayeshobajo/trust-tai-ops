@@ -16,10 +16,12 @@ export function ProjectEmptyState({
   project,
   onBackToProjects,
   onSubmitBrief,
+  onOpenAccess,
 }: {
   project: Project;
   onBackToProjects: () => void;
   onSubmitBrief: (brief: string) => Promise<void> | void;
+  onOpenAccess?: () => void;
 }) {
   const [message, setMessage] = useState("");
   const [sent, setSent] = useState<string[]>([]);
@@ -57,7 +59,12 @@ export function ProjectEmptyState({
 
       <nav className="project-subnav" aria-label="Project sections">
         {secondaryNav.map((item) => (
-          <button key={item} type="button" className={`project-subnav-link ${item === "Conversation" ? "is-active" : ""}`}>
+          <button
+            key={item}
+            type="button"
+            className={`project-subnav-link ${item === "Conversation" ? "is-active" : ""}`}
+            onClick={item === "Access" ? onOpenAccess : undefined}
+          >
             {item}
           </button>
         ))}
