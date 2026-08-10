@@ -443,6 +443,14 @@ export function ProjectWorkspace({
             onClick={async () => {
               await apply(() => workspaceRepository.confirmBackup(project.id, run.id, "Backup confirmed by the site owner in conversation."));
               await apply(() => workspaceRepository.advanceRun(project.id, run.id, "environment_mapping"));
+              // History only. The backup gate itself remains the authority.
+              await emit({
+                runId: run.id,
+                role: "user",
+                kind: "decision_response",
+                body: ["Backup confirmed."],
+                dedupeKey: `decision-backup-${run.id}`,
+              });
             }}
           >
             Confirm backup
@@ -452,13 +460,9 @@ export function ProjectWorkspace({
             type="button"
             disabled={busy}
             onClick={() =>
-              pushLocal(run.id, {
-                id: `local-${Date.now()}`,
-                role: "agent",
-                body: [
-                  "No problem. Most hosts have a one-click backup in their control panel, and plugins like UpdraftPlus can also create one. Tell me who hosts the site and I'll point you to the exact place.",
-                ],
-              })
+              void say(run.id, [
+                "No problem. Most hosts have a one-click backup in their control panel, and plugins like UpdraftPlus can also create one. Tell me who hosts the site and I'll point you to the exact place.",
+              ])
             }
           >
             Help me create one
@@ -468,11 +472,7 @@ export function ProjectWorkspace({
             type="button"
             disabled={busy}
             onClick={() =>
-              pushLocal(run.id, {
-                id: `local-${Date.now()}`,
-                role: "agent",
-                body: ["Understood. I'll keep this read-only and carry on investigating without changing anything."],
-              })
+              void say(run.id, ["Understood. I'll keep this read-only and carry on investigating without changing anything."])
             }
           >
             Investigate only
