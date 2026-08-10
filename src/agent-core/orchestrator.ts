@@ -65,6 +65,9 @@ export const capabilitiesFor = (project: Project): Capability[] => [
   ...project.accessMethods.filter((method) => method.status === "available").map((method) => method.type),
 ];
 
+/** Tools that can only run with a stored private credential. */
+const PRIVATE_TOOLS = new Set<string>(["wordpress.list_plugins"]);
+
 /**
  * Server truth, in two grades.
  *
