@@ -155,7 +155,40 @@ export function ProjectAccessPanel({
     if (!definition) return;
 
     const existing = editing.existingId ? project.accessMethods.find((item) => item.id === editing.existingId) : null;
-    const detail = [values.url, values.host, values.user].filter(Boolean).join(" · ");
+    const detail = [values.host, values.user].filter(Boolean).join(" · ");
+
+    // Real credentials never touch project state. They are sealed server-side
+    // first, and only a reference plus non-secret metadata is stored here.
+    let credentialReference: string | undefined;
+    if (definition.executable) {
+      const username = (values.user ?? "").trim();
+      const secret = values.secret ?? "";
+      if (!username || secret.trim().length < 8) {
+        setNotice("I need the WordPress username and a complete Application Password.");
+        return;
+      }
+
+      setBusy(true);
+      let stored: Awaited<ReturnType<typeof submitCredential>>;
+      try {
+        stored = await submitCredential({
+          projectId: project.id,
+          accessType: "wordpress_admin",
+          username,
+          secret,
+        });
+      } finally {
+        // Drop the value from component state before anything else happens.
+        setValues({});
+        setBusy(false);
+      }
+
+      if (!stored.ok) {
+        setNotice(stored.summary);
+        return;
+      }
+      credentialReference = stored.secretReference;
+    }
 
     const method: ProjectAccessMethod = {
       id: existing?.id ?? `access-${project.id}-${definition.type}-${Date.now()}`,
@@ -165,11 +198,14 @@ export function ProjectAccessPanel({
       authMethod: definition.authMethod,
       lastVerifiedAt: new Date().toISOString(),
       notes: detail || existing?.notes || "Connection details shared by the site owner.",
+      ...(credentialReference ? { credentialReference } : {}),
     };
 
     await run(
       () => workspaceRepository.saveAccessMethod(project.id, method),
-      `${definition.label} is connected. Secrets are not shown again.`,
+      definition.executable
+        ? `${definition.label} is connected. The password is stored securely and can never be read back.`
+        : `${definition.label} connection details saved.`,
       { type: definition.type, label: definition.label, action: existing ? "replaced" : "added" },
     );
 
