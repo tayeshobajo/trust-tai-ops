@@ -72,8 +72,17 @@ export const describeHealth = (evidence: AgentEvidence): string[] => {
   const data = evidence.data;
   const lines: string[] = [];
 
-  if (data.authenticatedHealthAvailable === true) {
-    lines.push("I read the site health report directly.");
+  const readChecks = Array.isArray(data.authenticatedChecksRead) ? data.authenticatedChecksRead : [];
+
+  if (data.authenticatedHealthAvailable === true && readChecks.length > 0) {
+    // Only ever claimed for checks WordPress genuinely returned.
+    lines.push(
+      `I'm in. I read ${readChecks.length} of the private health checks directly, without changing anything.`,
+    );
+  } else if (data.authenticatedHealthCode === "unauthorized") {
+    lines.push("WordPress rejected the admin access I have stored, so I could only read the public health signals.");
+  } else if (data.authenticatedHealthCode === "forbidden") {
+    lines.push("That WordPress account isn't allowed to read the health report, so I used the public signals instead.");
   } else if (data.credentialsRequired === true) {
     lines.push(
       "The site health report is there, but WordPress only shows it to an administrator, so I read the public health signals instead.",
@@ -85,6 +94,43 @@ export const describeHealth = (evidence: AgentEvidence): string[] => {
   if (data.httpsEnabled === false) lines.push("The site is being served without HTTPS.");
   if (data.usersPubliclyListed === true) lines.push("The site publicly lists its user accounts through the API.");
   if (data.xmlrpcExposed === true) lines.push("XML-RPC is reachable from outside.");
+  return lines;
+};
+
+/**
+ * The plugin inventory, described only as counts and names. No judgement about
+ * a plugin being outdated, abandoned or vulnerable is made here: a version
+ * string alone cannot prove any of those.
+ */
+export const describePlugins = (evidence: AgentEvidence): string[] => {
+  const data = evidence.data;
+  const total = num(data.total);
+  if (total === null) return [safeSummary(evidence.summary)];
+
+  const active = num(data.active);
+  const inactive = num(data.inactive);
+  const lines: string[] = [
+    active !== null && inactive !== null
+      ? `This install has ${total} plugins: ${active} active and ${inactive} inactive.`
+      : `This install has ${total} plugins.`,
+  ];
+
+  const plugins = Array.isArray(data.plugins) ? (data.plugins as Array<Record<string, unknown>>) : [];
+  const activeNames = plugins
+    .filter((plugin) => plugin.status === "active")
+    .map((plugin) => str(plugin.name))
+    .filter((name): name is string => Boolean(name))
+    .slice(0, 8);
+  if (activeNames.length > 0) {
+    lines.push(`The active ones include ${activeNames.join(", ")}.`);
+  }
+
+  const updatable = plugins.filter((plugin) => plugin.updateAvailable === true).length;
+  if (updatable > 0) {
+    // WordPress itself reported these updates; nothing is inferred.
+    lines.push(`WordPress reports updates available for ${updatable} of them.`);
+  }
+  if (data.truncated === true) lines.push("That's the first part of the list; there are more installed.");
   return lines;
 };
 
