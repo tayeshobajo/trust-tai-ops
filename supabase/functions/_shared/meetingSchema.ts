@@ -122,8 +122,6 @@ const normalizeForMatch = (value: string): string => value.replace(/\s+/g, " ").
 export type MeetingValidationContext = {
   /** The redacted transcript chunks the model was actually given. */
   chunks: string[];
-  /** Access types this project actually has registered, stored or not. */
-  knownAccess?: string[];
   /** Hosts the project legitimately owns. A task naming anything else is dropped. */
   allowedHosts?: string[];
 };
