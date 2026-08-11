@@ -120,7 +120,9 @@ export const chunkTranscript = (text: string): string[] => {
     }
   }
   if (current) chunks.push(current);
-  return chunks.slice(0, MAX_CHUNKS);
+  // Not truncated here: partial coverage is a decision for planTranscriptCoverage
+  // to surface, never something this function does silently.
+  return chunks;
 };
 
 export const TRANSCRIPT_FENCE_OPEN = "<<<UNTRUSTED_MEETING_TRANSCRIPT";
