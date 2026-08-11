@@ -584,8 +584,107 @@ export function ProjectWorkspace({
     }
   };
 
+  /**
+   * Secure chat intake.
+   *
+   * The raw text exists only in this call's request body. It is never written
+   * to state, storage, history, memory or a model prompt. Only the sanitized
+   * server result becomes a conversation message.
+   */
+  const handleCredentialPaste = async (raw: string) => {
+    if (!canWrite || busy) return;
+
+    if (!credentialIntakeAvailable()) {
+      setPersistError(
+        "I can't reach the secure credential store from here, so I didn't accept those details. Please add them from Access & Connections.",
+      );
+      return;
+    }
+
+    // Synchronous claim, taken before any await, so a double submit cannot
+    // run the same intake twice.
+    const intakeKey = `intake-${project.id}-${Date.now()}`;
+    if (decisionRef.current.has(intakeKey)) return;
+    decisionRef.current.add(intakeKey);
+    setBusy(true);
+
+    try {
+      const result = await submitCredentialText({ projectId: project.id, text: raw, intakeKey });
+
+      if (!result.ok) {
+        // Nothing raw is persisted on any failure path.
+        if (result.code === "domain_mismatch") {
+          setComposerValue("");
+          await emit({
+            runId: activeRun?.id ?? null,
+            role: "agent",
+            kind: "message",
+            body: result.message.length
+              ? result.message
+              : ["These credentials appear to belong to another site. I didn't attach them to this project."],
+            dedupeKey: `${intakeKey}-mismatch`,
+          });
+          return;
+        }
+        setPersistError(result.summary);
+        return;
+      }
+
+      // The raw text is done with. Clear the composer before anything renders.
+      setComposerValue("");
+
+      // One small read-only run holds the access conversation. An existing one
+      // is reused rather than duplicated.
+      let runId = activeRun?.id ?? null;
+      const existingAccessRun = runs.find(
+        (run) => run.title === ACCESS_RUN_TITLE && run.state !== "complete",
+      );
+      if (existingAccessRun) {
+        runId = existingAccessRun.id;
+      } else if (!runId) {
+        const environment =
+          project.environments.find((item) => item.type === "production") ?? project.environments[0];
+        const draft: RunDraft = {
+          title: ACCESS_RUN_TITLE,
+          taskType: "qa_only",
+          taskSummary: "Confirm the access shared for this project and verify whatever can be verified.",
+          urgency: "normal",
+          environmentId: environment?.id ?? "",
+          accessReady: true,
+          backupConfirmed: false,
+        };
+        const next = await workspaceRepository.createRun(project.id, draft);
+        onWorkspaceUpdate(next);
+        runId = next.projects.find((item) => item.id === project.id)?.runs[0]?.id ?? null;
+      }
+      if (runId) setActiveRunId(runId);
+
+      await emit({
+        runId,
+        role: "user",
+        kind: "message",
+        body: result.message,
+        dedupeKey: `${intakeKey}-shared`,
+      });
+      await emit({
+        runId,
+        role: "agent",
+        kind: "message",
+        body: result.reply,
+        dedupeKey: `${intakeKey}-reply`,
+      });
+
+      // Access cards follow server truth, never a client claim.
+      onWorkspaceUpdate(await workspaceRepository.loadWorkspace());
+    } catch {
+      setPersistError("I couldn't complete that securely, so nothing was stored. Please try again.");
+    } finally {
+      decisionRef.current.delete(intakeKey);
+      setBusy(false);
+    }
+  };
+
   const sendMessage = async () => {
-    // (defined below: the secure handoff for credential-shaped composer text)
     const value = composerValue.trim();
     if (!value) return;
 
