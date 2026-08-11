@@ -12,6 +12,7 @@ import { workspaceRepository } from "../repository";
 import {
   describeHealth,
   describeErrorLog,
+  describePageInspection,
   describePlugins,
   describePublicSurface,
   describeSiteInspection,
@@ -22,13 +23,21 @@ import { getTool } from "./registry";
 import { executionGateway } from "./gateway";
 import { safeSummary } from "./safety";
 import { selectReasoner, type AgentReasoner } from "./reasoner";
+import {
+  MAX_ACTION_RETRIES,
+  MAX_AGENT_ITERATIONS,
+  MAX_AGENT_WALL_CLOCK_MS,
+  MAX_ITERATIONS_WITHOUT_PROGRESS,
+} from "./budgets";
 import type {
   AgentAction,
   AgentContext,
   AgentEvidence,
+  AgentStopReason,
   AgentTurnResult,
   Capability,
   ExecutionEvent,
+  ToolFailureCode,
 } from "./types";
 
 export type OrchestratorInput = {
@@ -98,29 +107,42 @@ const serverCapabilities = async (
   }
 };
 
-/** Prior evidence, reconstructed from the audit trail of this run. */
-const loadPriorEvidence = async (projectId: string, runId: string): Promise<AgentEvidence[]> => {
+/**
+ * Prior observations, reconstructed from the audit trail of this run: what was
+ * genuinely learned, and what already proved impossible. Both matter — an
+ * agent that forgets its failures loops forever.
+ */
+const loadPriorObservations = async (
+  projectId: string,
+  runId: string,
+): Promise<{ evidence: AgentEvidence[]; failed: Array<{ toolId: AgentEvidence["toolId"]; code: ToolFailureCode }> }> => {
   try {
     const events = await workspaceRepository.listExecutionEvents(projectId, runId);
-    return events
-      .filter((event) => event.status === "succeeded")
-      .map((event) => ({
-        id: `${event.invocationKey}:evidence`,
-        toolId: event.toolId,
-        summary: event.outputSummary,
-        data: (event.evidenceData ?? {}) as Record<string, unknown>,
-        sensitivity: "public" as const,
-        redacted: true,
-        observedAt: event.finishedAt ?? event.startedAt,
-      }));
+    return {
+      evidence: events
+        .filter((event) => event.status === "succeeded")
+        .map((event) => ({
+          id: `${event.invocationKey}:evidence`,
+          toolId: event.toolId,
+          summary: event.outputSummary,
+          data: (event.evidenceData ?? {}) as Record<string, unknown>,
+          sensitivity: "public" as const,
+          redacted: true,
+          observedAt: event.finishedAt ?? event.startedAt,
+        })),
+      failed: events
+        .filter((event) => event.status === "failed" && event.errorCode)
+        .map((event) => ({ toolId: event.toolId, code: event.errorCode as ToolFailureCode })),
+    };
   } catch {
-    return [];
+    return { evidence: [], failed: [] };
   }
 };
 
 export const buildAgentContext = async (input: OrchestratorInput): Promise<AgentContext> => {
   const { project, run } = input;
   const capabilities = await serverCapabilities(project);
+  const observations = await loadPriorObservations(project.id, run.id);
   return {
     project,
     run,
@@ -128,7 +150,8 @@ export const buildAgentContext = async (input: OrchestratorInput): Promise<Agent
     memory: input.memory,
     capabilities: capabilities.capabilities,
     verifiedCapabilities: capabilities.verified,
-    evidence: await loadPriorEvidence(project.id, run.id),
+    evidence: observations.evidence,
+    failedObservations: observations.failed,
     environment: {
       primaryUrl: primaryUrlFor(project, run),
       executionBackendAvailable: executionGateway().available(),
@@ -172,17 +195,25 @@ const describe = (evidence: AgentEvidence): string[] => {
       return describePlugins(evidence);
     case "wordpress.read_error_log":
       return describeErrorLog(evidence);
+    case "browser.inspect_page_readonly":
+      return describePageInspection(evidence);
     default:
       return [evidence.summary];
   }
 };
+
+export type ActionOutcome =
+  | { kind: "evidence"; evidence: AgentEvidence[] }
+  | { kind: "blocked"; requires: "access" | "backup" | "approval" | "backend"; reason: string }
+  | { kind: "failed"; code: ToolFailureCode; retryable: boolean }
+  | { kind: "in_flight" };
 
 /** Executes one action, reusing a completed invocation when replayed. */
 const executeAction = async (
   input: OrchestratorInput,
   context: AgentContext,
   action: AgentAction,
-): Promise<AgentEvidence[]> => {
+): Promise<ActionOutcome> => {
   const { project, run } = input;
   const verdict = evaluateAction(action, context);
   const startedAt = new Date().toISOString();
@@ -202,7 +233,7 @@ const executeAction = async (
       errorCode: "blocked_by_policy",
       evidenceRefs: [],
     });
-    return [];
+    return { kind: "blocked", requires: verdict.requires, reason: verdict.reason };
   }
 
   // Idempotency: the same planned action, replayed, reuses its result.
@@ -213,7 +244,9 @@ const executeAction = async (
     existing = null;
   }
   if (existing && existing.status === "succeeded" && !action.refreshable) {
-    return [
+    return {
+      kind: "evidence",
+      evidence: [
       {
         id: `${existing.invocationKey}:evidence`,
         toolId: existing.toolId,
@@ -223,9 +256,10 @@ const executeAction = async (
         redacted: true,
         observedAt: existing.finishedAt ?? existing.startedAt,
       },
-    ];
+      ],
+    };
   }
-  if (existing && existing.status === "running") return [];
+  if (existing && existing.status === "running") return { kind: "in_flight" };
 
   await recordEvent(project.id, {
     projectId: project.id,
@@ -262,7 +296,7 @@ const executeAction = async (
     });
     // A failure is a real observation and is reported as one.
     await say(input, `fail-${action.invocationKey}`, [result.summary]);
-    return [];
+    return { kind: "failed", code: result.code, retryable: result.retryable };
   }
 
   await recordEvent(project.id, {
@@ -281,39 +315,154 @@ const executeAction = async (
     evidenceData: result.evidence[0]?.data ?? {},
   });
 
-  return result.evidence;
+  return { kind: "evidence", evidence: result.evidence };
 };
 
 /**
- * One agent turn. Returns what was learned and what, if anything, the human
- * now needs to do.
+ * One agent turn: a bounded, iterative investigation.
+ *
+ * The agent reasons, performs *one* read-only observation, folds what it
+ * observed back into its context, and reasons again — until it has enough,
+ * until it needs a human, or until a budget stops it. It is autonomous about
+ * reads and never about changes: a non-read-only action stops the loop and
+ * waits for a person, it is never executed here.
  */
 export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnResult> => {
-  const context = await buildAgentContext(input);
+  let context = await buildAgentContext(input);
   const reasoner = input.reasoner ?? selectReasoner();
-  const plan = await reasoner.plan(context);
-
-  if (!plan) return { learned: [], acted: false, awaiting: null, spoke: [] };
 
   const learned: AgentEvidence[] = [];
   const spoke: string[] = [];
+  const attempted = new Map<string, number>();
+  const startedAt = Date.now();
 
-  // Stored is not verified. If this turn is about to lean on a stored
-  // credential that WordPress has never accepted, the person is told exactly
-  // that before it is used — and told again once it is proven.
-  const usesStoredAccess = plan.actions.some((action) => PRIVATE_TOOLS.has(action.toolId));
   const alreadyVerified = (context.verifiedCapabilities ?? []).includes("wordpress_admin");
-  if (usesStoredAccess && !alreadyVerified && context.capabilities.includes("wordpress_admin")) {
-    const lines = [
-      "WordPress Admin access is stored securely. I'm verifying it with a read-only check before I use it.",
-    ];
-    await say(input, `verifying-access-${input.run.id}`, lines);
-    spoke.push(...lines);
-  }
+  let announcedStoredAccess = false;
+  let iterations = 0;
+  let stallCount = 0;
+  let usedStoredAccess = false;
+  let awaiting: AgentTurnResult["awaiting"] = null;
+  let stopReason: AgentStopReason = "safe_stop";
 
-  for (const action of plan.actions) {
-    const evidence = await executeAction(input, context, action);
-    for (const item of evidence) {
+  while (iterations < MAX_AGENT_ITERATIONS) {
+    if (Date.now() - startedAt > MAX_AGENT_WALL_CLOCK_MS) {
+      stopReason = "budget_exhausted";
+      break;
+    }
+    iterations += 1;
+
+    const plan = await reasoner.plan(context);
+    if (!plan) {
+      stopReason = learned.length > 0 ? "sufficient_evidence" : "safe_stop";
+      break;
+    }
+
+    if (plan.decision.intent === "request_access") {
+      const requested = plan.decision.requestedAccess ?? [];
+      const wordpressOnly = requested.length === 1 && requested[0] === "wordpress_admin";
+      const lines =
+        plan.decision.message ??
+        (wordpressOnly
+          ? [
+              "I can see this is WordPress. To inspect the installed plugins and the private health checks, I need WordPress Admin access. An Application Password is the safest option — it can be revoked on its own and I never need your login password.",
+            ]
+          : [
+              requested.length > 0
+                ? `To go further than the public checks I'd need ${requested
+                    .map((type) => ACCESS_LABELS[type])
+                    .join(" or ")} access. Everything I've said so far is only what I could see from outside.`
+                : "I've gone as far as the public checks allow.",
+            ]);
+      await say(input, `access-${requested.join("-") || "none"}`, lines);
+      spoke.push(...lines);
+      awaiting = "access";
+      stopReason = "needs_access";
+      break;
+    }
+
+    // One observation per iteration, and never the same one twice.
+    const action = plan.actions.find((candidate) => !attempted.has(candidate.invocationKey)) ?? null;
+
+    if (!action) {
+      if (plan.decision.message && plan.decision.message.length > 0) {
+        await say(input, `note-${plan.decision.intent}`, plan.decision.message);
+        spoke.push(...plan.decision.message);
+      }
+      if (plan.decision.intent === "await_human_decision") stopReason = "needs_user_input";
+      else stopReason = learned.length > 0 ? "sufficient_evidence" : "safe_stop";
+      break;
+    }
+
+    // The autonomy line. A change is proposed to a person; it is not performed.
+    if (!action.readOnly) {
+      awaiting = "approval";
+      stopReason = "approval_required";
+      break;
+    }
+
+    // Stored is not verified. If the agent is about to lean on a stored
+    // credential that WordPress has never accepted, the person is told first.
+    if (
+      PRIVATE_TOOLS.has(action.toolId) &&
+      !alreadyVerified &&
+      !announcedStoredAccess &&
+      context.capabilities.includes("wordpress_admin")
+    ) {
+      announcedStoredAccess = true;
+      const lines = [
+        "WordPress Admin access is stored securely. I'm verifying it with a read-only check before I use it.",
+      ];
+      await say(input, `verifying-access-${input.run.id}`, lines);
+      spoke.push(...lines);
+    }
+    if (PRIVATE_TOOLS.has(action.toolId)) usedStoredAccess = true;
+
+    const attempts = attempted.get(action.invocationKey) ?? 0;
+    attempted.set(action.invocationKey, attempts + 1);
+
+    const outcome = await executeAction(input, context, action);
+
+    if (outcome.kind === "blocked") {
+      if (outcome.requires === "access") {
+        awaiting = "access";
+        stopReason = "needs_access";
+      } else if (outcome.requires === "backup" || outcome.requires === "approval") {
+        awaiting = outcome.requires;
+        stopReason = "approval_required";
+      } else {
+        stopReason = "tool_unavailable";
+      }
+      break;
+    }
+
+    if (outcome.kind === "in_flight") {
+      stopReason = "safe_stop";
+      break;
+    }
+
+    if (outcome.kind === "failed") {
+      // A retryable failure earns one more attempt; anything else becomes a
+      // remembered dead end so the next iteration chooses differently.
+      if (outcome.retryable && attempts < MAX_ACTION_RETRIES) {
+        attempted.delete(action.invocationKey);
+        attempted.set(`${action.invocationKey}:retried`, 1);
+      }
+      context = {
+        ...context,
+        failedObservations: [...(context.failedObservations ?? []), { toolId: action.toolId, code: outcome.code }],
+      };
+      stallCount += 1;
+      if (stallCount >= MAX_ITERATIONS_WITHOUT_PROGRESS) {
+        stopReason = outcome.code === "tool_unavailable" || outcome.code === "not_implemented"
+          ? "tool_unavailable"
+          : "safe_stop";
+        break;
+      }
+      continue;
+    }
+
+    stallCount = 0;
+    for (const item of outcome.evidence) {
       learned.push(item);
       const lines = describe(item);
       spoke.push(...lines);
@@ -335,9 +484,24 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
         }
       }
     }
+
+    // What was just observed becomes the basis for the next decision.
+    context = { ...context, evidence: [...context.evidence, ...outcome.evidence] };
+
+    if (outcome.evidence.length === 0) {
+      stallCount += 1;
+      if (stallCount >= MAX_ITERATIONS_WITHOUT_PROGRESS) {
+        stopReason = "safe_stop";
+        break;
+      }
+    }
   }
 
-  if (usesStoredAccess && !alreadyVerified && learned.some((item) => PRIVATE_TOOLS.has(item.toolId))) {
+  if (iterations >= MAX_AGENT_ITERATIONS && stopReason === "safe_stop") {
+    stopReason = "budget_exhausted";
+  }
+
+  if (usedStoredAccess && !alreadyVerified && learned.some((item) => PRIVATE_TOOLS.has(item.toolId))) {
     const lines = [
       "Access verified. I can now inspect the private WordPress health signals and installed plugins without changing anything.",
     ];
@@ -345,32 +509,12 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
     spoke.push(...lines);
   }
 
-  if (plan.decision.intent === "request_access") {
-    const requested = plan.decision.requestedAccess ?? [];
-    const wordpressOnly = requested.length === 1 && requested[0] === "wordpress_admin";
-    const lines =
-      plan.decision.message ??
-      (wordpressOnly
-        ? [
-            "I can see this is WordPress. To inspect the installed plugins and the private health checks, I need WordPress Admin access. An Application Password is the safest option — it can be revoked on its own and I never need your login password.",
-          ]
-        : [
-            requested.length > 0
-              ? `To go further than the public checks I'd need ${requested
-                  .map((type) => ACCESS_LABELS[type])
-                  .join(" or ")} access. Everything I've said so far is only what I could see from outside.`
-              : "I've gone as far as the public checks allow.",
-          ]);
-    await say(input, `access-${requested.join("-") || "none"}`, lines);
-    spoke.push(...lines);
-    return { learned, acted: true, awaiting: "access", spoke };
-  }
-
-  if (plan.decision.message && plan.actions.length === 0) {
-    await say(input, `note-${plan.decision.intent}`, plan.decision.message);
-    spoke.push(...plan.decision.message);
-    return { learned, acted: true, awaiting: null, spoke };
-  }
-
-  return { learned, acted: learned.length > 0 || spoke.length > 0, awaiting: null, spoke };
+  return {
+    learned,
+    acted: learned.length > 0 || spoke.length > 0,
+    awaiting,
+    stopReason,
+    iterations,
+    spoke,
+  };
 };

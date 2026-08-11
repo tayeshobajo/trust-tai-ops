@@ -342,6 +342,8 @@ export const reasoningDigest = (context: AgentContext): Record<string, unknown> 
   capabilities: context.capabilities,
   verifiedCapabilities: context.verifiedCapabilities ?? [],
   evidence: context.evidence.slice(-12).map((item) => ({ toolId: item.toolId, summary: item.summary })),
+  // What already failed, so a model does not keep proposing it.
+  unavailable: (context.failedObservations ?? []).slice(-8).map((item) => ({ toolId: item.toolId, code: item.code })),
   messages: context.recentMessages
     .slice(-12)
     // Persisted messages are already sanitized; redacting again means no
