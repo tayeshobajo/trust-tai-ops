@@ -137,6 +137,9 @@ const runInvestigationStep = async (context: AgentStepContext): Promise<AgentSte
 
   // Waiting on the human (access, backup, approval) is a real stop, not a step.
   if (turn.awaiting) return { ran: true };
+  // A turn that ended by asking the person something is also a real stop: the
+  // run must not slide forward while the question is unanswered.
+  if (turn.stopReason === "needs_user_input") return { ran: true };
 
   const target = autoAdvanceTarget(context.project, context.run);
   if (!target) return { ran: turn.acted };

@@ -13,6 +13,8 @@
 
 export type ReasonStepId =
   | "inspect-site"
+  | "inspect-page-desktop"
+  | "inspect-page-mobile"
   | "inspect-wp-public"
   | "read-health"
   | "read-health-authenticated"
@@ -30,6 +32,8 @@ export type ReasonStepSpec = {
   serverResolvedTarget: boolean;
   /** Fixed catalog command, for WP-CLI steps only. */
   commandId?: string;
+  /** Fixed viewport, for browser steps only. */
+  viewport?: "desktop" | "mobile";
   purpose: string;
 };
 
@@ -40,6 +44,22 @@ export const REASON_STEPS: Record<ReasonStepId, ReasonStepSpec> = {
     capability: "public_internet",
     serverResolvedTarget: false,
     purpose: "See how the public site responds from outside.",
+  },
+  "inspect-page-desktop": {
+    id: "inspect-page-desktop",
+    toolId: "browser.inspect_page_readonly",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    viewport: "desktop",
+    purpose: "Load the page in a real browser on a desktop screen and watch how it performs.",
+  },
+  "inspect-page-mobile": {
+    id: "inspect-page-mobile",
+    toolId: "browser.inspect_page_readonly",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    viewport: "mobile",
+    purpose: "Load the page in a real browser on a phone-sized screen and watch how it performs.",
   },
   "inspect-wp-public": {
     id: "inspect-wp-public",

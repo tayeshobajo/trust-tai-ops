@@ -19,6 +19,7 @@ import { authenticatedGet, normalizeHealthTest, normalizePlugins } from "../_sha
 import { runReadOnlyWpCli } from "../_shared/wpCli.ts";
 import { denoSftpTransport, denoSshTransport } from "../_shared/sshTransport.ts";
 import { readWordPressErrorLog } from "../_shared/errorLog.ts";
+import { isBrowserViewport, runBrowserInspection } from "../_shared/browserInspect.ts";
 
 const fail = (code: string, summary: string, retryable: boolean) =>
   Response.json({ ok: false, code, summary, retryable }, { headers: corsHeaders });
@@ -413,6 +414,30 @@ const runWpCli = async (projectId: string, args: Record<string, unknown>) => {
   );
 };
 
+/**
+ * Stack-neutral, read-only page inspection in a real browser.
+ *
+ * The edge runtime cannot host a browser, so this delegates to an explicitly
+ * configured rendering service and reports honestly when none is connected.
+ * The address is scoped to the project's own site whenever the server knows it.
+ */
+const inspectPage = async (args: Record<string, unknown>, clientUrl: string, canonicalUrl: string | null) => {
+  const url = canonicalUrl && !clientUrl ? canonicalUrl : clientUrl;
+  if (!url) return fail("invalid_input", "That request was missing the page address.", false);
+
+  const viewport = isBrowserViewport(args.viewport) ? args.viewport : "desktop";
+  const outcome = await runBrowserInspection(
+    {
+      endpoint: Deno.env.get("BROWSER_INSPECT_ENDPOINT") ?? null,
+      token: Deno.env.get("BROWSER_INSPECT_TOKEN") ?? null,
+    },
+    { url, viewport, allowedUrl: canonicalUrl },
+  );
+
+  if (!outcome.ok) return fail(outcome.code, outcome.summary, outcome.retryable);
+  return Response.json({ ok: true, summary: outcome.summary, data: outcome.data }, { headers: corsHeaders });
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -433,7 +458,10 @@ Deno.serve(async (req) => {
   const needsServerTruth = mode === "capabilities" || PRIVATE_TOOLS.has(toolId) || toolId === "wordpress.read_health";
   // Every WordPress tool — public inspection included — needs proven project
   // ownership, because the stack decision has to come from the database.
-  const needsProject = needsServerTruth || isWordPressTool(toolId);
+  // The page inspector needs the project too: its canonical address is what
+  // keeps the browser inside the site the project actually owns.
+  const needsProject =
+    needsServerTruth || isWordPressTool(toolId) || toolId === "browser.inspect_page_readonly";
 
   let authorizedProjectId: string | null = null;
   let canonicalUrl: string | null = null;
@@ -490,6 +518,8 @@ Deno.serve(async (req) => {
     case "public_http.inspect_site":
       if (!clientUrl) return fail("invalid_input", "That request was missing the site address.", false);
       return await inspectSite(clientUrl);
+    case "browser.inspect_page_readonly":
+      return await inspectPage(args, clientUrl, canonicalUrl);
     case "wordpress.inspect_public_surface":
       // Canonical, server-resolved address first. The browser's URL is only a
       // fallback for the transitional case where no environment is recorded.

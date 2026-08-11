@@ -82,6 +82,9 @@ export const safeHeaders = (headers: Headers): Record<string, string> => {
 export const redact = (value: string): string =>
   value
     .replace(/([?&](?:token|key|secret|password|pass|auth|signature)=)[^&\s]+/gi, "$1[redacted]")
+    // Credential-shaped assignments anywhere in free text, not just in a query
+    // string: console output and log lines carry them too.
+    .replace(/\b(?:token|api[_-]?key|apikey|secret|password|passwd|pwd|authorization|bearer)\b\s*[:=]\s*\S+/gi, "[redacted]")
     .replace(/\b[A-Za-z0-9_-]{32,}\b/g, "[redacted]");
 
 /** Same scheme + host + port. Credentials never leave this boundary. */

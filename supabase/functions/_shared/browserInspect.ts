@@ -1,0 +1,279 @@
+/**
+ * Stack-neutral, read-only page inspection boundary.
+ *
+ * A real browser cannot run inside the edge runtime, so this module owns the
+ * *rules* and delegates the actual page load to an external, explicitly
+ * configured rendering service. When no service is configured the tool reports
+ * `tool_unavailable` honestly — nothing here is ever simulated.
+ *
+ * Pure TypeScript on purpose: no Deno globals and no npm specifiers, so the
+ * exact code that runs in production is exercised by `npm run check:browser`.
+ */
+
+import { redact, validatePublicUrl } from "./net.ts";
+
+export type BrowserViewportId = "desktop" | "mobile";
+
+export const BROWSER_VIEWPORTS: Record<
+  BrowserViewportId,
+  { width: number; height: number; deviceScaleFactor: number; mobile: boolean; label: string }
+> = {
+  desktop: { width: 1366, height: 900, deviceScaleFactor: 1, mobile: false, label: "desktop" },
+  mobile: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true, label: "mobile" },
+};
+
+export const isBrowserViewport = (value: unknown): value is BrowserViewportId =>
+  value === "desktop" || value === "mobile";
+
+export type TargetCheck =
+  | { ok: true; url: URL }
+  | { ok: false; code: "invalid_input" | "unsafe_destination"; reason: string };
+
+const sameSite = (candidate: URL, allowed: URL): boolean => {
+  const a = candidate.hostname.toLowerCase().replace(/\.$/, "");
+  const b = allowed.hostname.toLowerCase().replace(/\.$/, "");
+  return a === b || a.endsWith(`.${b}`);
+};
+
+/**
+ * The only addresses this tool may load: a public destination that belongs to
+ * the project itself. An unrelated domain is refused even when it is public,
+ * so the agent can never be pointed at someone else's site.
+ */
+export const checkInspectionTarget = (raw: string, allowedUrl: string | null): TargetCheck => {
+  const check = validatePublicUrl(typeof raw === "string" ? raw.trim() : "");
+  if (!check.ok) {
+    const unsafe = /private network/i.test(check.reason);
+    return { ok: false, code: unsafe ? "unsafe_destination" : "invalid_input", reason: check.reason };
+  }
+  if (check.url.username || check.url.password) {
+    return { ok: false, code: "unsafe_destination", reason: "Addresses with embedded credentials are not accepted." };
+  }
+  if (check.url.toString().length > 512) {
+    return { ok: false, code: "invalid_input", reason: "That address is too long to inspect." };
+  }
+  if (allowedUrl) {
+    const allowed = validatePublicUrl(allowedUrl);
+    if (!allowed.ok) {
+      return { ok: false, code: "unsafe_destination", reason: "I don't have a safe site address for this project." };
+    }
+    if (!sameSite(check.url, allowed.url)) {
+      return {
+        ok: false,
+        code: "unsafe_destination",
+        reason: "That address is not part of this project's site, so I won't load it.",
+      };
+    }
+  }
+  return { ok: true, url: check.url };
+};
+
+// --- report normalization ----------------------------------------------------
+
+const num = (value: unknown, max: number): number | null => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+  return Math.min(Math.round(value), max);
+};
+
+const line = (value: unknown, limit = 200): string | null => {
+  if (typeof value !== "string") return null;
+  const cleaned = redact(value).replace(/\s+/g, " ").trim();
+  return cleaned ? cleaned.slice(0, limit) : null;
+};
+
+export type BrowserReport = {
+  viewport: BrowserViewportId;
+  finalUrl: string | null;
+  status: number | null;
+  ttfbMs: number | null;
+  domContentLoadedMs: number | null;
+  loadEventMs: number | null;
+  transferBytes: number | null;
+  requestCount: number | null;
+  consoleErrors: string[];
+  failedRequests: Array<{ host: string; status: number | null }>;
+  truncated: boolean;
+};
+
+export type NormalizedReport = { ok: true; report: BrowserReport } | { ok: false; reason: string };
+
+const MAX_CONSOLE_ERRORS = 10;
+const MAX_FAILED_REQUESTS = 10;
+
+/**
+ * Whatever the rendering service returns is treated as untrusted data: only
+ * known fields survive, every string is redacted and bounded, and a final URL
+ * that has escaped the project's own site invalidates the whole report.
+ */
+export const normalizeBrowserReport = (
+  payload: unknown,
+  options: { viewport: BrowserViewportId; allowedUrl: string | null },
+): NormalizedReport => {
+  if (!payload || typeof payload !== "object") return { ok: false, reason: "The page checker returned nothing usable." };
+  const raw = payload as Record<string, unknown>;
+
+  let finalUrl: string | null = null;
+  if (typeof raw.finalUrl === "string" && raw.finalUrl.trim()) {
+    const target = checkInspectionTarget(raw.finalUrl, options.allowedUrl);
+    if (!target.ok) {
+      return { ok: false, reason: "The page redirected somewhere outside this project's site, so I stopped." };
+    }
+    finalUrl = target.url.toString();
+  }
+
+  const consoleSource = Array.isArray(raw.consoleErrors) ? raw.consoleErrors : [];
+  const consoleErrors = consoleSource
+    .map((entry) => line(typeof entry === "string" ? entry : (entry as Record<string, unknown>)?.text))
+    .filter((entry): entry is string => Boolean(entry))
+    .slice(0, MAX_CONSOLE_ERRORS);
+
+  const failedSource = Array.isArray(raw.failedRequests) ? raw.failedRequests : [];
+  const failedRequests = failedSource
+    .map((entry) => {
+      const item = (entry ?? {}) as Record<string, unknown>;
+      const url = typeof item.url === "string" ? item.url : "";
+      let host = "";
+      try {
+        host = new URL(url).hostname;
+      } catch {
+        host = line(url, 80) ?? "";
+      }
+      if (!host) return null;
+      return { host: host.slice(0, 120), status: num(item.status, 599) };
+    })
+    .filter((entry): entry is { host: string; status: number | null } => entry !== null)
+    .slice(0, MAX_FAILED_REQUESTS);
+
+  return {
+    ok: true,
+    report: {
+      viewport: options.viewport,
+      finalUrl,
+      status: num(raw.status, 599),
+      ttfbMs: num(raw.ttfbMs, 600_000),
+      domContentLoadedMs: num(raw.domContentLoadedMs, 600_000),
+      loadEventMs: num(raw.loadEventMs, 600_000),
+      transferBytes: num(raw.transferBytes, 500_000_000),
+      requestCount: num(raw.requestCount, 5_000),
+      consoleErrors,
+      failedRequests,
+      truncated: consoleSource.length > MAX_CONSOLE_ERRORS || failedSource.length > MAX_FAILED_REQUESTS,
+    },
+  };
+};
+
+// --- adapter -----------------------------------------------------------------
+
+export type BrowserServiceConfig = {
+  /** Absolute https endpoint of the rendering service. Null when unconfigured. */
+  endpoint: string | null;
+  token: string | null;
+  timeoutMs?: number;
+};
+
+export type BrowserInspectOutcome =
+  | { ok: true; summary: string; data: Record<string, unknown> }
+  | { ok: false; code: string; summary: string; retryable: boolean };
+
+export const BROWSER_UNAVAILABLE_SUMMARY =
+  "I can load pages in a real browser only when a rendering service is connected, and one isn't configured here yet.";
+
+const describe = (report: BrowserReport): string => {
+  const seconds = (ms: number | null) => (ms === null ? null : `${(ms / 1000).toFixed(1)}s`);
+  const load = seconds(report.loadEventMs) ?? seconds(report.domContentLoadedMs);
+  const parts = [`I loaded the page in a real browser on ${BROWSER_VIEWPORTS[report.viewport].label}.`];
+  if (report.status !== null) parts.push(`It answered ${report.status}.`);
+  if (load) parts.push(`It finished loading in about ${load}.`);
+  if (report.consoleErrors.length > 0) parts.push(`${report.consoleErrors.length} console errors were reported.`);
+  return parts.join(" ");
+};
+
+/**
+ * Runs one read-only page inspection through the configured rendering service.
+ * Never navigates anywhere the caller did not prove is part of the project.
+ */
+export const runBrowserInspection = async (
+  config: BrowserServiceConfig,
+  request: { url: string; viewport: BrowserViewportId; allowedUrl: string | null },
+  fetchImpl: typeof fetch = fetch,
+): Promise<BrowserInspectOutcome> => {
+  if (!config.endpoint) {
+    return { ok: false, code: "tool_unavailable", summary: BROWSER_UNAVAILABLE_SUMMARY, retryable: false };
+  }
+  const endpoint = validatePublicUrl(config.endpoint);
+  if (!endpoint.ok || endpoint.url.protocol !== "https:") {
+    return {
+      ok: false,
+      code: "tool_unavailable",
+      summary: "The configured page checker address isn't usable, so I won't call it.",
+      retryable: false,
+    };
+  }
+
+  const target = checkInspectionTarget(request.url, request.allowedUrl);
+  if (!target.ok) return { ok: false, code: target.code, summary: target.reason, retryable: false };
+
+  const viewport = BROWSER_VIEWPORTS[request.viewport];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs ?? 45_000);
+
+  let response: Response;
+  try {
+    response = await fetchImpl(endpoint.url.toString(), {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "content-type": "application/json",
+        ...(config.token ? { authorization: `Bearer ${config.token}` } : {}),
+      },
+      body: JSON.stringify({
+        url: target.url.toString(),
+        viewport: { width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor, mobile: viewport.mobile },
+        readOnly: true,
+      }),
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    const aborted = error instanceof Error && error.name === "AbortError";
+    return {
+      ok: false,
+      code: aborted ? "timeout" : "network_error",
+      summary: aborted
+        ? "The page didn't finish loading in a real browser before I ran out of time."
+        : "I couldn't reach the page checker, so I have nothing observed to report.",
+      retryable: true,
+    };
+  }
+  clearTimeout(timer);
+
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    return {
+      ok: false,
+      code: response.status === 401 || response.status === 403 ? "tool_unavailable" : "network_error",
+      summary: "The page checker refused the request, so I have nothing observed to report.",
+      retryable: response.status >= 500,
+    };
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  const normalized = normalizeBrowserReport(payload, {
+    viewport: request.viewport,
+    allowedUrl: request.allowedUrl ?? target.url.toString(),
+  });
+  if (!normalized.ok) {
+    return { ok: false, code: "unsafe_destination", summary: normalized.reason, retryable: false };
+  }
+
+  return {
+    ok: true,
+    summary: redact(describe(normalized.report)),
+    data: normalized.report as unknown as Record<string, unknown>,
+  };
+};

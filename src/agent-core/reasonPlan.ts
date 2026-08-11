@@ -17,6 +17,8 @@ export type ReasonStepSpec = {
   capability: string;
   /** Fixed catalog command, WP-CLI steps only. */
   commandId?: string;
+  /** Fixed viewport, browser steps only. */
+  viewport?: "desktop" | "mobile";
   /** True when the tool resolves its own target server-side. */
   serverResolvedTarget: boolean;
   purpose: string;
@@ -28,6 +30,20 @@ export const REASON_STEPS: Record<string, ReasonStepSpec> = {
     capability: "public_internet",
     serverResolvedTarget: false,
     purpose: "See how the public site responds from outside.",
+  },
+  "inspect-page-desktop": {
+    toolId: "browser.inspect_page_readonly",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    viewport: "desktop",
+    purpose: "Load the page in a real browser on a desktop screen and watch how it performs.",
+  },
+  "inspect-page-mobile": {
+    toolId: "browser.inspect_page_readonly",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    viewport: "mobile",
+    purpose: "Load the page in a real browser on a phone-sized screen and watch how it performs.",
   },
   "inspect-wp-public": {
     toolId: "wordpress.inspect_public_surface",
@@ -138,7 +154,7 @@ export const materializeServerPlan = (
     else if (spec.serverResolvedTarget) args = {};
     else {
       if (!options.url) return null;
-      args = { url: options.url };
+      args = spec.viewport ? { url: options.url, viewport: spec.viewport } : { url: options.url };
     }
 
     const built = planAction(step.id, spec.toolId, options.runId, args, step.purpose || spec.purpose);

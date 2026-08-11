@@ -68,6 +68,18 @@ const requireUrl = (args: AgentActionArguments): ToolValidation => {
   return { ok: true, args: { url: check.url.toString() } };
 };
 
+/**
+ * A page inspection names a public address and one of two fixed viewports.
+ * There is no script, no selector and no free text: the browser only ever
+ * loads a page and reports what the page did.
+ */
+const requirePageInspection = (args: AgentActionArguments): ToolValidation => {
+  const url = requireUrl(args);
+  if (!url.ok) return url;
+  const viewport = args.viewport === "mobile" ? "mobile" : "desktop";
+  return { ok: true, args: { ...url.args, viewport } };
+};
+
 const notAvailable = (summary: string): AgentToolResult => ({
   ok: false,
   code: "not_implemented",
@@ -181,6 +193,18 @@ export const TOOL_REGISTRY: Record<ToolId, ToolDefinition> = {
     risk: classifyRisk("public_http.inspect_site"),
     implemented: true,
     validate: requireUrl,
+    execute: runThroughGateway,
+  },
+  "browser.inspect_page_readonly": {
+    id: "browser.inspect_page_readonly",
+    purpose: "Load the page in a real browser and observe how it performs, without changing anything.",
+    capability: "public_internet",
+    readOnly: true,
+    risk: classifyRisk("browser.inspect_page_readonly"),
+    // Stack-neutral: the page is loaded, never the platform behind it. The
+    // server refuses honestly when no rendering service is connected.
+    implemented: true,
+    validate: requirePageInspection,
     execute: runThroughGateway,
   },
   "wordpress.inspect_public_surface": {

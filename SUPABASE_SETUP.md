@@ -32,6 +32,10 @@ Copy `.env.example` to `.env.local` or your preferred local env file.
 - `SUPABASE_ANON_KEY` — only if used for caller token claims
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `AGENT_SECRET_ENCRYPTION_KEY`
+- `BROWSER_INSPECT_ENDPOINT` — optional. HTTPS endpoint of a page-rendering
+  service used by the read-only browser inspection. Unset means the agent
+  reports honestly that it cannot load pages in a real browser.
+- `BROWSER_INSPECT_TOKEN` — optional bearer token for that service.
 
 The service-role key and the encryption key must **never** use a `VITE_` prefix
 and must **never** enter browser env.
