@@ -25,6 +25,9 @@ import type { AccessEvent } from "./ProjectAccessPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { ProjectActivityPanel } from "./ProjectActivityPanel";
 import { deriveMemoryFromRun } from "./memory";
+import { MeetingPlanReview } from "./MeetingPlanReview";
+import { decideProposedTask, ingestAndAnalyzeMeeting, meetingIntelligenceAvailable } from "./meetings";
+import type { MeetingAnalysisView, ProposedTask } from "./meetings";
 
 // Long conversations render in a trailing window and grow on request, so a
 // task with hundreds of messages opens as fast as a fresh one.
@@ -117,6 +120,15 @@ export function ProjectWorkspace({
   const [accessFocus, setAccessFocus] = useState<AccessType[]>([]);
   const [query, setQuery] = useState("");
   const [windowSize, setWindowSize] = useState(PAGE_SIZE);
+  // Meeting intake lives inside the conversation, not in a separate CRM.
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [transcriptTitle, setTranscriptTitle] = useState("");
+  const [transcriptText, setTranscriptText] = useState("");
+  const [meetingBusy, setMeetingBusy] = useState(false);
+  const [meetingError, setMeetingError] = useState<string | null>(null);
+  const [meetingAnalysis, setMeetingAnalysis] = useState<MeetingAnalysisView | null>(null);
+  const [taskDecisions, setTaskDecisions] = useState<Record<string, "approved" | "rejected">>({});
+  const [taskBusyId, setTaskBusyId] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
