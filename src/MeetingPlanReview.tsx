@@ -15,6 +15,23 @@ const RISK_LABEL: Record<string, string> = {
   high_risk: "High risk",
 };
 
+const OWNER_LABEL: Record<string, string> = {
+  us: "We're doing this",
+  client: "The client is doing this",
+  third_party: "Someone else is doing this",
+  unassigned: "",
+};
+
+const dueLabel = (dueAt: string | null, deadlineText: string): string => {
+  if (dueAt) {
+    const date = new Date(dueAt);
+    if (!Number.isNaN(date.getTime())) {
+      return `Due ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+    }
+  }
+  return deadlineText ? `Due: ${deadlineText}` : "";
+};
+
 type MeetingPlanReviewProps = {
   analysis: MeetingAnalysisView;
   canWrite: boolean;
@@ -100,6 +117,18 @@ export function MeetingPlanReview({
                   </div>
                   <span className={`meeting-risk tone-${task.riskLevel}`}>{RISK_LABEL[task.riskLevel] ?? task.riskLevel}</span>
                 </div>
+
+                {(() => {
+                  const owner = OWNER_LABEL[task.owner] ?? "";
+                  const due = dueLabel(task.dueAt, task.deadlineText);
+                  return owner || due ? (
+                    <p className="meeting-task-meta">{[owner, due].filter(Boolean).join(" · ")}</p>
+                  ) : null;
+                })()}
+
+                {task.duplicateOfRunId || task.conflictNote ? (
+                  <p className="meeting-flag" role="note">{task.conflictNote || "This may already be underway."}</p>
+                ) : null}
 
                 <button className="meeting-toggle" type="button" onClick={() => setOpenTaskId(open ? null : task.id)}>
                   {open ? "Hide detail" : "Why I'm suggesting this"}
