@@ -1071,10 +1071,68 @@ export function ProjectWorkspace({
               <button type="button" onClick={() => setPersistError(null)}>Dismiss</button>
             </p>
           ) : null}
+
+          {meetingAnalysis ? (
+            <MeetingPlanReview
+              analysis={meetingAnalysis}
+              canWrite={canWrite}
+              busyTaskId={taskBusyId}
+              decided={taskDecisions}
+              onApprove={(task) => void approveProposedTask(task)}
+              onReject={(task) => void rejectProposedTask(task)}
+            />
+          ) : null}
           <div ref={threadEndRef} />
         </div>
 
         <div className="pw-composer">
+          {transcriptOpen ? (
+            <div className="transcript-intake">
+              <label className="transcript-field">
+                <span>Meeting</span>
+                <input
+                  type="text"
+                  value={transcriptTitle}
+                  placeholder="Weekly client call"
+                  onChange={(event) => setTranscriptTitle(event.target.value)}
+                />
+              </label>
+              <textarea
+                className="composer-input"
+                rows={6}
+                value={transcriptText}
+                placeholder="Paste the meeting transcript here. I'll strip anything that looks like a credential before storing it."
+                aria-label="Meeting transcript"
+                onChange={(event) => setTranscriptText(event.target.value)}
+              />
+              <input
+                type="file"
+                accept=".txt,.md,.vtt,.srt,text/plain"
+                aria-label="Upload a transcript file"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  setTranscriptText(await file.text());
+                  if (!transcriptTitle.trim()) setTranscriptTitle(file.name.replace(/\.[^.]+$/, ""));
+                }}
+              />
+              {meetingError ? <p className="pw-persist-error" role="status">{meetingError}</p> : null}
+              <div className="composer-row">
+                <button className="ghost-button" type="button" onClick={() => setTranscriptOpen(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={meetingBusy || transcriptText.trim().length < 40}
+                  onClick={() => void submitTranscript()}
+                >
+                  {meetingBusy ? "Reading the meeting…" : "Share with the agent"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <textarea
             ref={composerRef}
             className="composer-input"
@@ -1091,7 +1149,17 @@ export function ProjectWorkspace({
             }}
           />
           <div className="composer-row">
-            <button className="composer-attach" type="button" aria-label="Attach a file">＋</button>
+            {meetingIntelligenceAvailable() ? (
+              <button
+                className="composer-attach"
+                type="button"
+                aria-label="Share a meeting transcript"
+                title="Share a meeting transcript"
+                onClick={() => setTranscriptOpen((open) => !open)}
+              >
+                ＋
+              </button>
+            ) : null}
             <button className="primary-button" type="button" disabled={!composerValue.trim() || busy} onClick={() => void sendMessage()}>
               Send
             </button>
