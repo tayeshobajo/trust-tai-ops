@@ -14,11 +14,13 @@ import {
 type Props = {
   project: Project;
   canWrite: boolean;
-  onBackToConversation: () => void;
+  onBackToConversation?: () => void;
+  // Rendered inside the persistent project shell.
+  embedded?: boolean;
   onWorkspaceUpdate: (next: Organization) => void;
 };
 
-export function ProjectMemoryPanel({ project, canWrite, onBackToConversation, onWorkspaceUpdate }: Props) {
+export function ProjectMemoryPanel({ project, canWrite, onBackToConversation, embedded = false, onWorkspaceUpdate }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -67,9 +69,11 @@ export function ProjectMemoryPanel({ project, canWrite, onBackToConversation, on
   return (
     <div className="access-surface">
       <header className="access-head">
-        <button className="create-back" type="button" onClick={onBackToConversation}>
-          Back to conversation
-        </button>
+        {!embedded && onBackToConversation ? (
+          <button className="create-back" type="button" onClick={onBackToConversation}>
+            Back to conversation
+          </button>
+        ) : null}
         <span className="preview-avatar" aria-hidden="true">{getProjectInitials(project)}</span>
         <div>
           <p className="eyebrow">What I know about this project</p>
