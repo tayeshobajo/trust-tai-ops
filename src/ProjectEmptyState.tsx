@@ -1,14 +1,25 @@
 import { useState } from "react";
 import type { Project } from "./types";
 import { getProjectInitials } from "./home";
+import { getProjectStack } from "./stacks";
 
-const starterPrompts = [
-  "Investigate a website issue",
-  "Improve website speed",
-  "Check for malware",
-  "Build or update a feature",
-  "Run website QA",
-];
+/** Openings that match what the project actually is. */
+const starterPromptsFor = (project: Project): string[] =>
+  getProjectStack(project) === "wordpress"
+    ? [
+        "Investigate a website issue",
+        "Improve website speed",
+        "Check for malware",
+        "Build or update a feature",
+        "Run website QA",
+      ]
+    : [
+        "Investigate an application issue",
+        "Look into slow performance",
+        "Check a failing deploy",
+        "Build or update a feature",
+        "Run a pre-release check",
+      ];
 
 const secondaryNav = ["Conversation", "Tasks", "Memory", "Access", "Activity"] as const;
 
@@ -113,7 +124,7 @@ export function ProjectEmptyState({
         </div>
 
         <div className="starter-prompts">
-          {starterPrompts.map((prompt) => (
+          {starterPromptsFor(project).map((prompt) => (
             <button key={prompt} type="button" className="starter-prompt" onClick={() => setMessage(prompt)}>
               {prompt}
             </button>

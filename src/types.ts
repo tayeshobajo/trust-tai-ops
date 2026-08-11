@@ -23,7 +23,20 @@ export type TaskType =
   | "broken_site"
   | "plugin_theme_conflict"
   | "hardening"
-  | "qa_only";
+  | "qa_only"
+  | "deploy"
+  | "migration"
+  | "feature"
+  | "dependency_upgrade";
+
+/** The technology a project actually runs on. Drives copy and tool eligibility. */
+export type ProjectStack = "wordpress" | "meteor" | "nextjs" | "custom";
+
+/**
+ * Stack-agnostic version facts, e.g. `{ meteor: "2.15", node: "22.22.1" }` or
+ * `{ wordpress: "6.7.1", php: "8.2" }`. Replaces the WordPress-only pair.
+ */
+export type StackVersionInfo = Record<string, string>;
 
 export type RiskLevel = "safe" | "cautious" | "high_risk";
 
@@ -35,7 +48,10 @@ export type AccessType =
   | "ssh"
   | "hosting_portal"
   | "database"
-  | "cdn";
+  | "cdn"
+  | "server_pm2"
+  | "ci_cd"
+  | "container";
 
 export type AccessStatus = "available" | "stale" | "missing";
 
@@ -59,14 +75,27 @@ export type WorkspaceView =
 
 export type PhaseStatus = "pending" | "active" | "completed" | "blocked" | "failed";
 
+/** Operating facts that are true for any stack, not just WordPress. */
+export type EnvironmentRuntime = {
+  port?: number;
+  processManager?: string;
+  databaseProvider?: string;
+  databaseName?: string;
+};
+
 export type ProjectEnvironment = {
   id: string;
   name: string;
   type: EnvironmentType;
   primaryUrl: string;
   hostingProvider: string;
-  wordpressVersion: string;
-  phpVersion: string;
+  stack: ProjectStack;
+  versions: StackVersionInfo;
+  runtime?: EnvironmentRuntime;
+  /** @deprecated legacy WordPress-only field. Read `versions.wordpress`. */
+  wordpressVersion?: string;
+  /** @deprecated legacy WordPress-only field. Read `versions.php`. */
+  phpVersion?: string;
   cacheLayers: string[];
   notes: string;
 };
@@ -201,6 +230,44 @@ export type RunApproval = {
   reason: string;
 };
 
+/**
+ * The branch protocol a project actually follows. Explicit steps, because a
+ * set of booleans cannot say "feature branch -> develop -> staging verify ->
+ * main -> production". This is a description, not a workflow engine.
+ */
+export type DeployStepKind =
+  | "feature_branch"
+  | "integration_branch"
+  | "staging_verify"
+  | "release_branch"
+  | "production";
+
+export type DeployStep = {
+  kind: DeployStepKind;
+  label: string;
+  detail: string;
+};
+
+export type RollbackStrategy = "git_revert" | "pm2_reload" | "snapshot_restore";
+
+export type DeployPipeline = {
+  hasStaging: boolean;
+  branchGated: boolean;
+  autoDeployStaging: boolean;
+  autoDeployProduction: boolean;
+  stagingUrl?: string;
+  productionUrl: string;
+  integrationBranch?: string;
+  productionBranch?: string;
+  /** Single-number estimate. Kept for compatibility. */
+  buildTimeMinutes?: number;
+  /** Truthful range when a build is not one fixed number, e.g. 4-7 minutes. */
+  buildTimeMinMinutes?: number;
+  buildTimeMaxMinutes?: number;
+  rollbackStrategy: RollbackStrategy;
+  steps: DeployStep[];
+};
+
 export type Run = {
   id: string;
   title: string;
@@ -235,6 +302,7 @@ export type Project = {
   status: ProjectStatus;
   environmentHealth: "stable" | "watching" | "at_risk";
   environments: ProjectEnvironment[];
+  deployPipeline?: DeployPipeline;
   accessMethods: ProjectAccessMethod[];
   memoryEntries: MemoryEntry[];
   recommendations: Recommendation[];
@@ -267,8 +335,13 @@ export type ProjectDraft = {
   websiteUrl: string;
   description: string;
   hostingProvider: string;
-  wordpressVersion: string;
-  phpVersion: string;
+  /** Authoritative at creation time. Everything else derives from it. */
+  stack: ProjectStack;
+  versions: StackVersionInfo;
+  /** @deprecated legacy field kept so old persisted drafts still parse. */
+  wordpressVersion?: string;
+  /** @deprecated legacy field kept so old persisted drafts still parse. */
+  phpVersion?: string;
   createProductionEnvironment: boolean;
   accessSelections: Array<{
     type: AccessType;

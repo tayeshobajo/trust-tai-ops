@@ -32,6 +32,46 @@ const OPEN_STATES = [
   "escalated",
 ];
 
+const STACK_LABELS: Record<string, string> = {
+  wordpress: "WordPress",
+  meteor: "Meteor",
+  nextjs: "Next.js",
+  custom: "Custom stack",
+};
+
+type EnvironmentFacts = {
+  stack?: string | null;
+  versions?: Record<string, string> | null;
+  runtime?: Record<string, unknown> | null;
+  wordpress_version?: string | null;
+  php_version?: string | null;
+};
+
+const describeStack = (environment: EnvironmentFacts): string =>
+  STACK_LABELS[String(environment.stack ?? "wordpress")] ?? "";
+
+/** Legacy rows only have the WordPress pair, so fold them into the map. */
+const describeEnvironmentVersions = (environment: EnvironmentFacts): string => {
+  const versions: Record<string, string> = { ...(environment.versions ?? {}) };
+  if (!versions.wordpress && environment.wordpress_version) versions.wordpress = environment.wordpress_version;
+  if (!versions.php && environment.php_version) versions.php = environment.php_version;
+  return Object.entries(versions)
+    .filter(([, value]) => Boolean(value))
+    .map(([key, value]) => `${key} ${value}`)
+    .join(", ");
+};
+
+const describeEnvironmentRuntime = (environment: EnvironmentFacts): string => {
+  const runtime = environment.runtime ?? {};
+  return [
+    runtime.port ? `port ${runtime.port}` : "",
+    runtime.processManager ? `${runtime.processManager} process manager` : "",
+    runtime.databaseProvider ? String(runtime.databaseProvider) : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+};
+
 export const loadProjectContext = async (
   projectId: string,
   canonicalUrl: string | null,
@@ -43,7 +83,7 @@ export const loadProjectContext = async (
     service.from("projects").select("name, primary_domain, status").eq("id", projectId).maybeSingle(),
     service
       .from("project_environments")
-      .select("environment_type, primary_url, hosting_provider, wordpress_version, php_version")
+      .select("environment_type, primary_url, hosting_provider, stack, versions, runtime, wordpress_version, php_version")
       .eq("project_id", projectId)
       .eq("environment_type", "production")
       .maybeSingle(),
@@ -82,8 +122,9 @@ export const loadProjectContext = async (
       environment: environment
         ? [
             environment.hosting_provider,
-            environment.wordpress_version ? `WordPress ${environment.wordpress_version}` : "",
-            environment.php_version ? `PHP ${environment.php_version}` : "",
+            describeStack(environment),
+            describeEnvironmentVersions(environment),
+            describeEnvironmentRuntime(environment),
           ]
             .filter(Boolean)
             .join(", ")

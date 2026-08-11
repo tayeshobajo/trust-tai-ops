@@ -10,6 +10,7 @@ import {
   openRecommendations,
   projectUnderstanding,
 } from "./memory";
+import { describeRuntime, describeVersions } from "./stacks";
 
 type Props = {
   project: Project;
@@ -116,8 +117,8 @@ export function ProjectMemoryPanel({ project, canWrite, onBackToConversation, em
                   {[
                     environment.primaryUrl,
                     environment.hostingProvider ? `hosted with ${environment.hostingProvider}` : "",
-                    environment.wordpressVersion ? `WordPress ${environment.wordpressVersion}` : "",
-                    environment.phpVersion ? `PHP ${environment.phpVersion}` : "",
+                    describeVersions(environment),
+                    describeRuntime(environment),
                     environment.cacheLayers.length > 0 ? `caching: ${environment.cacheLayers.join(", ")}` : "",
                   ]
                     .filter(Boolean)

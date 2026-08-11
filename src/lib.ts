@@ -1,5 +1,6 @@
 import type { Organization, Project, ProjectDraft, ProjectEnvironment, ProjectAccessMethod, Run, RunDraft, RunPhase, RunState } from "./types";
 import { createPhases } from "./data";
+import { accessTypeLabels, getProjectStack, stackCopy } from "./stacks";
 
 export const getProjectById = (workspace: Organization, projectId: string | null): Project | null =>
   workspace.projects.find((project) => project.id === projectId) ?? null;
@@ -15,7 +16,8 @@ export const getActiveRun = (project: Project | null): Run | null => {
 export const getEnvironmentName = (project: Project | null, environmentId: string) =>
   project?.environments.find((environment) => environment.id === environmentId)?.name ?? "Environment";
 
-export const getRunPhases = (run: Run): RunPhase[] => run.phases.length > 0 ? run.phases : createPhases(run.state);
+export const getRunPhases = (run: Run): RunPhase[] =>
+  run.phases.length > 0 ? run.phases : createPhases(run.state, run.taskType);
 
 export const getRunProgress = (run: Run) => {
   const phases = getRunPhases(run);
@@ -133,6 +135,14 @@ export const taskTypeToTitle = (taskType: Run["taskType"]) => {
       return "Hardening";
     case "qa_only":
       return "QA";
+    case "deploy":
+      return "Deploy";
+    case "migration":
+      return "Migration";
+    case "feature":
+      return "Feature";
+    case "dependency_upgrade":
+      return "Dependency Upgrade";
     default:
       return "Run";
   }
@@ -193,14 +203,7 @@ export const createProjectFromDraft = (draft: ProjectDraft): Project => {
     .map((selection) => ({
       id: `${baseId}-${selection.type}`,
       type: selection.type,
-      label:
-        selection.type === "wordpress_admin"
-          ? "WordPress Admin"
-          : selection.type === "sftp"
-            ? "SFTP / FTP"
-            : selection.type === "ssh"
-              ? "SSH Access"
-              : "Hosting / Other",
+      label: accessTypeLabels[selection.type] ?? "Hosting / Other",
       status: "available",
       authMethod: "Pending secure credential handoff",
       lastVerifiedAt: nowStamp,
@@ -214,8 +217,12 @@ export const createProjectFromDraft = (draft: ProjectDraft): Project => {
         type: "production",
         primaryUrl: draft.websiteUrl.startsWith("http") ? draft.websiteUrl : `https://${draft.websiteUrl}`,
         hostingProvider: draft.hostingProvider.trim() || "Hosting not recorded yet",
-        wordpressVersion: draft.wordpressVersion.trim() || "Latest / unknown",
-        phpVersion: draft.phpVersion.trim() || "Unknown",
+        stack: draft.stack,
+        versions: Object.fromEntries(
+          Object.entries(draft.versions ?? {})
+            .map(([key, value]) => [key, value.trim()])
+            .filter(([, value]) => Boolean(value)),
+        ),
         cacheLayers: [],
         notes: draft.description.trim() || "Fresh project. Environment mapping will fill in the sharper truths once access is verified.",
       }]
@@ -263,7 +270,7 @@ export const createProjectFromDraft = (draft: ProjectDraft): Project => {
         name: "Admin access sanity",
         type: "login_check",
         required: true,
-        description: "WordPress admin should remain reachable after any change touching plugins, auth, or configuration.",
+        description: stackCopy[draft.stack].adminQaDescription,
       },
       {
         id: `${baseId}-qa-visual`,
@@ -280,7 +287,7 @@ export const createProjectFromDraft = (draft: ProjectDraft): Project => {
 export const createFirstRunDraft = (project: Project): RunDraft => ({
   title: "Initial access verification and environment mapping",
   taskType: "qa_only",
-  taskSummary: `Establish the first safe operating baseline for ${project.name}. Verify access paths, inspect the environment, confirm the WordPress surface, and capture durable project memory before any write-capable work begins.`,
+  taskSummary: `Establish the first safe operating baseline for ${project.name}. Verify access paths, inspect the environment, confirm the ${stackCopy[getProjectStack(project)].surfaceLabel}, and capture durable project memory before any write-capable work begins.`,
   urgency: "normal",
   environmentId: project.environments[0]?.id ?? "",
   accessReady: project.accessMethods.length > 0,
@@ -295,6 +302,8 @@ export const injectProjectIntoWorkspace = (workspace: Organization, project: Pro
 export const createRunFromDraft = (draft: RunDraft, project: Project): Run => {
   const nowStamp = "2026-08-04 22:24 CDT";
   const environment = project.environments.find((item) => item.id === draft.environmentId) ?? project.environments[0];
+  // Conservative by design: anything write-capable — including deploys,
+  // migrations, features, and dependency upgrades — stays high risk.
   const riskLevel = draft.taskType === "qa_only"
     ? "safe"
     : draft.taskType === "performance" || draft.taskType === "plugin_theme_conflict"
@@ -337,7 +346,7 @@ export const createRunFromDraft = (draft: RunDraft, project: Project): Run => {
       : "No execution plan yet. The run will earn one only after diagnosis exists.",
     startedAt: nowStamp,
     updatedAt: nowStamp,
-    phases: createPhases(state),
+    phases: createPhases(state, draft.taskType),
     findings: [],
     actions: [
       {

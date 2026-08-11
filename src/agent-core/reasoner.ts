@@ -9,6 +9,7 @@
  */
 
 import type { AccessType } from "../types";
+import { getProjectStack, stackCopy } from "../stacks";
 import { planAction } from "./registry";
 import { executionGateway } from "./gateway";
 import { materializeServerPlan } from "./reasonPlan";
@@ -64,6 +65,13 @@ const wordpressMarkersPresent = (context: AgentContext): boolean =>
  * only requested when the task genuinely cannot start without it.
  */
 const minimumAccessFor = (context: AgentContext): AccessType[] => {
+  const stack = getProjectStack(context.project);
+  if (stack !== "wordpress") {
+    // No WordPress admin exists to ask for. Ask for the access this stack
+    // actually uses instead.
+    return stackCopy[stack].accessTypes.filter((type) => !context.capabilities.includes(type)).slice(0, 1);
+  }
+
   if (context.capabilities.includes("wordpress_admin")) {
     // Admin is already in place: only now can a deeper level be justified.
     // Malware work genuinely needs the filesystem; a core integrity question
@@ -108,6 +116,8 @@ class DeterministicReasoner implements AgentReasoner {
 
   async plan(context: AgentContext): Promise<AgentPlan> {
     const url = context.environment.primaryUrl;
+    const stack = getProjectStack(context.project);
+    const wordPressStack = stack === "wordpress";
 
     if (!url) {
       return emptyPlan({
@@ -126,6 +136,10 @@ class DeterministicReasoner implements AgentReasoner {
         toolId: "public_http.inspect_site",
         purpose: "See how the public site responds from outside.",
       });
+    } else if (!wordPressStack) {
+      // Stack-neutral public checks are legitimate anywhere. WordPress-only
+      // tools are not, so a non-WordPress project stops here rather than
+      // pretending to inspect something it does not run.
     } else if (!hasEvidenceFrom(context, "wordpress.inspect_public_surface")) {
       want.push({
         id: "inspect-wp-public",
@@ -179,6 +193,7 @@ class DeterministicReasoner implements AgentReasoner {
     // has not already been read for this run. If it turns out to be
     // unavailable, the run continues on other evidence rather than retrying.
     if (
+      wordPressStack &&
       wordpressMarkersPresent(context) &&
       context.capabilities.includes("ssh") &&
       ERROR_LOG_TASK_TYPES.includes(context.run.taskType) &&
@@ -219,7 +234,9 @@ class DeterministicReasoner implements AgentReasoner {
       }
       return emptyPlan({
         intent: "report_findings",
-        rationale: "Public checks are done and access is available.",
+        rationale: wordPressStack
+          ? "Public checks are done and access is available."
+          : `Public checks are done. A ${stackCopy[stack].label} executor for deeper inspection does not exist yet, so nothing further can be checked automatically.`,
       });
     }
 

@@ -6245,3 +6245,37 @@ p, li {
 }
 
 .pw-task-surface .pw-task-row { width: 100%; }
+
+/* Deploy pipeline summary in the project context pane. Presentation only. */
+.pw-pipeline {
+  list-style: none;
+  margin: var(--tt-space-2) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--tt-space-2);
+}
+
+.pw-pipeline li {
+  display: grid;
+  gap: 2px;
+  padding-left: var(--tt-space-3);
+  border-left: 1px solid var(--tt-line-strong, var(--tt-line));
+}
+
+.pw-pipeline strong {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--tt-ink);
+}
+
+.pw-pipeline span {
+  font-size: 0.78rem;
+  color: var(--tt-ink-soft, var(--tt-muted));
+  line-height: 1.45;
+}
+
+.pw-pipeline-note {
+  margin-top: var(--tt-space-2);
+  font-size: 0.76rem;
+  color: var(--tt-ink-soft, var(--tt-muted));
+}
