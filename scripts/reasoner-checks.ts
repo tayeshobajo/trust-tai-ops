@@ -337,13 +337,6 @@ check(
     false,
 );
 
-console.log("");
-if (failures.length > 0) {
-  console.log(`${failures.length} check(s) failed`);
-  process.exit(1);
-}
-console.log("all reasoning boundary checks passed");
-
 // Provider auth headers: Anthropic uses x-api-key, the Lovable gateway uses its
 // own header. A Bearer token on the gateway path is a silent auth failure.
 {
@@ -353,3 +346,10 @@ console.log("all reasoning boundary checks passed");
   check("anthropic call authenticates with x-api-key", fn.includes('"x-api-key": apiKey'));
   check("anthropic call pins an API version", fn.includes('"anthropic-version"'));
 }
+
+console.log("");
+if (failures.length > 0) {
+  console.log(`${failures.length} check(s) failed`);
+  process.exit(1);
+}
+console.log("all reasoning boundary checks passed");
