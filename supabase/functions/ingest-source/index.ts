@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
       source_type: "meeting_transcript",
       title: clean(body.title, 160, "Client meeting transcript"),
       occurred_at: occurredAt,
-      uploaded_by: authz.user?.userId ?? null,
+      uploaded_by: authz.caller.userId,
       original_filename: clean(body.filename, 200) || null,
       storage_kind: "inline_text",
       normalized_text: text,
