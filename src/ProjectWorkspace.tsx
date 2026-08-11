@@ -737,11 +737,17 @@ export function ProjectWorkspace({
         </div>
 
         <nav className="pw-secondary" aria-label="Project sections">
-          <button type="button" onClick={() => setSurface("memory")}>
-            Memory
+          <button type="button" className="is-active" aria-current="page" onClick={() => setMobilePane("chat")}>
+            Conversation
+          </button>
+          <button type="button" onClick={() => setMobilePane("tasks")}>
+            Tasks
           </button>
           <button type="button" onClick={() => openAccessSurface([])}>
             Access
+          </button>
+          <button type="button" onClick={() => setSurface("memory")}>
+            Memory
           </button>
           <button type="button" onClick={() => setSurface("activity")}>
             Activity
