@@ -588,6 +588,14 @@ export function ProjectWorkspace({
     const value = composerValue.trim();
     if (!value) return;
 
+    // Credential-shaped text never becomes a stored message. It goes straight
+    // to the authorized server intake, which parses, authorizes and seals it,
+    // and returns a sanitized replacement for the conversation.
+    if (containsSecretMaterial(value)) {
+      await handleCredentialPaste(value);
+      return;
+    }
+
     if (!activeRun) {
       setBusy(true);
       try {
