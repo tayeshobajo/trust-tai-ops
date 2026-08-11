@@ -56,6 +56,7 @@ check(
       .sort(),
   ) ===
     JSON.stringify([
+      "browser.inspect_page_readonly",
       "public_http.inspect_site",
       "wordpress.inspect_public_surface",
       "wordpress.list_plugins",
@@ -155,6 +156,8 @@ const exhausted = await deterministicReasoner.plan({
   evidence: [
     { id: "e1", toolId: "public_http.inspect_site", summary: "", data: {}, sensitivity: "public", redacted: true, observedAt: "" },
     { id: "e2", toolId: "wordpress.inspect_public_surface", summary: "", data: {}, sensitivity: "public", redacted: true, observedAt: "" },
+    { id: "e3", toolId: "browser.inspect_page_readonly", summary: "", data: { viewport: "desktop" }, sensitivity: "public", redacted: true, observedAt: "" },
+    { id: "e4", toolId: "browser.inspect_page_readonly", summary: "", data: { viewport: "mobile" }, sensitivity: "public", redacted: true, observedAt: "" },
   ],
 });
 check(
@@ -195,8 +198,10 @@ const turnInput = {
 await runAgentTurn(turnInput as never);
 const callsAfterFirst = calls;
 await runAgentTurn(turnInput as never);
-check("first turn executed a real tool", callsAfterFirst === 1);
-check("replaying the same turn reuses the completed invocation", calls === 1 + 1);
+check("first turn executed at least one real tool", callsAfterFirst >= 1);
+// The turn is now an iterative loop, so it may take several observations. What
+// must never change is that replaying it re-runs none of them.
+check("replaying the same turn reuses the completed invocations", calls === callsAfterFirst);
 
 const flat = spoken.flat().join(" ");
 check("agent speaks plainly, not in tool ids", !flat.includes("public_http.inspect_site"));

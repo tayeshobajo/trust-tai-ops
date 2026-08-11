@@ -330,6 +330,10 @@ const baseContext = {
     evidence("public_http.inspect_site", { wordpressSignals: true }),
     evidence("wordpress.inspect_public_surface", { restApiAvailable: true }),
     evidence("wordpress.read_health", { credentialsRequired: true }),
+    // Free, stack-neutral browser observation is exhausted before any private
+    // access is asked for.
+    evidence("browser.inspect_page_readonly", { viewport: "desktop" }),
+    evidence("browser.inspect_page_readonly", { viewport: "mobile" }),
   ],
   environment: { primaryUrl: "https://example.com/", executionBackendAvailable: true },
 };
