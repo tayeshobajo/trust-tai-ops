@@ -664,33 +664,66 @@ export function ProjectWorkspace({
     return null;
   };
 
-  if (surface === "access") {
-    return (
+  // The visible destination is derived from real state, never hardcoded. On a
+  // narrow viewport the task list is a pane of the conversation surface, so it
+  // reads as Tasks while it is the pane on screen.
+  const activeNav =
+    surface === "conversation" ? (mobilePane === "tasks" ? "tasks" : "conversation") : surface;
+
+  const goToSurface = (next: typeof surface) => {
+    if (next === "conversation") {
+      setSurface("conversation");
+      setMobilePane("chat");
+      return;
+    }
+    if (next === "tasks") {
+      setSurface("conversation");
+      setMobilePane("tasks");
+      return;
+    }
+    setSurface(next);
+    setMobilePane("chat");
+  };
+
+  const navItems: Array<[typeof surface, string]> = [
+    ["conversation", "Conversation"],
+    ["tasks", "Tasks"],
+    ["access", "Access"],
+    ["memory", "Memory"],
+    ["activity", "Activity"],
+  ];
+
+  const renderProjectNav = (variant: "rail" | "bar") => (
+    <nav className={variant === "bar" ? "pw-secondary pw-secondary-bar" : "pw-secondary"} aria-label="Project sections">
+      {navItems.map(([key, label]) => (
+        <button
+          key={key}
+          type="button"
+          className={activeNav === key ? "is-active" : ""}
+          aria-current={activeNav === key ? "page" : undefined}
+          onClick={() => (key === "access" ? openAccessSurface([]) : goToSurface(key))}
+        >
+          {label}
+        </button>
+      ))}
+    </nav>
+  );
+
+  const secondarySurface =
+    surface === "access" ? (
       <ProjectAccessPanel
         project={project}
         canWrite={canWrite}
         focusTypes={accessFocus}
-        onBackToConversation={() => setSurface("conversation")}
+        embedded
         onWorkspaceUpdate={onWorkspaceUpdate}
         onAccessEvent={recordAccessEvent}
       />
-    );
-  }
-
-  if (surface === "memory") {
-    return (
-      <ProjectMemoryPanel
-        project={project}
-        canWrite={canWrite}
-        onBackToConversation={() => setSurface("conversation")}
-        onWorkspaceUpdate={onWorkspaceUpdate}
-      />
-    );
-  }
-
-  if (surface === "activity") {
-    return <ProjectActivityPanel project={project} onBackToConversation={() => setSurface("conversation")} />;
-  }
+    ) : surface === "memory" ? (
+      <ProjectMemoryPanel project={project} canWrite={canWrite} embedded onWorkspaceUpdate={onWorkspaceUpdate} />
+    ) : surface === "activity" ? (
+      <ProjectActivityPanel project={project} embedded />
+    ) : null;
 
   return (
     <div className={`pw-shell pane-${mobilePane}`}>
