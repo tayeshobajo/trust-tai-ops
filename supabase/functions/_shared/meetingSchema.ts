@@ -111,6 +111,15 @@ export type MeetingValidationContext = {
 
 const HOST_PATTERN = /\bhttps?:\/\/([a-z0-9.-]+)/gi;
 
+/**
+ * Language that describes losing something. A proposal reading this way always
+ * keeps a human execution approval, however the model graded its own risk.
+ */
+const DESTRUCTIVE_PATTERN =
+  /\b(delete|drop|truncate|wipe|purge|erase|destroy|uninstall|deactivate|remove|overwrite|reset|restore|rollback|revert|migrate|rename|disable)\b/i;
+
+const readsAsDestructive = (text: string): boolean => DESTRUCTIVE_PATTERN.test(text);
+
 const namesForeignHost = (text: string, allowedHosts: string[]): boolean => {
   if (allowedHosts.length === 0) return false;
   const matches = text.matchAll(HOST_PATTERN);
