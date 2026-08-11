@@ -134,7 +134,7 @@ const REDACTIONS: Array<[RegExp, string]> = [
   [/\b(set-cookie|cookie)\s*[:=]\s*[^\n]+/gi, "$1: [redacted]"],
   [/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 [redacted]"],
   [
-    /\b(pass(?:word|wd)?|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|auth[_-]?key|private[_-]?key|application[_-]?password|app[_-]?password|db[_-]?password|session[_-]?id|nonce)\b(\s*(?:=>|[:=])\s*)(?:(["'])[^"'\n]*\2|[^\s"',;)]+)/gi,
+    /\b(pass(?:word|wd)?|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|auth[_-]?key|private[_-]?key|application[_-]?password|app[_-]?password|db[_-]?password|session[_-]?id|nonce)\b(\s*(?:=>|[:=])\s*)(?:(["'])[^"'\n]*\3|[^\s"',;)]+)/gi,
     "$1$2[redacted]",
   ],
   [
