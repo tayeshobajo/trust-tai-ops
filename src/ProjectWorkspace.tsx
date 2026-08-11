@@ -456,6 +456,120 @@ export function ProjectWorkspace({
     window.setTimeout(() => composerRef.current?.focus(), 0);
   };
 
+  /**
+   * A meeting enters the project as conversation. The agent says it received
+   * the transcript, then says what it understood. Nothing is started here.
+   */
+  const submitTranscript = async () => {
+    const text = transcriptText.trim();
+    if (text.length < 40) {
+      setMeetingError("I need the meeting text itself before I can read it.");
+      return;
+    }
+
+    setMeetingBusy(true);
+    setMeetingError(null);
+    const title = transcriptTitle.trim() || "Client meeting";
+    const stamp = Date.now();
+
+    try {
+      await emit({
+        runId: activeRun?.id ?? null,
+        role: "user",
+        kind: "message",
+        body: [`Shared a transcript from ${title}.`],
+        dedupeKey: `transcript-${project.id}-${stamp}`,
+      });
+
+      const result = await ingestAndAnalyzeMeeting({ projectId: project.id, text, title });
+      if (!result.ok) {
+        setMeetingError(result.summary);
+        return;
+      }
+
+      setTranscriptOpen(false);
+      setTranscriptText("");
+      setTranscriptTitle("");
+      setMeetingAnalysis(result.analysis);
+      setTaskDecisions({});
+
+      const redactionNote =
+        result.redactedCount > 0
+          ? ` I removed ${result.redactedCount} credential-looking value${result.redactedCount === 1 ? "" : "s"} before storing it.`
+          : "";
+
+      await emit({
+        runId: activeRun?.id ?? null,
+        role: "agent",
+        kind: "message",
+        body: [
+          `${result.analysis.summary}${redactionNote}`,
+          result.analysis.proposedTasks.length > 0
+            ? "Here's the work I'd suggest. Tell me which of it to pick up."
+            : "Nothing in there needs work from me yet — I've noted the context.",
+        ],
+        dedupeKey: `meeting-summary-${result.analysis.analysisId}`,
+      });
+    } catch {
+      setMeetingError("I couldn't take that transcript just now.");
+    } finally {
+      setMeetingBusy(false);
+    }
+  };
+
+  /** Approval is the moment a proposal becomes real work. Only a human does it. */
+  const approveProposedTask = async (task: ProposedTask) => {
+    if (!canWrite || taskBusyId) return;
+    setTaskBusyId(task.id);
+    try {
+      const next = await workspaceRepository.createRun(project.id, {
+        title: task.title,
+        taskType: task.taskType,
+        taskSummary: task.clientAsk || task.implementationApproach || task.title,
+        urgency: "normal",
+        environmentId: project.environments[0]?.id ?? "",
+        accessReady: projectHasUsableAccess(project),
+        backupConfirmed: false,
+      });
+      onWorkspaceUpdate(next);
+      const created = next.projects.find((item) => item.id === project.id)?.runs[0] ?? null;
+
+      await decideProposedTask(task.id, "approved", created?.id ?? null);
+      setTaskDecisions((current) => ({ ...current, [task.id]: "approved" }));
+
+      await emit({
+        runId: created?.id ?? null,
+        role: "user",
+        kind: "decision_response",
+        body: [`Approved from the meeting: ${task.title}.`],
+        dedupeKey: `proposal-approved-${task.id}`,
+      });
+      if (created) setActiveRunId(created.id);
+    } catch {
+      setMeetingError("I couldn't start that task. Nothing was changed.");
+    } finally {
+      setTaskBusyId(null);
+    }
+  };
+
+  const rejectProposedTask = async (task: ProposedTask) => {
+    if (!canWrite || taskBusyId) return;
+    setTaskBusyId(task.id);
+    try {
+      await decideProposedTask(task.id, "rejected");
+      setTaskDecisions((current) => ({ ...current, [task.id]: "rejected" }));
+      await emit({
+        runId: activeRun?.id ?? null,
+        role: "user",
+        kind: "decision_response",
+        body: [`Left for now: ${task.title}.`],
+        dedupeKey: `proposal-rejected-${task.id}`,
+      });
+    } finally {
+      setTaskBusyId(null);
+    }
+  };
+
   const sendMessage = async () => {
     const value = composerValue.trim();
     if (!value) return;
