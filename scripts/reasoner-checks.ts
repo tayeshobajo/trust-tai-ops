@@ -295,3 +295,7 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log("all reasoning boundary checks passed");
+  console.log(`${failures.length} check(s) failed`);
+  process.exit(1);
+}
+console.log("all reasoning boundary checks passed");
