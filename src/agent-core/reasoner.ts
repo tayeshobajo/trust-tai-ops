@@ -164,10 +164,27 @@ class DeterministicReasoner implements AgentReasoner {
       });
     }
 
+    // Runtime errors are worth reading only when the task is the kind that
+    // they explain, WordPress is established, SSH is available, and the log
+    // has not already been read for this run. If it turns out to be
+    // unavailable, the run continues on other evidence rather than retrying.
+    if (
+      wordpressMarkersPresent(context) &&
+      context.capabilities.includes("ssh") &&
+      ERROR_LOG_TASK_TYPES.includes(context.run.taskType) &&
+      !hasEvidenceFrom(context, "wordpress.read_error_log")
+    ) {
+      want.push({
+        id: "read-error-log",
+        toolId: "wordpress.read_error_log",
+        purpose: "Read the recent WordPress error log entries, without changing anything.",
+      });
+    }
+
     for (const item of want) {
       // Private tools resolve their own target server-side from the project.
       const args: AgentActionArguments = wpCliArgsFor(item.id) ??
-        (item.toolId === "wordpress.list_plugins" ? {} : { url });
+        (item.toolId === "wordpress.list_plugins" || item.toolId === "wordpress.read_error_log" ? {} : { url });
       const built = planAction(item.id, item.toolId, context.run.id, args, item.purpose);
       if ("error" in built) {
         return emptyPlan({
