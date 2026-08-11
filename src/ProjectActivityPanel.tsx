@@ -7,7 +7,9 @@ import { workspaceRepository } from "./repository";
 
 type Props = {
   project: Project;
-  onBackToConversation: () => void;
+  onBackToConversation?: () => void;
+  // Rendered inside the persistent project shell.
+  embedded?: boolean;
 };
 
 const formatDay = (stamp: string) => {
@@ -22,7 +24,7 @@ const formatDay = (stamp: string) => {
   });
 };
 
-export function ProjectActivityPanel({ project, onBackToConversation }: Props) {
+export function ProjectActivityPanel({ project, onBackToConversation, embedded = false }: Props) {
   const history = buildTaskHistory(project);
   const [openId, setOpenId] = useState<string | null>(history[0]?.run.id ?? null);
   const [showTechnical, setShowTechnical] = useState(false);
@@ -44,11 +46,13 @@ export function ProjectActivityPanel({ project, onBackToConversation }: Props) {
   }, [project.id]);
 
   return (
-    <div className="access-surface">
+    <div className={`access-surface ${embedded ? "is-embedded" : ""}`}>
       <header className="access-head">
-        <button className="create-back" type="button" onClick={onBackToConversation}>
-          Back to conversation
-        </button>
+        {!embedded && onBackToConversation ? (
+          <button className="create-back" type="button" onClick={onBackToConversation}>
+            Back to conversation
+          </button>
+        ) : null}
         <span className="preview-avatar" aria-hidden="true">{getProjectInitials(project)}</span>
         <div>
           <p className="eyebrow">What happened on this project</p>

@@ -113,7 +113,7 @@ export function ProjectWorkspace({
   const [persistError, setPersistError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [mobilePane, setMobilePane] = useState<"tasks" | "chat" | "context">("chat");
-  const [surface, setSurface] = useState<"conversation" | "access" | "memory" | "activity">(initialSurface);
+  const [surface, setSurface] = useState<"conversation" | "tasks" | "access" | "memory" | "activity">(initialSurface);
   const [accessFocus, setAccessFocus] = useState<AccessType[]>([]);
   const [query, setQuery] = useState("");
   const [windowSize, setWindowSize] = useState(PAGE_SIZE);
@@ -664,36 +664,106 @@ export function ProjectWorkspace({
     return null;
   };
 
-  if (surface === "access") {
-    return (
+  // The visible destination is derived from real state, never hardcoded. On a
+  // narrow viewport the task list is a pane of the conversation surface, so it
+  // reads as Tasks while it is the pane on screen.
+  const activeNav =
+    surface === "conversation" ? (mobilePane === "tasks" ? "tasks" : "conversation") : surface;
+
+  const goToSurface = (next: typeof surface) => {
+    if (next === "conversation") {
+      setSurface("conversation");
+      setMobilePane("chat");
+      return;
+    }
+    setSurface(next);
+    setMobilePane("chat");
+  };
+
+  const navItems: Array<[typeof surface, string]> = [
+    ["conversation", "Conversation"],
+    ["tasks", "Tasks"],
+    ["access", "Access"],
+    ["memory", "Memory"],
+    ["activity", "Activity"],
+  ];
+
+  const renderProjectNav = (variant: "rail" | "bar") => (
+    <nav className={variant === "bar" ? "pw-secondary pw-secondary-bar" : "pw-secondary"} aria-label="Project sections">
+      {navItems.map(([key, label]) => (
+        <button
+          key={key}
+          type="button"
+          className={activeNav === key ? "is-active" : ""}
+          aria-current={activeNav === key ? "page" : undefined}
+          onClick={() => (key === "access" ? openAccessSurface([]) : goToSurface(key))}
+        >
+          {label}
+        </button>
+      ))}
+    </nav>
+  );
+
+  const secondarySurface =
+    surface === "tasks" ? (
+      <div className="access-surface is-embedded">
+        <header className="access-head">
+          <span className="preview-avatar" aria-hidden="true">{getProjectInitials(project)}</span>
+          <div>
+            <p className="eyebrow">Work on this project</p>
+            <h1>{project.name}</h1>
+            <small>{project.primaryDomain}</small>
+          </div>
+        </header>
+        <p className="access-intro">
+          Every task the agent has worked on here. Open one to pick the conversation back up.
+        </p>
+        {runs.length === 0 ? (
+          <p className="mem-empty">No tasks yet. Start a conversation and the agent will open one.</p>
+        ) : (
+          <ul className="pw-task-surface">
+            {runs.map((run) => {
+              const rowSignal = signalForRun(run);
+              return (
+                <li key={run.id}>
+                  <button
+                    type="button"
+                    className={`pw-task-row ${run.id === activeRunId ? "is-active" : ""}`}
+                    onClick={() => {
+                      setActiveRunId(run.id);
+                      goToSurface("conversation");
+                    }}
+                  >
+                    <div className="pw-task-row-top">
+                      <strong>{run.title}</strong>
+                      <span className="pw-stamp">{formatActivityStamp(run.updatedAt)}</span>
+                    </div>
+                    <p>{rowSignal.status}</p>
+                    {rowSignal.agentState === "needs_you" ? <span className="pw-attention" aria-label="Needs you" /> : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    ) : surface === "access" ? (
       <ProjectAccessPanel
         project={project}
         canWrite={canWrite}
         focusTypes={accessFocus}
-        onBackToConversation={() => setSurface("conversation")}
+        embedded
         onWorkspaceUpdate={onWorkspaceUpdate}
         onAccessEvent={recordAccessEvent}
       />
-    );
-  }
-
-  if (surface === "memory") {
-    return (
-      <ProjectMemoryPanel
-        project={project}
-        canWrite={canWrite}
-        onBackToConversation={() => setSurface("conversation")}
-        onWorkspaceUpdate={onWorkspaceUpdate}
-      />
-    );
-  }
-
-  if (surface === "activity") {
-    return <ProjectActivityPanel project={project} onBackToConversation={() => setSurface("conversation")} />;
-  }
+    ) : surface === "memory" ? (
+      <ProjectMemoryPanel project={project} canWrite={canWrite} embedded onWorkspaceUpdate={onWorkspaceUpdate} />
+    ) : surface === "activity" ? (
+      <ProjectActivityPanel project={project} embedded />
+    ) : null;
 
   return (
-    <div className={`pw-shell pane-${mobilePane}`}>
+    <div className={`pw-shell pane-${mobilePane} ${secondarySurface ? "is-surface" : ""}`}>
       <aside className="pw-tasks">
         <div className="pw-tasks-head">
           <button className="create-back is-back" type="button" onClick={onBackToProjects}>
@@ -737,25 +807,13 @@ export function ProjectWorkspace({
           })}
         </div>
 
-        <nav className="pw-secondary" aria-label="Project sections">
-          <button type="button" className="is-active" aria-current="page" onClick={() => setMobilePane("chat")}>
-            Conversation
-          </button>
-          <button type="button" onClick={() => setMobilePane("tasks")}>
-            Tasks
-          </button>
-          <button type="button" onClick={() => openAccessSurface([])}>
-            Access
-          </button>
-          <button type="button" onClick={() => setSurface("memory")}>
-            Memory
-          </button>
-          <button type="button" onClick={() => setSurface("activity")}>
-            Activity
-          </button>
-        </nav>
+        {renderProjectNav("rail")}
       </aside>
 
+      {secondarySurface ? (
+        <main className="pw-surface">{secondarySurface}</main>
+      ) : (
+      <>
       <main className="pw-chat">
         <header className="pw-chat-head">
           <button className="pw-pane-toggle" type="button" onClick={() => setMobilePane("tasks")}>
@@ -960,6 +1018,18 @@ export function ProjectWorkspace({
           </>
         )}
       </aside>
+      </>
+      )}
+
+      <div className="pw-mobile-top">
+        <button className="create-back is-back" type="button" onClick={onBackToProjects}>
+          <span aria-hidden="true">&#8592;</span>
+          All projects
+        </button>
+        <span className="pw-mobile-title">{project.name}</span>
+      </div>
+
+      {renderProjectNav("bar")}
     </div>
   );
 }

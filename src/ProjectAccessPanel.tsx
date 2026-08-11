@@ -8,7 +8,10 @@ type Props = {
   project: Project;
   canWrite: boolean;
   focusTypes?: AccessType[];
-  onBackToConversation: () => void;
+  onBackToConversation?: () => void;
+  // Rendered inside the persistent project shell. The shell already provides
+  // navigation, so the panel suppresses its own back control.
+  embedded?: boolean;
   onWorkspaceUpdate: (next: Organization) => void;
   // Conversation history only. The panel never passes submitted values here —
   // the event is built from the predefined connection label and the action.
@@ -157,6 +160,7 @@ export function ProjectAccessPanel({
   canWrite,
   focusTypes = [],
   onBackToConversation,
+  embedded = false,
   onWorkspaceUpdate,
   onAccessEvent,
 }: Props) {
@@ -315,11 +319,13 @@ export function ProjectAccessPanel({
   };
 
   return (
-    <div className="access-surface">
+    <div className={`access-surface ${embedded ? "is-embedded" : ""}`}>
       <header className="access-head">
-        <button className="create-back" type="button" onClick={onBackToConversation}>
-          Back to conversation
-        </button>
+        {!embedded && onBackToConversation ? (
+          <button className="create-back" type="button" onClick={onBackToConversation}>
+            Back to conversation
+          </button>
+        ) : null}
         <span className="preview-avatar" aria-hidden="true">{getProjectInitials(project)}</span>
         <div>
           <p className="eyebrow">Access &amp; Connections</p>
