@@ -51,7 +51,12 @@ const buildCall = (model: ReasonModel, apiKey: string, digest: ReasonDigest): Pr
 
   return {
     url: GATEWAY,
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    headers: {
+      // The Lovable gateway authenticates on its own header, not Bearer.
+      "Lovable-API-Key": apiKey,
+      "X-Lovable-AIG-SDK": "fetch",
+      "Content-Type": "application/json",
+    },
     body: {
       model: model.providerModel,
       messages: [
