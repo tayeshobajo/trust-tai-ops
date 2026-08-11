@@ -26,6 +26,9 @@ export const MEMORY_IMPORTANCE = ["medium", "high", "critical"] as const;
 
 export const MEMORY_KINDS = ["durable", "task_detail", "uncertain"] as const;
 
+/** Who a meeting said would carry a piece of work. "unassigned" is the honest default. */
+export const TASK_OWNERS = ["us", "client", "third_party", "unassigned"] as const;
+
 /** Access a meeting may say is needed. Nothing else is representable. */
 export const MEETING_ACCESS_TYPES = [
   "wordpress_admin",
@@ -75,6 +78,9 @@ export type MeetingAnalysis = {
     implementationApproach: string;
     verificationExpectation: string;
     requiresExecutionApproval: boolean;
+    owner: (typeof TASK_OWNERS)[number];
+    deadlineText: string;
+    dueDate: string | null;
     provenance: Provenance[];
   }>;
   supersededMemory: Array<{ memoryIdHint: string; reason: string; provenance: Provenance[] }>;
@@ -97,14 +103,25 @@ const object = (value: unknown): Record<string, unknown> =>
 
 const array = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 
+/**
+ * A calendar date the model claims the meeting named. Only an exact ISO day is
+ * representable — "next sprint" stays in deadlineText, where it cannot be
+ * mistaken for a commitment the system can schedule against.
+ */
+const isoDate = (value: unknown): string | null => {
+  const text = typeof value === "string" ? value.trim().slice(0, 10) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const parsed = new Date(`${text}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10) === text ? text : null;
+};
+
 /** Loose comparison so whitespace differences don't discard a real quote. */
 const normalizeForMatch = (value: string): string => value.replace(/\s+/g, " ").trim().toLowerCase();
 
 export type MeetingValidationContext = {
   /** The redacted transcript chunks the model was actually given. */
   chunks: string[];
-  /** Access types this project actually has registered, stored or not. */
-  knownAccess?: string[];
   /** Hosts the project legitimately owns. A task naming anything else is dropped. */
   allowedHosts?: string[];
 };
@@ -167,7 +184,6 @@ export const validateMeetingAnalysis = (
   }
   const raw = value as Record<string, unknown>;
   const chunks = context.chunks ?? [];
-  const knownAccess = context.knownAccess ?? [];
   const allowedHosts = (context.allowedHosts ?? []).map((host) => host.toLowerCase().replace(/^www\./, ""));
   const dropped: string[] = [];
 
@@ -289,6 +305,9 @@ export const validateMeetingAnalysis = (
         implementationApproach,
         verificationExpectation,
         requiresExecutionApproval,
+        owner: oneOf(entry.owner, TASK_OWNERS, "unassigned"),
+        deadlineText: line(entry.deadlineText ?? entry.deadline_text, 120),
+        dueDate: isoDate(entry.dueDate ?? entry.due_date),
         provenance,
       };
     },

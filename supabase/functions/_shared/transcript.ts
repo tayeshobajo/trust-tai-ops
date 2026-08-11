@@ -12,7 +12,15 @@
 
 export const MAX_TRANSCRIPT_BYTES = 400_000;
 export const CHUNK_CHARS = 6_000;
-export const MAX_CHUNKS = 12;
+/** Enough chunks to cover a maximum-size transcript, with slack for hard splits. */
+export const MAX_CHUNKS = 80;
+/** Chunks handed to the model in one extraction call. */
+export const CHUNKS_PER_WINDOW = 8;
+/** Extraction calls one transcript may cost. Coverage above this is refused, never silently dropped. */
+export const MAX_WINDOWS = 10;
+
+/** Transcript limits are byte limits: a 400k-char emoji transcript is not 400kB. */
+export const byteLength = (value: string): number => new TextEncoder().encode(value).length;
 
 export type RedactionReport = {
   /** Counts only. The removed values are never retained anywhere. */
@@ -59,7 +67,9 @@ export const normalizeTranscript = (value: string): string =>
   String(value ?? "")
     .slice(0, MAX_TRANSCRIPT_BYTES)
     .replace(/\r\n?/g, "\n")
-    .replace(/\u0000/g, "")
+    // split/join rather than a regex: a control character in a pattern is a
+    // readability trap, and this is exactly as literal.
+    .split("\u0000").join("")
     .split("\n")
     .map((line) => line.replace(/[ \t]+/g, " ").trimEnd())
     .join("\n")
@@ -112,20 +122,58 @@ export const chunkTranscript = (text: string): string[] => {
     }
   }
   if (current) chunks.push(current);
-  return chunks.slice(0, MAX_CHUNKS);
+  // Not truncated here: partial coverage is a decision for planTranscriptCoverage
+  // to surface, never something this function does silently.
+  return chunks;
 };
 
 export const TRANSCRIPT_FENCE_OPEN = "<<<UNTRUSTED_MEETING_TRANSCRIPT";
 export const TRANSCRIPT_FENCE_CLOSE = "UNTRUSTED_MEETING_TRANSCRIPT>>>";
 
+export type TranscriptChunk = { index: number; text: string };
+
+/** Pairs every chunk with the index provenance will be checked against. */
+export const indexChunks = (chunks: string[]): TranscriptChunk[] =>
+  chunks.map((text, index) => ({ index, text }));
+
+export type TranscriptCoverage = {
+  /** Extraction windows, each a slice of the original chunks with original indexes. */
+  windows: TranscriptChunk[][];
+  /** True when the transcript needs more than one extraction call. */
+  mapReduce: boolean;
+  /** True when the transcript is larger than the coverage budget. Never analysed partially. */
+  exceedsBudget: boolean;
+};
+
+/**
+ * Long transcripts are read in windows and merged afterwards, so the tail of a
+ * two-hour meeting is never quietly discarded. If even the windowed plan cannot
+ * cover the whole transcript, the caller refuses the transcript outright rather
+ * than analysing a prefix and calling it the meeting.
+ */
+export const planTranscriptCoverage = (chunks: string[]): TranscriptCoverage => {
+  const indexed = indexChunks(chunks);
+  const windows: TranscriptChunk[][] = [];
+  for (let offset = 0; offset < indexed.length; offset += CHUNKS_PER_WINDOW) {
+    windows.push(indexed.slice(offset, offset + CHUNKS_PER_WINDOW));
+  }
+  return {
+    windows: windows.slice(0, MAX_WINDOWS),
+    mapReduce: windows.length > 1,
+    exceedsBudget: windows.length > MAX_WINDOWS,
+  };
+};
+
 /**
  * Wraps transcript text so a model can never confuse it with an instruction.
  * Any fence-lookalike inside the content is neutralised first.
  */
-export const fenceTranscript = (chunks: string[]): string => {
+export const fenceTranscript = (chunks: Array<string | TranscriptChunk>): string => {
   const safe = chunks
-    .map((chunk, index) => {
-      const scrubbed = chunk
+    .map((chunk, position) => {
+      const index = typeof chunk === "string" ? position : chunk.index;
+      const text = typeof chunk === "string" ? chunk : chunk.text;
+      const scrubbed = text
         .split(TRANSCRIPT_FENCE_OPEN).join("[fence]")
         .split(TRANSCRIPT_FENCE_CLOSE).join("[fence]");
       return `[chunk ${index}]\n${scrubbed}`;
@@ -144,11 +192,30 @@ export const fenceTranscript = (chunks: string[]): string => {
   ].join("\n");
 };
 
-/** Stable content hash. Same transcript text always resolves to the same source. */
-export const hashTranscript = async (text: string): Promise<string> => {
+/** Stable content hash. Same text always resolves to the same fingerprint. */
+export const sha256Hex = async (text: string): Promise<string> => {
   const bytes = new TextEncoder().encode(text);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 };
+
+/** Same transcript text always resolves to the same source row. */
+export const hashTranscript = (text: string): Promise<string> => sha256Hex(text);
+
+/**
+ * Fingerprints everything that shaped an analysis. Two analyses with the same
+ * hash saw the same transcript, the same project context, the same prompt and
+ * the same model — which is what makes a stored analysis reproducible.
+ */
+export const fingerprintAnalysisContext = (input: {
+  contentHash: string;
+  contextText: string;
+  promptVersion: string;
+  modelId: string;
+  windowCount: number;
+}): Promise<string> =>
+  sha256Hex(
+    [input.contentHash, input.promptVersion, input.modelId, String(input.windowCount), input.contextText].join("\u0000"),
+  );

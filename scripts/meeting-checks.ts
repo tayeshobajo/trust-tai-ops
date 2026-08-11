@@ -21,16 +21,29 @@ const check = (name: string, condition: boolean) => {
 const {
   MAX_CHUNKS,
   CHUNK_CHARS,
+  MAX_WINDOWS,
+  CHUNKS_PER_WINDOW,
+  byteLength,
   chunkTranscript,
   fenceTranscript,
+  fingerprintAnalysisContext,
   hashTranscript,
   normalizeTranscript,
+  planTranscriptCoverage,
   prepareTranscript,
 } = await import("../supabase/functions/_shared/transcript.ts");
 
-const { validateMeetingAnalysis, taskKeyFor, candidateKeyFor, MEETING_ACCESS_TYPES } = await import(
+const { validateMeetingAnalysis, taskKeyFor, candidateKeyFor, MEETING_ACCESS_TYPES, TASK_OWNERS } = await import(
   "../supabase/functions/_shared/meetingSchema.ts"
 );
+
+const { mergeMeetingAnalyses } = await import("../supabase/functions/_shared/meetingMerge.ts");
+
+const { matchProposalToWork, detectMemoryConflict, similarity } = await import(
+  "../supabase/functions/_shared/meetingMatch.ts"
+);
+
+const { buildRunSeed, runEntryState } = await import("../supabase/functions/_shared/runInit.ts");
 
 const { buildProjectContext, renderProjectContext, CONTEXT_BUDGET, CONTEXT_BUDGET_TOTAL } = await import(
   "../supabase/functions/_shared/projectContext.ts"
@@ -206,6 +219,247 @@ check(
   "a genuinely safe read can proceed after plan approval",
   risky.ok && risky.analysis.proposedTasks[1].requiresExecutionApproval === false,
 );
+
+// ── owner and deadline ──────────────────────────────────────────────────────
+console.log("\nownership and deadlines are recorded, never guessed");
+
+const owned = validateMeetingAnalysis(
+  {
+    summary: "Client owns the copy.",
+    proposed_tasks: [
+      {
+        title: "Ship the new checkout copy",
+        owner: "client",
+        deadline_text: "before Friday",
+        due_date: "2026-09-04",
+        provenance: [{ chunk_index: 0, excerpt: "we need it fixed before Friday" }],
+      },
+      {
+        title: "Look at the slow page",
+        owner: "whoever",
+        due_date: "next sprint",
+        provenance: [{ chunk_index: 0, excerpt: "the checkout page has been slow since Tuesday" }],
+      },
+    ],
+  },
+  { chunks: realChunks },
+);
+
+check("a named owner is kept", owned.ok && owned.analysis.proposedTasks[0].owner === "client");
+check("an unknown owner falls back to unassigned", owned.ok && owned.analysis.proposedTasks[1].owner === "unassigned");
+check("every owner is representable", (TASK_OWNERS as readonly string[]).includes("unassigned"));
+check("an exact date becomes a due date", owned.ok && owned.analysis.proposedTasks[0].dueDate === "2026-09-04");
+check("a vague deadline never becomes a date", owned.ok && owned.analysis.proposedTasks[1].dueDate === null);
+check("the client's own wording is preserved", owned.ok && owned.analysis.proposedTasks[0].deadlineText === "before Friday");
+check(
+  "an impossible date is refused",
+  (() => {
+    const result = validateMeetingAnalysis(
+      {
+        summary: "Bad date.",
+        proposed_tasks: [
+          { title: "Do a thing", due_date: "2026-02-31", provenance: [{ chunk_index: 0, excerpt: "we need it fixed before Friday" }] },
+        ],
+      },
+      { chunks: realChunks },
+    );
+    return result.ok && result.analysis.proposedTasks[0].dueDate === null;
+  })(),
+);
+
+// ── long meetings ───────────────────────────────────────────────────────────
+console.log("\na long meeting is read whole, or not at all");
+
+const longChunks = chunkTranscript("Client: paragraph about the site.\n\n".repeat(4_000));
+const coverage = planTranscriptCoverage(longChunks);
+check("a long meeting is split into windows", coverage.mapReduce === true);
+check("every chunk is covered by exactly one window", coverage.windows.flat().length === longChunks.length);
+check(
+  "windows keep the original chunk index for provenance",
+  coverage.windows.flat().every((chunk, position) => chunk.index === position),
+);
+check("no window exceeds the per-call budget", coverage.windows.every((window) => window.length <= CHUNKS_PER_WINDOW));
+check("the window count is bounded", coverage.windows.length <= MAX_WINDOWS);
+check("a short meeting needs no windowing", planTranscriptCoverage(realChunks).mapReduce === false);
+check(
+  "a transcript beyond the coverage budget is refused, not truncated",
+  planTranscriptCoverage(Array.from({ length: MAX_WINDOWS * CHUNKS_PER_WINDOW + 1 }, () => "x")).exceedsBudget === true,
+);
+check(
+  "a fenced window labels chunks by their true index",
+  fenceTranscript([{ index: 7, text: "hello" }]).includes("[chunk 7]"),
+);
+
+console.log("\nmerging windows never loses or softens work");
+
+const merged = mergeMeetingAnalyses([
+  {
+    summary: "First half.",
+    decisions: [{ statement: "Fix checkout", madeBy: "client", confidence: "high", provenance: [{ chunkIndex: 0, excerpt: "one" }] }],
+    constraints: [],
+    openQuestions: [],
+    memoryCandidates: [],
+    proposedTasks: [
+      {
+        title: "Fix the checkout",
+        clientAsk: "",
+        taskType: "performance",
+        riskLevel: "safe",
+        needsInvestigation: false,
+        accessNeeded: ["ssh"],
+        dependsOn: [],
+        implementationApproach: "",
+        verificationExpectation: "",
+        requiresExecutionApproval: false,
+        owner: "unassigned",
+        deadlineText: "",
+        dueDate: "2026-09-10",
+        provenance: [{ chunkIndex: 0, excerpt: "one" }],
+      },
+    ],
+    supersededMemory: [],
+  },
+  {
+    summary: "Second half.",
+    decisions: [{ statement: "Fix checkout", madeBy: "client", confidence: "high", provenance: [{ chunkIndex: 9, excerpt: "two" }] }],
+    constraints: [],
+    openQuestions: [],
+    memoryCandidates: [],
+    proposedTasks: [
+      {
+        title: "Fix the checkout",
+        clientAsk: "",
+        taskType: "performance",
+        riskLevel: "high_risk",
+        needsInvestigation: true,
+        accessNeeded: ["database"],
+        dependsOn: [],
+        implementationApproach: "",
+        verificationExpectation: "",
+        requiresExecutionApproval: true,
+        owner: "client",
+        deadlineText: "before Friday",
+        dueDate: "2026-09-04",
+        provenance: [{ chunkIndex: 9, excerpt: "two" }],
+      },
+      {
+        title: "Audit the plugins",
+        clientAsk: "",
+        taskType: "hardening",
+        riskLevel: "cautious",
+        needsInvestigation: false,
+        accessNeeded: [],
+        dependsOn: [],
+        implementationApproach: "",
+        verificationExpectation: "",
+        requiresExecutionApproval: true,
+        owner: "us",
+        deadlineText: "",
+        dueDate: null,
+        provenance: [{ chunkIndex: 9, excerpt: "two" }],
+      },
+    ],
+    supersededMemory: [],
+  },
+]);
+
+check("the same ask in two windows becomes one proposal", merged.proposedTasks.length === 2);
+check("work only found in the second window survives", merged.proposedTasks.some((task) => task.title === "Audit the plugins"));
+check("the higher risk grade wins the merge", merged.proposedTasks[0].riskLevel === "high_risk");
+check("an execution approval required anywhere is required after merge", merged.proposedTasks[0].requiresExecutionApproval);
+check("the earliest deadline is the one that stands", merged.proposedTasks[0].dueDate === "2026-09-04");
+check("a known owner beats an unassigned one", merged.proposedTasks[0].owner === "client");
+check("provenance from both windows is kept", merged.proposedTasks[0].provenance.length === 2);
+check("a repeated decision is stated once", merged.decisions.length === 1);
+
+// ── duplicates and conflicts ────────────────────────────────────────────────
+console.log("\nthe same ask twice does not become two runs");
+
+const openWork = [
+  { id: "run-1", title: "Investigate slow checkout page", summary: "Checkout latency", open: true },
+  { id: "run-2", title: "Rotate expired TLS certificate", summary: "", open: false },
+];
+
+const dupe = matchProposalToWork("Investigate the slow checkout latency", openWork);
+check("a repeat of open work is flagged as a duplicate", dupe.duplicateOfRunId === "run-1");
+check("the duplicate flag names the work in progress", /already underway/i.test(dupe.note));
+check(
+  "a repeat of finished work is a new ask, not a duplicate",
+  matchProposalToWork("Rotate the expired TLS certificate", openWork).duplicateOfRunId === null,
+);
+check(
+  "unrelated work is not flagged at all",
+  matchProposalToWork("Translate the privacy policy into German", openWork).relatedRunId === null,
+);
+check("similarity is symmetric", similarity("slow checkout page", "checkout page slow") === similarity("checkout page slow", "slow checkout page"));
+check(
+  "a proposal contradicting a standing decision is surfaced",
+  detectMemoryConflict("Deactivate the caching plugin to test", [
+    { id: "m1", title: "Never deactivate the caching plugin", content: "The client must not lose caching in production." },
+  ]).length > 0,
+);
+check(
+  "an ordinary memory raises no conflict",
+  detectMemoryConflict("Deactivate the caching plugin", [
+    { id: "m1", title: "Hosting is WP Engine", content: "Support handles DNS." },
+  ]) === "",
+);
+check("detection never blocks the work itself", typeof detectMemoryConflict("x", []) === "string");
+
+// ── run initialization ──────────────────────────────────────────────────────
+console.log("\nan approved proposal opens at the gate it cannot clear itself");
+
+const noAccess = buildRunSeed({
+  title: "Fix checkout",
+  taskType: "performance",
+  taskSummary: "",
+  environmentId: "env-1",
+  accessReady: false,
+  backupConfirmed: false,
+  riskLevel: "cautious",
+  requiresExecutionApproval: true,
+});
+check("no access means the run opens at the access gate", noAccess.state === "access_check");
+
+const writeWork = buildRunSeed({
+  title: "Fix checkout",
+  taskType: "performance",
+  taskSummary: "",
+  environmentId: "env-1",
+  accessReady: true,
+  backupConfirmed: false,
+  riskLevel: "cautious",
+  requiresExecutionApproval: true,
+});
+check("write-capable work stops at the backup gate", writeWork.state === "backup_gate");
+check("a meeting never claims a backup exists", writeWork.backup_status === "unconfirmed");
+check("approval carried from the proposal stays required", writeWork.approval_required === true);
+check(
+  "a read-only pass may begin gathering evidence",
+  runEntryState({
+    title: "Check versions",
+    taskType: "qa_only",
+    taskSummary: "",
+    environmentId: "env-1",
+    accessReady: true,
+    backupConfirmed: false,
+    riskLevel: "safe",
+    requiresExecutionApproval: false,
+  }) === "environment_mapping",
+);
+check(
+  "high risk always keeps its approval even when the proposal forgot to",
+  buildRunSeed({
+    title: "Rewrite orders",
+    taskType: "broken_site",
+    taskSummary: "",
+    environmentId: "env-1",
+    accessReady: true,
+    backupConfirmed: false,
+    riskLevel: "high_risk",
+    requiresExecutionApproval: false,
+  }).approval_required === true,
+);
 check(
   "an unknown access type is discarded",
   (() => {
@@ -260,7 +514,7 @@ const hugeContext = buildProjectContext(
     })),
     openRuns: Array.from({ length: 100 }, (_, index) => ({ id: `r${index}`, title: `Run ${index}`, state: "diagnosis", nextAction: "y".repeat(200) })),
     completedRuns: Array.from({ length: 200 }, (_, index) => ({ id: `c${index}`, title: `Done ${index}`, outcome: "z".repeat(200), qaVerdict: "passed" })),
-    messages: Array.from({ length: 500 }, (_, index) => ({ role: "user", text: "w".repeat(300) })),
+    messages: Array.from({ length: 500 }, () => ({ role: "user", text: "w".repeat(300) })),
   },
   "checkout slow",
 );
@@ -290,6 +544,32 @@ const longTranscript = "sentence. ".repeat(20_000);
 const chunks = chunkTranscript(longTranscript);
 check("chunk count is capped", chunks.length <= MAX_CHUNKS);
 check("each chunk respects its size", chunks.every((chunk) => chunk.length <= CHUNK_CHARS + 200));
+check("transcript size is measured in bytes, not characters", byteLength("é") === 2 && byteLength("a") === 1);
+
+console.log("\nan analysis records what produced it");
+const fingerprintA = await fingerprintAnalysisContext({
+  contentHash: "abc",
+  contextText: "project context",
+  promptVersion: "meeting-analysis-2",
+  modelId: "claude-sonnet",
+  windowCount: 2,
+});
+const fingerprintB = await fingerprintAnalysisContext({
+  contentHash: "abc",
+  contextText: "project context",
+  promptVersion: "meeting-analysis-2",
+  modelId: "claude-sonnet",
+  windowCount: 2,
+});
+const fingerprintC = await fingerprintAnalysisContext({
+  contentHash: "abc",
+  contextText: "project context has moved on",
+  promptVersion: "meeting-analysis-2",
+  modelId: "claude-sonnet",
+  windowCount: 2,
+});
+check("the same inputs fingerprint the same", fingerprintA === fingerprintB);
+check("changed project context fingerprints differently", fingerprintA !== fingerprintC);
 
 // ── prompt assembly ─────────────────────────────────────────────────────────
 console.log("\nthe prompt carries context and transcript, and nothing privileged");
@@ -306,6 +586,15 @@ const reasonSource = await import("node:fs").then((fs) =>
 const ingestSource = await import("node:fs").then((fs) =>
   fs.readFileSync(new URL("../supabase/functions/ingest-source/index.ts", import.meta.url), "utf8"),
 );
+const decisionSource = await import("node:fs").then((fs) =>
+  fs.readFileSync(new URL("../supabase/functions/meeting-decisions/index.ts", import.meta.url), "utf8"),
+);
+const clientSource = await import("node:fs").then((fs) =>
+  fs.readFileSync(new URL("../src/meetings.ts", import.meta.url), "utf8"),
+);
+const migration = await import("node:fs").then((fs) =>
+  fs.readFileSync(new URL("../db/migrations/20260823_meeting_integrity_hardening.sql", import.meta.url), "utf8"),
+);
 
 check("meeting analysis authorizes the project first", /authorizeProject\(/.test(reasonSource));
 check("the transcript is read server-side, not accepted from the client", /from\("project_sources"\)[\s\S]{0,200}\.eq\("project_id"/.test(reasonSource));
@@ -317,6 +606,30 @@ check("ingestion authorizes before storing", /authorizeProject\([\s\S]{0,400}pre
 check("ingestion redacts before it writes", ingestSource.indexOf("prepareTranscript(") < ingestSource.indexOf(".insert("));
 check("raw transcript text is never persisted", !/raw_text:|original_text:/.test(ingestSource));
 check("a duplicate transcript is not filed twice", /content_hash/.test(ingestSource) && /duplicate: true/.test(ingestSource));
+check("ingestion measures size in bytes", /byteLength\(raw\)/.test(ingestSource));
+check("ingestion refuses anything that is not plain text", /unsupported_format/.test(ingestSource));
+check("an unknown meeting date is left unknown", /occurredAt = Number\.isNaN\(occurredAtRaw\) \? null/.test(ingestSource));
+
+console.log("\nthe browser cannot decide, only ask");
+check("the browser never writes a proposal decision", !/from\("proposed_tasks"\)[\s\S]{0,120}\.update\(/.test(clientSource));
+check("the browser never writes memory directly", !/from\("memory_candidates"\)[\s\S]{0,120}\.update\(/.test(clientSource));
+check("decisions go through the decision function", /functions\.invoke\("meeting-decisions"/.test(clientSource));
+check(
+  "the decision function authorizes before deciding",
+  decisionSource.indexOf("authorizeProject(") < decisionSource.indexOf(".rpc("),
+);
+check("the run's shape is computed server-side", /buildRunSeed\(/.test(decisionSource));
+check("the caller cannot choose the run's state", !/body\.(state|riskLevel|risk_level|backupConfirmed)/.test(decisionSource));
+check("an already-started proposal returns its existing run", /alreadyStarted: true/.test(decisionSource));
+
+console.log("\nthe database is the last line of defence");
+check("browser write grants on meeting tables are revoked", /revoke insert, update, delete on public\.proposed_tasks from authenticated/i.test(migration));
+check("only one run can ever point at a proposal", /unique index if not exists runs_origin_proposed_task_key/i.test(migration));
+check("approval locks the proposal row", /for update/i.test(migration));
+check("approval is idempotent", /if proposal\.run_id is not null then\s*return proposal\.run_id;/i.test(migration));
+check("only one memory entry can come from a candidate", /project_memory_entries_candidate_key/i.test(migration));
+check("decisions are written to an append-only log", /project_events/i.test(migration) && /on conflict \(project_id, event_key\) do nothing/i.test(migration));
+check("decision functions are not callable from the browser", /revoke all on function public\.meeting_approve_proposal[\s\S]*?from public, anon, authenticated/i.test(migration));
 
 console.log("\nnothing here can execute or approve");
 check("meeting analysis never invokes a tool", !/agent-execute|executeAgentStep|planAction/.test(reasonSource));

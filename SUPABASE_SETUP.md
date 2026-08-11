@@ -93,6 +93,24 @@ is not deployed, the key is missing, the model is rate limited, or the answer
 falls outside the catalog, the deterministic operator takes the turn instead.
 Verify the boundary with `npm run check:reasoner`.
 
+### Optional: meeting intelligence
+
+Turns a client meeting transcript into proposals a human approves. Nothing on
+this path executes anything.
+
+15. Apply `db/migrations/20260822_project_sources.sql`, then
+    `db/migrations/20260823_meeting_integrity_hardening.sql`. Apply them in that
+    order; both are safe to re-run.
+16. Deploy `ingest-source`, `agent-reason` and `meeting-decisions`.
+
+The hardening migration revokes every browser write on the meeting tables. Once
+it is applied, `meeting-decisions` must be deployed or approvals will fail
+closed — which is the intended failure direction, since the alternative is a
+browser writing runs. Approval runs inside a locked database function that
+creates the run, links the proposal and records the decision in one
+transaction, and a unique index guarantees a proposal can only ever produce one
+run. Verify with `npm run check:meetings`.
+
 ## Tenant identity
 
 `auth_user_id` is preferred and resolves from `auth.uid()`. Email matching is a

@@ -11,7 +11,12 @@ import { secretStoreDeps } from "./clients.ts";
 import { capabilityTruth } from "./secretStore.ts";
 import { buildProjectContext, type ContextInput, type ProjectContext } from "./projectContext.ts";
 
-const EXECUTABLE_ACCESS_TYPES = ["wp_admin", "sftp", "ssh", "hosting_panel"];
+/**
+ * Must match the access types the product actually stores. A name that does not
+ * exist resolves to no credential, which would quietly report a project as
+ * having less access than it has.
+ */
+export const EXECUTABLE_ACCESS_TYPES = ["wordpress_admin", "sftp", "ssh", "hosting_portal"];
 
 const OPEN_STATES = [
   "intake",

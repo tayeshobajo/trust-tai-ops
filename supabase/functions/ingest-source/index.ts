@@ -7,7 +7,14 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { authorizeProject } from "../_shared/authz.ts";
 import { authzDeps, executionContextConfigured, serviceClient } from "../_shared/clients.ts";
-import { MAX_TRANSCRIPT_BYTES, hashTranscript, prepareTranscript } from "../_shared/transcript.ts";
+import {
+  MAX_TRANSCRIPT_BYTES,
+  byteLength,
+  chunkTranscript,
+  hashTranscript,
+  planTranscriptCoverage,
+  prepareTranscript,
+} from "../_shared/transcript.ts";
 
 const fail = (code: string, summary: string, retryable: boolean) =>
   Response.json({ ok: false, code, summary, retryable }, { headers: corsHeaders });
@@ -21,6 +28,20 @@ const AUTH_FAIL_SUMMARY: Record<string, string> = {
 const clean = (value: unknown, max: number, fallback = ""): string => {
   const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
   return text || fallback;
+};
+
+/**
+ * V1 takes plain text only. A .pdf or .docx renamed to .txt would arrive as
+ * binary noise, so the extension is checked and the content has to read as
+ * text before anything is stored.
+ */
+const TEXT_EXTENSIONS = [".txt", ".md", ".vtt", ".srt"];
+
+const looksBinary = (value: string): boolean => {
+  const sample = value.slice(0, 4000);
+  // eslint-disable-next-line no-control-regex
+  const controls = sample.match(/[\u0000-\u0008\u000e-\u001f]/g)?.length ?? 0;
+  return sample.includes("\u0000") || controls / Math.max(1, sample.length) > 0.02;
 };
 
 Deno.serve(async (req) => {
@@ -41,8 +62,29 @@ Deno.serve(async (req) => {
   if (raw.trim().length < 40) {
     return fail("invalid_input", "That transcript looks empty — I need the meeting text itself.", false);
   }
-  if (raw.length > MAX_TRANSCRIPT_BYTES) {
-    return fail("transcript_too_large", "That transcript is larger than I can take in one go.", false);
+  // Measured in bytes, not characters: the storage limit is a byte limit.
+  if (byteLength(raw) > MAX_TRANSCRIPT_BYTES) {
+    return fail(
+      "transcript_too_large",
+      "That transcript is larger than I can take in one go. Split it and share it in parts.",
+      false,
+    );
+  }
+
+  const filename = clean(body.filename, 200);
+  if (filename && !TEXT_EXTENSIONS.some((extension) => filename.toLowerCase().endsWith(extension))) {
+    return fail(
+      "unsupported_format",
+      "I can only read plain text transcripts right now. Export it as .txt and share it again.",
+      false,
+    );
+  }
+  if (looksBinary(raw)) {
+    return fail(
+      "unsupported_format",
+      "That file isn't plain text. Export the transcript as text and share it again.",
+      false,
+    );
   }
 
   if (!executionContextConfigured()) {
@@ -54,6 +96,18 @@ Deno.serve(async (req) => {
 
   // Redaction happens before the first write. The raw text is never persisted.
   const { text, report } = prepareTranscript(raw);
+
+  // Coverage is decided before storage: a transcript this function cannot read
+  // end to end is refused, rather than analysed as a prefix later.
+  const coverage = planTranscriptCoverage(chunkTranscript(text));
+  if (coverage.exceedsBudget) {
+    return fail(
+      "transcript_too_large",
+      "That meeting is too long for me to read in one pass. Share it in two parts and I'll keep both.",
+      false,
+    );
+  }
+
   const contentHash = await hashTranscript(text);
   const service = serviceClient();
 
@@ -83,8 +137,10 @@ Deno.serve(async (req) => {
     );
   }
 
+  // An unknown meeting date stays unknown. Defaulting to "today" would invent a
+  // fact the transcript never contained.
   const occurredAtRaw = typeof body.occurredAt === "string" ? Date.parse(body.occurredAt) : Number.NaN;
-  const occurredAt = Number.isNaN(occurredAtRaw) ? new Date().toISOString() : new Date(occurredAtRaw).toISOString();
+  const occurredAt = Number.isNaN(occurredAtRaw) ? null : new Date(occurredAtRaw).toISOString();
 
   const inserted = await service
     .from("project_sources")

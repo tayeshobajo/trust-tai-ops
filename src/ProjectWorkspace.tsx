@@ -517,46 +517,56 @@ export function ProjectWorkspace({
     }
   };
 
-  /** Approval is the moment a proposal becomes real work. Only a human does it. */
+  /**
+   * Approval is the moment a proposal becomes real work. The browser only asks:
+   * the server creates the run, links the proposal and answers with the run it
+   * ended up with, so a second click resolves to the same task rather than a
+   * second one.
+   */
   const approveProposedTask = async (task: ProposedTask) => {
-    if (!canWrite || taskBusyId) return;
+    const claim = `proposal:${task.id}`;
+    if (!canWrite || taskBusyId || decisionRef.current.has(claim)) return;
+    decisionRef.current.add(claim);
     setTaskBusyId(task.id);
     try {
-      const next = await workspaceRepository.createRun(project.id, {
-        title: task.title,
-        taskType: task.taskType,
-        taskSummary: task.clientAsk || task.implementationApproach || task.title,
-        urgency: "normal",
-        environmentId: project.environments[0]?.id ?? "",
-        accessReady: projectHasUsableAccess(project),
-        backupConfirmed: false,
-      });
-      onWorkspaceUpdate(next);
-      const created = next.projects.find((item) => item.id === project.id)?.runs[0] ?? null;
+      const decision = await decideProposedTask(project.id, task.id, "approved");
+      if (!decision.ok) {
+        setMeetingError(decision.summary);
+        return;
+      }
 
-      await decideProposedTask(task.id, "approved", created?.id ?? null);
+      // The run exists server-side now; the local workspace catches up from it.
+      const next = await workspaceRepository.loadWorkspace();
+      onWorkspaceUpdate(next);
       setTaskDecisions((current) => ({ ...current, [task.id]: "approved" }));
 
       await emit({
-        runId: created?.id ?? null,
+        runId: decision.runId,
         role: "user",
         kind: "decision_response",
         body: [`Approved from the meeting: ${task.title}.`],
         dedupeKey: `proposal-approved-${task.id}`,
       });
-      if (created) setActiveRunId(created.id);
+      if (decision.runId) setActiveRunId(decision.runId);
     } catch {
       setMeetingError("I couldn't start that task. Nothing was changed.");
     } finally {
+      decisionRef.current.delete(claim);
       setTaskBusyId(null);
     }
   };
 
   const rejectProposedTask = async (task: ProposedTask) => {
-    if (!canWrite || taskBusyId) return;
+    const claim = `proposal:${task.id}`;
+    if (!canWrite || taskBusyId || decisionRef.current.has(claim)) return;
+    decisionRef.current.add(claim);
     setTaskBusyId(task.id);
     try {
-      await decideProposedTask(task.id, "rejected");
+      const decision = await decideProposedTask(project.id, task.id, "rejected");
+      if (!decision.ok) {
+        setMeetingError(decision.summary);
+        return;
+      }
       setTaskDecisions((current) => ({ ...current, [task.id]: "rejected" }));
       await emit({
         runId: activeRun?.id ?? null,
@@ -566,6 +576,7 @@ export function ProjectWorkspace({
         dedupeKey: `proposal-rejected-${task.id}`,
       });
     } finally {
+      decisionRef.current.delete(claim);
       setTaskBusyId(null);
     }
   };

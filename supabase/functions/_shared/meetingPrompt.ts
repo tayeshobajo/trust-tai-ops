@@ -8,10 +8,10 @@
  */
 
 import { renderProjectContext, type ProjectContext } from "./projectContext.ts";
-import { fenceTranscript } from "./transcript.ts";
+import { fenceTranscript, type TranscriptChunk } from "./transcript.ts";
 import { LIMITS, MEETING_ACCESS_TYPES, RISK_LEVELS, TASK_TYPES } from "./meetingSchema.ts";
 
-export const MEETING_PROMPT_VERSION = "meeting-analysis-1";
+export const MEETING_PROMPT_VERSION = "meeting-analysis-2";
 
 export const MEETING_SYSTEM_PROMPT = [
   "You are the engineering lead on an ongoing WordPress engagement.",
@@ -32,7 +32,7 @@ export const MEETING_SYSTEM_PROMPT = [
   '  "constraints": [{ "statement", "kind", "provenance": [...] }],',
   '  "open_questions": [{ "question", "why_it_matters", "provenance": [...] }],',
   '  "memory_candidates": [{ "kind": "durable|task_detail|uncertain", "title", "content", "memory_type", "importance", "supersedes_hint", "provenance": [...] }],',
-  '  "proposed_tasks": [{ "title", "client_ask", "task_type", "risk_level", "needs_investigation", "access_needed": [], "depends_on": [], "implementation_approach", "verification_expectation", "safe_to_proceed_after_plan_approval", "provenance": [...] }],',
+  '  "proposed_tasks": [{ "title", "client_ask", "task_type", "risk_level", "needs_investigation", "access_needed": [], "depends_on": [], "implementation_approach", "verification_expectation", "safe_to_proceed_after_plan_approval", "owner": "us|client|third_party|unassigned", "deadline_text", "due_date", "provenance": [...] }],',
   '  "superseded_memory": [{ "memory_id_hint", "reason", "provenance": [...] }]',
   "}",
   "",
@@ -42,12 +42,15 @@ export const MEETING_SYSTEM_PROMPT = [
   `memory_type is one of: stack_note, incident_note, risk_note, qa_rule, procedure.`,
   `Keep to at most ${LIMITS.proposedTasks} proposed tasks and ${LIMITS.decisions} decisions. Keep each line under ${LIMITS.line} characters.`,
   "Set safe_to_proceed_after_plan_approval to false whenever the work touches production data, payments, or anything hard to reverse.",
+  "owner is who the meeting said would do the work. Use \"unassigned\" when nobody claimed it — never guess.",
+  "deadline_text is the deadline in the client's own words. due_date is YYYY-MM-DD only when the meeting named an exact date; otherwise null.",
 ].join("\n");
 
 export const meetingUserPrompt = (
   context: ProjectContext,
-  chunks: string[],
+  chunks: Array<string | TranscriptChunk>,
   meta: { title: string; occurredAt: string },
+  part?: { index: number; total: number },
 ): string =>
   [
     "Here is what I already know about this project.",
@@ -55,6 +58,13 @@ export const meetingUserPrompt = (
     renderProjectContext(context),
     "",
     `Here is a new meeting: "${meta.title}" (${meta.occurredAt}).`,
+    ...(part && part.total > 1
+      ? [
+          "",
+          `This is part ${part.index + 1} of ${part.total} of the same meeting. Report only what this part supports.`,
+          "Do not summarise the parts you have not been shown, and do not repeat yourself across parts.",
+        ]
+      : []),
     "",
     fenceTranscript(chunks),
     "",
