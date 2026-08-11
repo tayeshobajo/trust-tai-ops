@@ -5115,7 +5115,7 @@ button:focus-visible {
 
 @media (max-width: 860px) {
   .home-shell {
-    grid-template-columns: 68px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     box-shadow: none;
   }
 
