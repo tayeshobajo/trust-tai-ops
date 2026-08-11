@@ -11,14 +11,58 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { authorizeProject } from "../_shared/authz.ts";
 import { authzDeps, executionContextConfigured } from "../_shared/clients.ts";
 import { validateReasonPlan } from "../_shared/reasonCatalog.ts";
+import { readModelText, resolveReasonModel, type ReasonModel } from "../_shared/reasonModels.ts";
 import { SYSTEM_PROMPT, parseModelJson, sanitizeDigest, userPrompt } from "../_shared/reasonPrompt.ts";
+import type { ReasonDigest } from "../_shared/reasonPrompt.ts";
 
-const MODEL = "google/gemini-3-flash";
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const ANTHROPIC = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_VERSION = "2023-06-01";
 const TIMEOUT_MS = 20_000;
+const MAX_OUTPUT_TOKENS = 1200;
 
 const fail = (code: string, summary: string, retryable: boolean, status = 200) =>
   Response.json({ ok: false, code, summary, retryable }, { status, headers: corsHeaders });
+
+type ProviderCall = { url: string; headers: Record<string, string>; body: unknown };
+
+/**
+ * Each provider gets the same system prompt and the same sanitized digest. The
+ * only thing that varies is the wire format — never what the model is allowed
+ * to answer with.
+ */
+const buildCall = (model: ReasonModel, apiKey: string, digest: ReasonDigest): ProviderCall => {
+  if (model.provider === "anthropic") {
+    return {
+      url: ANTHROPIC,
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "Content-Type": "application/json",
+      },
+      body: {
+        model: model.providerModel,
+        max_tokens: MAX_OUTPUT_TOKENS,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userPrompt(digest) }],
+      },
+    };
+  }
+
+  return {
+    url: GATEWAY,
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: {
+      model: model.providerModel,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userPrompt(digest) },
+      ],
+      response_format: { type: "json_object" },
+    },
+  };
+};
+
 
 const AUTH_FAIL_SUMMARY: Record<string, string> = {
   unauthorized: "I need you to be signed in before I can think about this project.",
@@ -49,29 +93,30 @@ Deno.serve(async (req) => {
     return fail(authz.code, AUTH_FAIL_SUMMARY[authz.code] ?? "I stopped before doing anything.", false);
   }
 
-  const apiKey = Deno.env.get("LOVABLE_API_KEY");
+  const model = resolveReasonModel(body.model);
+  const apiKey = Deno.env.get(model.secretName);
   if (!apiKey) {
-    return fail("reasoner_unavailable", "My reasoning service isn't configured yet.", false);
+    return fail(
+      "reasoner_unavailable",
+      model.provider === "anthropic"
+        ? "My reasoning service needs an Anthropic key before I can use Claude."
+        : "My reasoning service isn't configured yet.",
+      false,
+    );
   }
 
   const digest = sanitizeDigest(body.digest);
+  const call = buildCall(model, apiKey, digest);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(GATEWAY, {
+    response = await fetch(call.url, {
       method: "POST",
       signal: controller.signal,
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userPrompt(digest) },
-        ],
-        response_format: { type: "json_object" },
-      }),
+      headers: call.headers,
+      body: JSON.stringify(call.body),
     });
   } catch {
     return fail("reasoner_unavailable", "I couldn't reach my reasoning service just now.", true);
@@ -82,21 +127,27 @@ Deno.serve(async (req) => {
   if (response.status === 429) {
     return fail("rate_limited", "I'm being rate limited right now — I'll fall back to my standard checks.", true);
   }
+  if (response.status === 401 || response.status === 403) {
+    return fail(
+      "reasoner_unauthorized",
+      model.provider === "anthropic"
+        ? "My Anthropic key was rejected, so I'm using my standard checks."
+        : "My reasoning service rejected its own credential.",
+      false,
+    );
+  }
   if (response.status === 402) {
     return fail("payment_required", "My reasoning service needs credits topped up.", false);
   }
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    console.error(`agent-reason gateway failed [${response.status}]: ${detail.slice(0, 500)}`);
+    console.error(`agent-reason ${model.provider} failed [${response.status}]: ${detail.slice(0, 500)}`);
     return fail("reasoner_unavailable", "My reasoning service returned an error.", true);
   }
 
   let content = "";
   try {
-    const payload = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    content = payload.choices?.[0]?.message?.content ?? "";
+    content = readModelText(model.provider, await response.json());
   } catch {
     content = "";
   }
@@ -107,5 +158,5 @@ Deno.serve(async (req) => {
     return fail("plan_rejected", "I couldn't form a safe next step, so I'm using my standard checks.", false);
   }
 
-  return Response.json({ ok: true, model: MODEL, plan: validated.plan }, { headers: corsHeaders });
+  return Response.json({ ok: true, model: model.id, plan: validated.plan }, { headers: corsHeaders });
 });

@@ -289,6 +289,52 @@ const spoken = await serverModelReasoner.plan(context);
 check("a real model plan is used when it is valid", spoken?.decision.intent === "report_findings");
 check("its actions are still empty when it plans none", spoken?.actions.length === 0);
 
+console.log("\nmodel choice is closed and cannot widen authority");
+const { REASON_MODELS, DEFAULT_REASON_MODEL_ID, resolveReasonModel } = await import(
+  "../supabase/functions/_shared/reasonModels.ts"
+);
+const { REASON_MODEL_OPTIONS, DEFAULT_REASON_MODEL_ID: CLIENT_DEFAULT, readReasonModelId } = await import(
+  "../src/agent-core/reasonModels.ts"
+);
+const { readModelText } = await import("../supabase/functions/_shared/reasonModels.ts");
+
+check(
+  "the browser list mirrors the server list exactly",
+  JSON.stringify(REASON_MODELS.map((m) => m.id)) === JSON.stringify(REASON_MODEL_OPTIONS.map((m) => m.id)),
+);
+check("both sides agree on the default model", DEFAULT_REASON_MODEL_ID === CLIENT_DEFAULT);
+check("the default is Claude Sonnet", DEFAULT_REASON_MODEL_ID === "claude-sonnet");
+check("an unknown model id falls back to the default", resolveReasonModel("evil/model").id === DEFAULT_REASON_MODEL_ID);
+check("a non-string model id falls back to the default", resolveReasonModel({ id: "x" }).id === DEFAULT_REASON_MODEL_ID);
+check("a browser with no stored preference uses the default", readReasonModelId() === DEFAULT_REASON_MODEL_ID);
+check(
+  "every model names a real provider and its own credential",
+  REASON_MODELS.every(
+    (m) =>
+      (m.provider === "anthropic" && m.secretName === "ANTHROPIC_API_KEY") ||
+      (m.provider === "lovable_gateway" && m.secretName === "LOVABLE_API_KEY"),
+  ),
+);
+check(
+  "no model carries an endpoint, header or prompt of its own",
+  REASON_MODELS.every((m) => Object.keys(m).join(",") === "id,label,provider,providerModel,note,secretName"),
+);
+check(
+  "Claude answers are read from Anthropic's envelope",
+  readModelText("anthropic", { content: [{ type: "text", text: '{"intent":"no_action"}' }] }) ===
+    '{"intent":"no_action"}',
+);
+check(
+  "gateway answers are read from the chat envelope",
+  readModelText("lovable_gateway", { choices: [{ message: { content: "hi" } }] }) === "hi",
+);
+check("a malformed provider envelope yields no text", readModelText("anthropic", { content: "nope" }) === "");
+check(
+  "a Claude answer outside the catalog is still rejected",
+  validateReasonPlan(parseModelJson('{"intent":"inspect_public_surface","steps":[{"id":"delete-plugin"}]}'), ALL).ok ===
+    false,
+);
+
 console.log("");
 if (failures.length > 0) {
   console.log(`${failures.length} check(s) failed`);

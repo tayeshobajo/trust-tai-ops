@@ -185,11 +185,22 @@ Optional, additive, read-only. The reasoning layer decides *which known
 inspection happens next* and *how it is explained*; it never decides what the
 system is capable of.
 
-1. **Set `LOVABLE_API_KEY`** as an Edge Function secret. It is server-side only.
-   The browser holds no model credential and never calls a model.
+1. **Set the model credential** as an Edge Function secret: `ANTHROPIC_API_KEY`
+   for the Claude models, `LOVABLE_API_KEY` for the built-in ones. Both are
+   server-side only. The browser holds no model credential and never calls a
+   model.
 2. **Deploy `agent-reason`.** It proves the caller belongs to the project,
    sanitizes the digest the browser sent — redacting pasted passwords, tokens
    and long secret-shaped strings — and asks the model for a next turn.
+
+**Which model thinks.** The choice is a single operator-level default in
+Settings, drawn from the closed list in
+`supabase/functions/_shared/reasonModels.ts` (Claude Sonnet by default, plus
+Claude Haiku and the built-in Gemini and GPT models). The browser sends an id
+and nothing more: the server decides what that id means, which provider it
+calls and which secret it uses. An unknown id falls back to the default. A
+model choice changes *who thinks*, never *what the agent may do* — every
+answer still has to survive the same closed step catalog below.
 
 **What the model can and cannot do.** It chooses step ids from the closed
 catalog in `supabase/functions/_shared/reasonCatalog.ts`, and nothing else. It
@@ -224,7 +235,8 @@ anyone):
 - `SUPABASE_ANON_KEY` — only if used for verifying caller token claims
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `AGENT_SECRET_ENCRYPTION_KEY`
-- `LOVABLE_API_KEY` — model access for `agent-reason` only
+- `LOVABLE_API_KEY` — built-in model access for `agent-reason` only
+- `ANTHROPIC_API_KEY` — Claude access for `agent-reason` only
 
 The SSH private key and its passphrase are sealed with
 `AGENT_SECRET_ENCRYPTION_KEY` and never leave the server. `host`, `port`,
