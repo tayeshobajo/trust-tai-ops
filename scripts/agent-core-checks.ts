@@ -59,6 +59,7 @@ check(
       "public_http.inspect_site",
       "wordpress.inspect_public_surface",
       "wordpress.list_plugins",
+      "wordpress.read_error_log",
       "wordpress.read_health",
       "wordpress.run_wp_cli_readonly",
     ]),

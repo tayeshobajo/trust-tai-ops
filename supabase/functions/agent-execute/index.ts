@@ -18,7 +18,6 @@ import { authenticatedGet, normalizeHealthTest, normalizePlugins } from "../_sha
 import { runReadOnlyWpCli } from "../_shared/wpCli.ts";
 import { denoSftpTransport, denoSshTransport } from "../_shared/sshTransport.ts";
 import { readWordPressErrorLog } from "../_shared/errorLog.ts";
-import { relativeCandidateFrom } from "../_shared/errorLogSafety.ts";
 
 const fail = (code: string, summary: string, retryable: boolean) =>
   Response.json({ ok: false, code, summary, retryable }, { headers: corsHeaders });
