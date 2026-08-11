@@ -39,6 +39,11 @@ export interface ExecutionGateway {
   available(): boolean;
   invoke(request: GatewayRequest): Promise<GatewayResponse>;
   /**
+   * Asks the server-side reasoner what should happen next. Returns null
+   * whenever reasoning is unavailable, refused, or unsafe — never a guess.
+   */
+  reason(projectId: string, digest: Record<string, unknown>): Promise<unknown | null>;
+  /**
    * Server truth about which private capabilities this project can actually
    * use, split into stored and verified. Client-side access state is only ever
    * a hint, and "stored" is never presented to a person as "verified".
@@ -100,6 +105,24 @@ class SupabaseFunctionGateway implements ExecutionGateway {
       return none;
     }
   }
+
+  async reason(projectId: string, digest: Record<string, unknown>): Promise<unknown | null> {
+    if (!this.available()) return null;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke("agent-reason", {
+        body: { projectId, digest },
+      });
+      if (error) return null;
+      const payload = data as { ok?: boolean; plan?: unknown } | null;
+      if (!payload?.ok || !payload.plan) return null;
+      return payload.plan;
+    } catch {
+      // Reasoning is an enhancement, never a dependency.
+      return null;
+    }
+  }
+
 }
 
 let gateway: ExecutionGateway = new SupabaseFunctionGateway();

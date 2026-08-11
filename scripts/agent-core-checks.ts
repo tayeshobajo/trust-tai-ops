@@ -169,6 +169,7 @@ const spoken: string[][] = [];
 setExecutionGateway({
   available: () => true,
   projectCapabilities: async () => ({ stored: [], verified: [] }),
+  reason: async () => null,
   invoke: async () => {
     calls += 1;
     return {

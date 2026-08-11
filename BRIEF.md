@@ -179,6 +179,36 @@ remains unimplemented.
 
 Run `npm run check:wpcli` to execute this safety model rather than trust it.
 
+### Server-side reasoning
+
+Optional, additive, read-only. The reasoning layer decides *which known
+inspection happens next* and *how it is explained*; it never decides what the
+system is capable of.
+
+1. **Set `LOVABLE_API_KEY`** as an Edge Function secret. It is server-side only.
+   The browser holds no model credential and never calls a model.
+2. **Deploy `agent-reason`.** It proves the caller belongs to the project,
+   sanitizes the digest the browser sent — redacting pasted passwords, tokens
+   and long secret-shaped strings — and asks the model for a next turn.
+
+**What the model can and cannot do.** It chooses step ids from the closed
+catalog in `supabase/functions/_shared/reasonCatalog.ts`, and nothing else. It
+cannot invent a tool, a command, an argument, a URL or an access type; it
+cannot choose a step whose access the run does not already hold; it cannot both
+act and wait for access; it is bounded to four steps per turn; and everything
+it writes is truncated plain English. The browser then rebuilds each real
+action from the tool registry, so the invocation key, arguments, capability and
+risk are always system-authored. Policy and the execution gateway still gate
+everything afterwards, exactly as before. No change can be planned here: the
+catalog contains read-only tools only.
+
+**Failure is a normal path.** If the function is not deployed, the key is
+missing, the model is rate limited or out of credits, the call times out, or
+the answer falls outside the catalog, the deterministic operator takes the turn
+instead and the run continues.
+
+Run `npm run check:reasoner` to execute this boundary rather than trust it.
+
 ### Environment boundary
 
 **Frontend / public only** (compiled into the browser bundle, readable by
@@ -194,6 +224,7 @@ anyone):
 - `SUPABASE_ANON_KEY` — only if used for verifying caller token claims
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `AGENT_SECRET_ENCRYPTION_KEY`
+- `LOVABLE_API_KEY` — model access for `agent-reason` only
 
 The SSH private key and its passphrase are sealed with
 `AGENT_SECRET_ENCRYPTION_KEY` and never leave the server. `host`, `port`,
