@@ -10,6 +10,7 @@ import { getProjectStack, stackCopy } from "../stacks";
 
 const RISK_BY_TOOL: Record<ToolId, RiskClass> = {
   "public_http.inspect_site": "read_only",
+  "browser.inspect_page_readonly": "read_only",
   "wordpress.inspect_public_surface": "read_only",
   "wordpress.list_plugins": "read_only",
   "wordpress.read_health": "read_only",
