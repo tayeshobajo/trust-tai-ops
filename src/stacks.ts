@@ -98,8 +98,10 @@ export const isProjectStack = (value: unknown): value is ProjectStack =>
  */
 export const getProjectStack = (project: Project | null | undefined): ProjectStack => {
   if (!project) return "wordpress";
-  const production = project.environments.find((environment) => environment.type === "production");
-  return (production ?? project.environments[0])?.stack ?? "wordpress";
+  // Partial project shapes (fixtures, partially hydrated rows) must not throw.
+  const environments = Array.isArray(project.environments) ? project.environments : [];
+  const production = environments.find((environment) => environment.type === "production");
+  return (production ?? environments[0])?.stack ?? "wordpress";
 };
 
 export const getStackCopy = (project: Project | null | undefined): StackCopy =>
