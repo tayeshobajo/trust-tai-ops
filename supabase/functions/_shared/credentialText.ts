@@ -112,7 +112,9 @@ export const sameSite = (candidate: string, canonical: string): boolean => {
 const SECRET_LABEL =
   /\b(?:app(?:lication)?[ _-]?password|password|passwd|pwd|passphrase|private[ _-]?key|secret[ _-]?key|api[ _-]?key|access[ _-]?token|bearer[ _-]?token|auth[ _-]?token|token)\b/i;
 
-const LABELLED_SECRET = new RegExp(`(^|[\\s([{])${SECRET_LABEL.source}\\s*[:=]\\s*(\\S.*)$`, "gim");
+// Three groups: leading boundary, the label itself, then the value that must
+// never survive. The label is kept so a redacted line still reads plainly.
+const LABELLED_SECRET = new RegExp(`(^|[\\s([{])(${SECRET_LABEL.source})\\s*[:=]\\s*(\\S.*)$`, "gim");
 
 const PEM_BLOCK = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g;
 const PEM_OPENING = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
