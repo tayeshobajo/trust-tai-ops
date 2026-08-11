@@ -676,11 +676,6 @@ export function ProjectWorkspace({
       setMobilePane("chat");
       return;
     }
-    if (next === "tasks") {
-      setSurface("conversation");
-      setMobilePane("tasks");
-      return;
-    }
     setSurface(next);
     setMobilePane("chat");
   };
@@ -710,7 +705,49 @@ export function ProjectWorkspace({
   );
 
   const secondarySurface =
-    surface === "access" ? (
+    surface === "tasks" ? (
+      <div className="access-surface is-embedded">
+        <header className="access-head">
+          <span className="preview-avatar" aria-hidden="true">{getProjectInitials(project)}</span>
+          <div>
+            <p className="eyebrow">Work on this project</p>
+            <h1>{project.name}</h1>
+            <small>{project.primaryDomain}</small>
+          </div>
+        </header>
+        <p className="access-intro">
+          Every task the agent has worked on here. Open one to pick the conversation back up.
+        </p>
+        {runs.length === 0 ? (
+          <p className="mem-empty">No tasks yet. Start a conversation and the agent will open one.</p>
+        ) : (
+          <ul className="pw-task-surface">
+            {runs.map((run) => {
+              const rowSignal = signalForRun(run);
+              return (
+                <li key={run.id}>
+                  <button
+                    type="button"
+                    className={`pw-task-row ${run.id === activeRunId ? "is-active" : ""}`}
+                    onClick={() => {
+                      setActiveRunId(run.id);
+                      goToSurface("conversation");
+                    }}
+                  >
+                    <div className="pw-task-row-top">
+                      <strong>{run.title}</strong>
+                      <span className="pw-stamp">{formatActivityStamp(run.updatedAt)}</span>
+                    </div>
+                    <p>{rowSignal.status}</p>
+                    {rowSignal.agentState === "needs_you" ? <span className="pw-attention" aria-label="Needs you" /> : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    ) : surface === "access" ? (
       <ProjectAccessPanel
         project={project}
         canWrite={canWrite}
