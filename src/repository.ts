@@ -634,6 +634,9 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
   }
 
   async addProjectMessage(projectId: string, message: NewProjectMessage): Promise<ProjectMessage> {
+    // Last net: a secret value can never become a stored message, whoever
+    // called this and however the text got here.
+    message = { ...message, body: redactBody(message.body) };
     const store = this.readMessageStore();
     const existing = store[projectId] ?? [];
     const dedupeKey = message.dedupeKey ?? null;
@@ -1276,6 +1279,9 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
   }
 
   async addProjectMessage(projectId: string, message: NewProjectMessage): Promise<ProjectMessage> {
+    // Same guard on the persisted path. Redaction is defence in depth, not
+    // the storage mechanism: real credentials go to the intake function.
+    message = { ...message, body: redactBody(message.body) };
     const client = getSupabaseClient();
     const dedupeKey = message.dedupeKey ?? null;
 
