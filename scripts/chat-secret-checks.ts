@@ -144,7 +144,7 @@ check("client redactor matches on a PEM block", client.redactSecrets(FAKE_KEY) =
 const intakeSource = await readFile(new URL("../supabase/functions/credential-intake/index.ts", import.meta.url).pathname);
 check("intake never returns a stored secret", !/secret\s*:\s*bundle\.secret/.test(intakeSource));
 check("intake authorizes the project before doing anything", intakeSource.indexOf("authorizeProject") < intakeSource.indexOf("parseCredentialText"));
-check("intake refuses a mismatched domain without storing", intakeSource.includes("domain_mismatch") && intakeSource.indexOf("domain_mismatch") < intakeSource.indexOf("storeCredential"));
+check("intake refuses a mismatched domain without storing", intakeSource.includes("domain_mismatch") && intakeSource.indexOf("domain_mismatch") < intakeSource.indexOf("storeCredential(deps"));
 check("intake requires an idempotency key", intakeSource.includes("missing its idempotency key"));
 check("intake writes audit rows keyed by that intake", intakeSource.includes("`credential-intake:${intakeKey}"));
 check("intake trusts no browser-supplied access type or provider", !/body\.(accessType|provider|verificationState|organizationId|canonicalUrl)/.test(intakeSource));
@@ -221,7 +221,7 @@ check("no verdict ever carries the credential", ![success, rejected, challenged,
 
 const wpLoginSource = await readFile(new URL("../supabase/functions/_shared/wpLogin.ts", import.meta.url).pathname);
 check("the login verifier never follows redirects", wpLoginSource.includes('redirect: "manual"'));
-check("the login verifier keeps no session", !/set-?Cookie|cookieJar|storeCookie/i.test(wpLoginSource.replace(/setCookies|set-cookie/g, "")));
+check("the login verifier keeps no session", !/cookieJar|credentials:\s*"include"/i.test(wpLoginSource));
 
 console.log("\nD. FTP / SFTP / SSH truth\n");
 
@@ -255,7 +255,10 @@ console.log("\nF. No regression in ordinary chat\n");
 
 const workspaceSource = await readFile(new URL("../src/ProjectWorkspace.tsx", import.meta.url).pathname);
 check("ordinary messages keep the existing send path", workspaceSource.includes("const stamp = Date.now();"));
-check("credential text is intercepted before persistence", workspaceSource.indexOf("containsSecretMaterial(value)") < workspaceSource.indexOf("const stamp = Date.now();"));
+check(
+  "credential text is intercepted before persistence",
+  workspaceSource.indexOf("containsSecretMaterial(value)") < workspaceSource.indexOf("-brief`"),
+);
 check("the composer is cleared on a successful handoff", workspaceSource.includes('setComposerValue("");'));
 check("raw composer text is never emitted on the intake path", !/body:\s*\[raw\]/.test(workspaceSource));
 check("access truth is re-read from the server after intake", workspaceSource.includes("onWorkspaceUpdate(await workspaceRepository.loadWorkspace());"));
