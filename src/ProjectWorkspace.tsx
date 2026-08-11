@@ -770,25 +770,12 @@ export function ProjectWorkspace({
           })}
         </div>
 
-        <nav className="pw-secondary" aria-label="Project sections">
-          <button type="button" className="is-active" aria-current="page" onClick={() => setMobilePane("chat")}>
-            Conversation
-          </button>
-          <button type="button" onClick={() => setMobilePane("tasks")}>
-            Tasks
-          </button>
-          <button type="button" onClick={() => openAccessSurface([])}>
-            Access
-          </button>
-          <button type="button" onClick={() => setSurface("memory")}>
-            Memory
-          </button>
-          <button type="button" onClick={() => setSurface("activity")}>
-            Activity
-          </button>
-        </nav>
+        {renderProjectNav("rail")}
       </aside>
 
+      {secondarySurface ? (
+        <main className="pw-surface">{secondarySurface}</main>
+      ) : (
       <main className="pw-chat">
         <header className="pw-chat-head">
           <button className="pw-pane-toggle" type="button" onClick={() => setMobilePane("tasks")}>
