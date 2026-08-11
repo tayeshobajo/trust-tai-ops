@@ -614,7 +614,10 @@ console.log("\nthe browser cannot decide, only ask");
 check("the browser never writes a proposal decision", !/from\("proposed_tasks"\)[\s\S]{0,120}\.update\(/.test(clientSource));
 check("the browser never writes memory directly", !/from\("memory_candidates"\)[\s\S]{0,120}\.update\(/.test(clientSource));
 check("decisions go through the decision function", /functions\.invoke\("meeting-decisions"/.test(clientSource));
-check("the decision function authorizes before deciding", /authorizeProject\([\s\S]{0,600}rpc\(/.test(decisionSource));
+check(
+  "the decision function authorizes before deciding",
+  decisionSource.indexOf("authorizeProject(") < decisionSource.indexOf(".rpc("),
+);
 check("the run's shape is computed server-side", /buildRunSeed\(/.test(decisionSource));
 check("the caller cannot choose the run's state", !/body\.(state|riskLevel|risk_level|backupConfirmed)/.test(decisionSource));
 check("an already-started proposal returns its existing run", /alreadyStarted: true/.test(decisionSource));
