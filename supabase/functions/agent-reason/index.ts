@@ -173,7 +173,7 @@ const analyzeMeetingSource = async (
 
   const source = await service
     .from("project_sources")
-    .select("id, project_id, title, occurred_at, normalized_text, processing_status")
+    .select("id, project_id, title, occurred_at, normalized_text, processing_status, content_hash")
     .eq("id", sourceId)
     .eq("project_id", projectId)
     .maybeSingle();
@@ -212,7 +212,7 @@ const analyzeMeetingSource = async (
 
   // A long meeting is read in windows. Provenance is always checked against the
   // whole transcript, so a window's quote keeps its true chunk index.
-  const parts = [];
+  const parts: Array<ReturnType<typeof mergeMeetingAnalyses>> = [];
   const dropped: string[] = [];
   for (const [index, window] of coverage.windows.entries()) {
     const prompt = meetingUserPrompt(context, window, meta, { index, total: coverage.windows.length });

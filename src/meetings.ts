@@ -27,6 +27,12 @@ export type ProposedTask = {
   implementationApproach: string;
   verificationExpectation: string;
   requiresExecutionApproval: boolean;
+  owner: "us" | "client" | "third_party" | "unassigned";
+  deadlineText: string;
+  dueAt: string | null;
+  duplicateOfRunId: string | null;
+  relatedRunId: string | null;
+  conflictNote: string;
   provenance: MeetingProvenance[];
   status: "proposed" | "approved" | "rejected" | "edited" | "superseded";
   runId: string | null;
@@ -72,6 +78,12 @@ const mapProposedTask = (row: Record<string, unknown>): ProposedTask => ({
   implementationApproach: asString(row.implementation_approach),
   verificationExpectation: asString(row.verification_expectation),
   requiresExecutionApproval: row.requires_execution_approval !== false,
+  owner: (asString(row.owner, "unassigned") as ProposedTask["owner"]),
+  deadlineText: asString(row.deadline_text),
+  dueAt: typeof row.due_at === "string" ? row.due_at : null,
+  duplicateOfRunId: typeof row.duplicate_of_run_id === "string" ? row.duplicate_of_run_id : null,
+  relatedRunId: typeof row.related_run_id === "string" ? row.related_run_id : null,
+  conflictNote: asString(row.conflict_note),
   provenance: asArray(row.provenance).map((item) => {
     const entry = (item ?? {}) as Record<string, unknown>;
     return { chunkIndex: Number(entry.chunkIndex ?? 0), excerpt: asString(entry.excerpt) };
@@ -211,34 +223,63 @@ export const ingestAndAnalyzeMeeting = async (input: {
   }
 };
 
-/** Records a human decision on one proposal. Approval is never inferred. */
+export type DecisionResult =
+  | { ok: true; runId: string | null; alreadyStarted: boolean }
+  | { ok: false; summary: string };
+
+const decisionUnavailable: DecisionResult = {
+  ok: false,
+  summary: "I couldn't record that just now. Nothing was changed.",
+};
+
+/**
+ * Records a human decision on one proposal.
+ *
+ * The browser cannot write to the meeting tables at all — it asks the server,
+ * which proves membership, creates the run and marks the proposal in a single
+ * locked transaction. Clicking twice therefore returns the same run, never a
+ * second one.
+ */
 export const decideProposedTask = async (
-  taskId: string,
+  projectId: string,
+  proposalId: string,
   status: "approved" | "rejected",
-  runId: string | null = null,
+  note = "",
+): Promise<DecisionResult> => {
+  if (!meetingIntelligenceAvailable()) return decisionUnavailable;
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client.functions.invoke("meeting-decisions", {
+      body: {
+        projectId,
+        proposalId,
+        note,
+        action: status === "approved" ? "approve_proposal" : "reject_proposal",
+      },
+    });
+    if (error) return decisionUnavailable;
+    const payload = data as { ok?: boolean; summary?: string; runId?: string | null; alreadyStarted?: boolean } | null;
+    if (!payload?.ok) return { ok: false, summary: asString(payload?.summary, decisionUnavailable.summary) };
+    return { ok: true, runId: payload.runId ?? null, alreadyStarted: Boolean(payload.alreadyStarted) };
+  } catch {
+    return decisionUnavailable;
+  }
+};
+
+/** Accepting a note into project memory is the same kind of act, on the same boundary. */
+export const acceptMemoryCandidate = async (
+  projectId: string,
+  candidateId: string,
+  accepted: boolean,
 ): Promise<boolean> => {
   if (!meetingIntelligenceAvailable()) return false;
   try {
     const client = getSupabaseClient();
-    const { error } = await client
-      .from("proposed_tasks")
-      .update({ status, run_id: runId, decided_at: new Date().toISOString() } as never)
-      .eq("id", taskId);
-    return !error;
-  } catch {
-    return false;
-  }
-};
-
-export const acceptMemoryCandidate = async (candidateId: string, accepted: boolean): Promise<boolean> => {
-  if (!meetingIntelligenceAvailable()) return false;
-  try {
-    const client = getSupabaseClient();
-    const { error } = await client
-      .from("memory_candidates")
-      .update({ status: accepted ? "accepted" : "rejected" } as never)
-      .eq("id", candidateId);
-    return !error;
+    const { data, error } = await client.functions.invoke("meeting-decisions", {
+      body: { projectId, candidateId, accepted, action: "decide_memory" },
+    });
+    if (error) return false;
+    return Boolean((data as { ok?: boolean } | null)?.ok);
   } catch {
     return false;
   }
