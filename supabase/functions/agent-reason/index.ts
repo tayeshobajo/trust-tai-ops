@@ -1,0 +1,111 @@
+// Trust Tai Ops — server-side reasoning boundary.
+//
+// The browser never talks to a model and never holds a model credential. It
+// sends a redacted digest of what it already knows; this function proves the
+// caller belongs to the project, asks a model what should happen next, and
+// returns only a plan drawn from a closed catalog of read-only inspections.
+//
+// Nothing here executes a tool, and nothing here can mutate WordPress.
+
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { authorizeProject } from "../_shared/authz.ts";
+import { authzDeps, executionContextConfigured } from "../_shared/clients.ts";
+import { validateReasonPlan } from "../_shared/reasonCatalog.ts";
+import { SYSTEM_PROMPT, parseModelJson, sanitizeDigest, userPrompt } from "../_shared/reasonPrompt.ts";
+
+const MODEL = "google/gemini-3-flash";
+const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const TIMEOUT_MS = 20_000;
+
+const fail = (code: string, summary: string, retryable: boolean, status = 200) =>
+  Response.json({ ok: false, code, summary, retryable }, { status, headers: corsHeaders });
+
+const AUTH_FAIL_SUMMARY: Record<string, string> = {
+  unauthorized: "I need you to be signed in before I can think about this project.",
+  forbidden: "This account isn't allowed to work on that project.",
+  execution_context_unavailable: "I can't confirm who this project belongs to right now, so I stopped.",
+};
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return fail("invalid_input", "Unsupported request.", false);
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return fail("invalid_input", "I couldn't read that request.", false);
+  }
+
+  const projectId = typeof body.projectId === "string" ? body.projectId : "";
+  if (!projectId) return fail("invalid_input", "No project was named.", false);
+
+  if (!executionContextConfigured()) {
+    return fail("execution_context_unavailable", AUTH_FAIL_SUMMARY.execution_context_unavailable, true);
+  }
+
+  const authz = await authorizeProject(req.headers.get("Authorization"), projectId, authzDeps());
+  if (!authz.ok) {
+    return fail(authz.code, AUTH_FAIL_SUMMARY[authz.code] ?? "I stopped before doing anything.", false);
+  }
+
+  const apiKey = Deno.env.get("LOVABLE_API_KEY");
+  if (!apiKey) {
+    return fail("reasoner_unavailable", "My reasoning service isn't configured yet.", false);
+  }
+
+  const digest = sanitizeDigest(body.digest);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(GATEWAY, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userPrompt(digest) },
+        ],
+        response_format: { type: "json_object" },
+      }),
+    });
+  } catch {
+    return fail("reasoner_unavailable", "I couldn't reach my reasoning service just now.", true);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (response.status === 429) {
+    return fail("rate_limited", "I'm being rate limited right now — I'll fall back to my standard checks.", true);
+  }
+  if (response.status === 402) {
+    return fail("payment_required", "My reasoning service needs credits topped up.", false);
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    console.error(`agent-reason gateway failed [${response.status}]: ${detail.slice(0, 500)}`);
+    return fail("reasoner_unavailable", "My reasoning service returned an error.", true);
+  }
+
+  let content = "";
+  try {
+    const payload = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    content = payload.choices?.[0]?.message?.content ?? "";
+  } catch {
+    content = "";
+  }
+
+  const validated = validateReasonPlan(parseModelJson(content), digest.capabilities);
+  if (!validated.ok) {
+    console.error(`agent-reason rejected model plan: ${validated.reason}`);
+    return fail("plan_rejected", "I couldn't form a safe next step, so I'm using my standard checks.", false);
+  }
+
+  return Response.json({ ok: true, model: MODEL, plan: validated.plan }, { headers: corsHeaders });
+});
