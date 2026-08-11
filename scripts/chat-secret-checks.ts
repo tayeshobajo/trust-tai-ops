@@ -257,7 +257,7 @@ const workspaceSource = await readFile(new URL("../src/ProjectWorkspace.tsx", im
 check("ordinary messages keep the existing send path", workspaceSource.includes("const stamp = Date.now();"));
 check(
   "credential text is intercepted before persistence",
-  workspaceSource.indexOf("containsSecretMaterial(value)") < workspaceSource.indexOf("-brief`"),
+  workspaceSource.indexOf("containsSecretMaterial(value)") < workspaceSource.indexOf("dedupeKey: created ?"),
 );
 check("the composer is cleared on a successful handoff", workspaceSource.includes('setComposerValue("");'));
 check("raw composer text is never emitted on the intake path", !/body:\s*\[raw\]/.test(workspaceSource));
