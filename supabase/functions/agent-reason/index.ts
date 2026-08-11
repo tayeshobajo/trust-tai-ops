@@ -20,7 +20,10 @@ import { SYSTEM_PROMPT, parseModelJson, sanitizeDigest, userPrompt } from "../_s
 import type { ReasonDigest } from "../_shared/reasonPrompt.ts";
 import { MEETING_PROMPT_VERSION, MEETING_SYSTEM_PROMPT, meetingUserPrompt } from "../_shared/meetingPrompt.ts";
 import { candidateKeyFor, taskKeyFor, validateMeetingAnalysis } from "../_shared/meetingSchema.ts";
-import { chunkTranscript } from "../_shared/transcript.ts";
+import { mergeMeetingAnalyses } from "../_shared/meetingMerge.ts";
+import { detectMemoryConflict, matchProposalToWork, type ExistingWork } from "../_shared/meetingMatch.ts";
+import { renderProjectContext } from "../_shared/projectContext.ts";
+import { chunkTranscript, fingerprintAnalysisContext, planTranscriptCoverage } from "../_shared/transcript.ts";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const ANTHROPIC = "https://api.anthropic.com/v1/messages";
@@ -185,39 +188,67 @@ const analyzeMeetingSource = async (
   }
 
   const chunks = chunkTranscript(transcript);
+  const coverage = planTranscriptCoverage(chunks);
+  if (coverage.exceedsBudget) {
+    await service.from("project_sources").update({ processing_status: "failed" }).eq("id", sourceId);
+    return fail(
+      "transcript_too_large",
+      "That meeting is longer than I can read in one pass, and I won't analyse only part of it.",
+      false,
+    );
+  }
+
   const context = await loadProjectContext(projectId, canonicalUrl, transcript);
-  const prompt = meetingUserPrompt(context, chunks, {
+  const contextText = renderProjectContext(context);
+  const meta = {
     title: String(source.data.title ?? "Client meeting"),
-    occurredAt: String(source.data.occurred_at ?? "date not recorded"),
-  });
+    occurredAt: source.data.occurred_at ? String(source.data.occurred_at) : "date not recorded",
+  };
+  const allowedHosts = [primaryDomain, canonicalUrl ?? ""]
+    .filter(Boolean)
+    .map((value) => value.replace(/^https?:\/\//, "").split("/")[0]);
 
   await service.from("project_sources").update({ processing_status: "analyzing" }).eq("id", sourceId);
 
-  const asked = await askModel(
-    model,
-    buildCall(model, apiKey, MEETING_SYSTEM_PROMPT, prompt, MEETING_MAX_OUTPUT_TOKENS),
-    MEETING_TIMEOUT_MS,
-  );
-  if (!asked.ok) {
-    await service.from("project_sources").update({ processing_status: "failed" }).eq("id", sourceId);
-    return asked.response;
+  // A long meeting is read in windows. Provenance is always checked against the
+  // whole transcript, so a window's quote keeps its true chunk index.
+  const parts = [];
+  const dropped: string[] = [];
+  for (const [index, window] of coverage.windows.entries()) {
+    const prompt = meetingUserPrompt(context, window, meta, { index, total: coverage.windows.length });
+    const asked = await askModel(
+      model,
+      buildCall(model, apiKey, MEETING_SYSTEM_PROMPT, prompt, MEETING_MAX_OUTPUT_TOKENS),
+      MEETING_TIMEOUT_MS,
+    );
+    if (!asked.ok) {
+      await service.from("project_sources").update({ processing_status: "failed" }).eq("id", sourceId);
+      return asked.response;
+    }
+
+    const validated = validateMeetingAnalysis(parseModelJson(asked.content), { chunks, allowedHosts });
+    if (!validated.ok) {
+      // Half a meeting is worse than none: a partial plan reads as the whole plan.
+      console.error(`agent-reason rejected meeting analysis part ${index}: ${validated.reason}`);
+      await service.from("project_sources").update({ processing_status: "failed" }).eq("id", sourceId);
+      return fail("analysis_rejected", "I read the meeting but couldn't turn it into something I trust yet.", true);
+    }
+    parts.push(validated.analysis);
+    dropped.push(...validated.dropped);
   }
 
   const memoryIndex = await loadMemoryIndex(projectId);
-  const validated = validateMeetingAnalysis(parseModelJson(asked.content), {
-    chunks,
-    allowedHosts: [primaryDomain, canonicalUrl ?? ""].filter(Boolean).map((value) =>
-      value.replace(/^https?:\/\//, "").split("/")[0]
-    ),
+  const analysis = mergeMeetingAnalyses(parts);
+
+  // What the analysis was actually derived from, so a stored result can be
+  // reproduced rather than merely trusted.
+  const contextHash = await fingerprintAnalysisContext({
+    contentHash: String(source.data.content_hash ?? ""),
+    contextText,
+    promptVersion: MEETING_PROMPT_VERSION,
+    modelId: model.id,
+    windowCount: coverage.windows.length,
   });
-
-  if (!validated.ok) {
-    console.error(`agent-reason rejected meeting analysis: ${validated.reason}`);
-    await service.from("project_sources").update({ processing_status: "failed" }).eq("id", sourceId);
-    return fail("analysis_rejected", "I read the meeting but couldn't turn it into something I trust yet.", true);
-  }
-
-  const analysis = validated.analysis;
 
   // Re-analysis produces a new version rather than overwriting the record the
   // human may already have acted on.
@@ -241,6 +272,9 @@ const analyzeMeetingSource = async (
       prompt_version: MEETING_PROMPT_VERSION,
       status: "complete",
       result: analysis,
+      context_hash: contextHash,
+      window_count: coverage.windows.length,
+      coverage: { chunks: chunks.length, windows: coverage.windows.length, mapReduce: coverage.mapReduce },
     })
     .select("id")
     .single();
@@ -254,8 +288,39 @@ const analyzeMeetingSource = async (
   const analysisId = String(analysisRow.data.id);
 
   if (analysis.proposedTasks.length > 0) {
+    // The same client ask comes up in three meetings. It becomes one run, not
+    // three, and anything contradicting a standing decision is flagged for the
+    // human rather than quietly proposed.
+    const runRows = await service
+      .from("runs")
+      .select("id, title, task_summary, state")
+      .eq("project_id", projectId)
+      .order("updated_at", { ascending: false })
+      .limit(60);
+    const existingWork: ExistingWork[] = (runRows.data ?? []).map((row) => ({
+      id: String(row.id),
+      title: String(row.title ?? ""),
+      summary: String(row.task_summary ?? ""),
+      open: !["complete", "failed", "rolled_back"].includes(String(row.state)),
+    }));
+
+    const memoryRows = await service
+      .from("project_memory_entries")
+      .select("id, title, content")
+      .eq("project_id", projectId)
+      .limit(200);
+    const memoryFacts = (memoryRows.data ?? []).map((row) => ({
+      id: String(row.id),
+      title: String(row.title ?? ""),
+      content: String(row.content ?? ""),
+    }));
+
     await service.from("proposed_tasks").upsert(
-      analysis.proposedTasks.map((task) => ({
+      analysis.proposedTasks.map((task) => {
+        const text = `${task.title} ${task.clientAsk} ${task.implementationApproach}`;
+        const match = matchProposalToWork(text, existingWork);
+        const conflict = detectMemoryConflict(text, memoryFacts);
+        return {
         project_id: projectId,
         analysis_id: analysisId,
         source_id: sourceId,
@@ -271,8 +336,16 @@ const analyzeMeetingSource = async (
         implementation_approach: task.implementationApproach,
         verification_expectation: task.verificationExpectation,
         requires_execution_approval: task.requiresExecutionApproval,
+        owner: task.owner,
+        deadline_text: task.deadlineText,
+        due_at: task.dueDate ? `${task.dueDate}T00:00:00.000Z` : null,
+        duplicate_of_run_id: match.duplicateOfRunId,
+        related_run_id: match.relatedRunId,
+        conflict_note: [match.note, conflict].filter(Boolean).join(" "),
+        original_proposal: task,
         status: "proposed",
-      })),
+        };
+      }),
       { onConflict: "project_id,task_key" },
     );
   }
@@ -315,7 +388,9 @@ const analyzeMeetingSource = async (
       sourceId,
       analysisId,
       version,
-      dropped: validated.dropped,
+      contextHash,
+      windows: coverage.windows.length,
+      dropped,
       analysis,
     },
     { headers: corsHeaders },
