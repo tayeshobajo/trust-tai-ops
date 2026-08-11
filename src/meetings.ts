@@ -222,7 +222,7 @@ export const decideProposedTask = async (
     const client = getSupabaseClient();
     const { error } = await client
       .from("proposed_tasks")
-      .update({ status, run_id: runId, decided_at: new Date().toISOString() })
+      .update({ status, run_id: runId, decided_at: new Date().toISOString() } as never)
       .eq("id", taskId);
     return !error;
   } catch {
@@ -236,7 +236,7 @@ export const acceptMemoryCandidate = async (candidateId: string, accepted: boole
     const client = getSupabaseClient();
     const { error } = await client
       .from("memory_candidates")
-      .update({ status: accepted ? "accepted" : "rejected" })
+      .update({ status: accepted ? "accepted" : "rejected" } as never)
       .eq("id", candidateId);
     return !error;
   } catch {
