@@ -259,10 +259,12 @@ export const validateMeetingAnalysis = (
 
       const riskLevel = oneOf(entry.riskLevel ?? entry.risk_level, RISK_LEVELS, "cautious");
 
-      // A meeting can never lower the execution bar. High risk always keeps
-      // its later approval, whatever the model claims.
+      // A meeting can never lower the execution bar. High risk always keeps its
+      // later approval, and so does anything that reads as destructive, whatever
+      // risk level the model attached to it.
       const modelSaysSafe = bool(entry.safeToProceedAfterPlanApproval ?? entry.safe_to_proceed_after_plan_approval);
-      const requiresExecutionApproval = riskLevel === "high_risk" ? true : !modelSaysSafe;
+      const requiresExecutionApproval =
+        riskLevel === "high_risk" || readsAsDestructive(combined) ? true : !modelSaysSafe;
 
       return {
         title,
