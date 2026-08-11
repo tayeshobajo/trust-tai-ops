@@ -6,6 +6,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import type { AuthzDeps } from "./authz.ts";
 import type { SecretStoreDeps, StoredSecretRow } from "./secretStore.ts";
+import type { EnvironmentStackRow, StackDeps } from "./stackGuard.ts";
 
 const url = () => Deno.env.get("SUPABASE_URL") ?? "";
 const anonKey = () => Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -70,6 +71,21 @@ export const authzDeps = (): AuthzDeps => {
         .maybeSingle();
       if (!data?.primary_url) return null;
       return { id: String(data.id), primaryUrl: String(data.primary_url) };
+    },
+  };
+};
+
+/** Server-trusted stack facts. The browser never contributes to this read. */
+export const stackDeps = (): StackDeps => {
+  const service = serviceClient();
+  return {
+    loadEnvironmentStacks: async (projectId) => {
+      const { data, error } = await service
+        .from("project_environments")
+        .select("environment_type, stack")
+        .eq("project_id", projectId);
+      if (error) throw new Error("stack_read_failed");
+      return (data ?? []) as EnvironmentStackRow[];
     },
   };
 };

@@ -314,11 +314,14 @@ export type Database = {
           id: string
           name: string
           notes: string
-          php_version: string
+          php_version: string | null
           primary_url: string
           project_id: string
+          runtime: Json | null
+          stack: string
           updated_at: string
-          wordpress_version: string
+          versions: Json
+          wordpress_version: string | null
         }
         Insert: {
           cache_layers?: string[]
@@ -328,11 +331,14 @@ export type Database = {
           id?: string
           name: string
           notes?: string
-          php_version: string
+          php_version?: string | null
           primary_url: string
           project_id: string
+          runtime?: Json | null
+          stack?: string
           updated_at?: string
-          wordpress_version: string
+          versions?: Json
+          wordpress_version?: string | null
         }
         Update: {
           cache_layers?: string[]
@@ -342,11 +348,14 @@ export type Database = {
           id?: string
           name?: string
           notes?: string
-          php_version?: string
+          php_version?: string | null
           primary_url?: string
           project_id?: string
+          runtime?: Json | null
+          stack?: string
           updated_at?: string
-          wordpress_version?: string
+          versions?: Json
+          wordpress_version?: string | null
         }
         Relationships: [
           {
@@ -696,6 +705,7 @@ export type Database = {
         Row: {
           client_name: string
           created_at: string
+          deploy_pipeline: Json | null
           environment_health: string
           id: string
           name: string
@@ -707,6 +717,7 @@ export type Database = {
         Insert: {
           client_name: string
           created_at?: string
+          deploy_pipeline?: Json | null
           environment_health: string
           id?: string
           name: string
@@ -718,6 +729,7 @@ export type Database = {
         Update: {
           client_name?: string
           created_at?: string
+          deploy_pipeline?: Json | null
           environment_health?: string
           id?: string
           name?: string

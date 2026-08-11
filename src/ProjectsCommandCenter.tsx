@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { AuthState, Organization, Project } from "./types";
 import { GlobalRail } from "./GlobalRail";
 import type { GlobalDestination } from "./GlobalRail";
+import { ProjectPipelineSummary } from "./ProjectPipelineSummary";
 import { countPendingDecisions } from "./globalFeed";
 import {
   HUMAN_PHASES,
@@ -274,6 +275,8 @@ function ProjectPreview({
               </ul>
             )}
           </section>
+          {/* Release truth is a project fact, so it is readable before any run. */}
+          <ProjectPipelineSummary pipeline={project.deployPipeline} className="preview-card" />
         </div>
       </div>
 

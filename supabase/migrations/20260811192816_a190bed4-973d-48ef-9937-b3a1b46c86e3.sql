@@ -1,18 +1,7 @@
--- Multi-stack projects.
---
--- Projects are no longer assumed to be WordPress. Environments carry an
--- explicit stack and a stack-agnostic version map, projects carry a deploy
--- pipeline description, and the access/task vocabularies widen.
---
--- Idempotent and non-destructive: legacy wordpress_version / php_version stay
--- in place and are backfilled into `versions`, so existing rows remain valid.
-
 begin;
 
--- 1. Project-level deploy pipeline (description, not a workflow engine).
 alter table projects add column if not exists deploy_pipeline jsonb;
 
--- 2. Environment stack + versions + runtime facts.
 alter table project_environments add column if not exists stack text not null default 'wordpress';
 alter table project_environments add column if not exists versions jsonb not null default '{}'::jsonb;
 alter table project_environments add column if not exists runtime jsonb;
@@ -20,8 +9,6 @@ alter table project_environments add column if not exists runtime jsonb;
 do $$
 begin
   if not exists (
-    -- Scoped to the exact table, so a same-named constraint elsewhere in the
-    -- database cannot make this migration skip its own work.
     select 1 from pg_constraint
     where conname = 'project_environments_stack_check'
       and conrelid = 'public.project_environments'::regclass
@@ -32,11 +19,9 @@ begin
   end if;
 end $$;
 
--- Legacy columns become optional. Dropping them would break older readers.
 alter table project_environments alter column wordpress_version drop not null;
 alter table project_environments alter column php_version drop not null;
 
--- 3. Backfill versions from the legacy WordPress columns.
 update project_environments
 set versions = coalesce(versions, '{}'::jsonb)
   || case when coalesce(wordpress_version, '') <> ''
@@ -46,7 +31,6 @@ set versions = coalesce(versions, '{}'::jsonb)
 where (coalesce(wordpress_version, '') <> '' and not (versions ? 'wordpress'))
    or (coalesce(php_version, '') <> '' and not (versions ? 'php'));
 
--- 4. Widen the access vocabulary.
 alter table project_access_methods drop constraint if exists project_access_methods_access_type_check;
 alter table project_access_methods
   add constraint project_access_methods_access_type_check
@@ -55,7 +39,6 @@ alter table project_access_methods
     'server_pm2', 'ci_cd', 'container'
   ));
 
--- 5. Widen the task vocabulary.
 alter table runs drop constraint if exists runs_task_type_check;
 alter table runs
   add constraint runs_task_type_check

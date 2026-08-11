@@ -7,8 +7,10 @@
  */
 
 import { planAction } from "./registry";
+import { isToolEligibleForStack } from "./policy";
 import type { AgentAction, AgentActionArguments, AgentPlan, ToolId } from "./types";
-import type { AccessType } from "../types";
+import { accessTypesForStack } from "../stacks";
+import type { AccessType, ProjectStack } from "../types";
 
 export type ReasonStepSpec = {
   toolId: ToolId;
@@ -91,7 +93,17 @@ const INTENTS = [
   "no_action",
 ] as const;
 
-const ACCESS_TYPES: AccessType[] = ["wordpress_admin", "sftp", "ssh", "hosting_portal", "database", "cdn"];
+const ACCESS_TYPES: AccessType[] = [
+  "wordpress_admin",
+  "sftp",
+  "ssh",
+  "hosting_portal",
+  "database",
+  "cdn",
+  "server_pm2",
+  "ci_cd",
+  "container",
+];
 
 /**
  * Rebuilds a real, executable plan from a server answer. Returns null whenever
@@ -100,18 +112,23 @@ const ACCESS_TYPES: AccessType[] = ["wordpress_admin", "sftp", "ssh", "hosting_p
  */
 export const materializeServerPlan = (
   payload: unknown,
-  options: { runId: string | null; url: string | null; capabilities: string[] },
+  options: { runId: string | null; url: string | null; capabilities: string[]; stack?: ProjectStack },
 ): AgentPlan | null => {
   if (!payload || typeof payload !== "object") return null;
   const raw = payload as ServerReasonPlan;
   if (!(INTENTS as readonly string[]).includes(raw.intent)) return null;
   if (typeof raw.rationale !== "string" || raw.rationale.trim().length === 0) return null;
 
+  const stack: ProjectStack = options.stack ?? "wordpress";
+
   const actions: AgentAction[] = [];
   const seen = new Set<string>();
   for (const step of raw.steps ?? []) {
     const spec = REASON_STEPS[step?.id ?? ""];
     if (!spec) return null;
+    // A WordPress-only step can never become an action on another stack, even
+    // before the server's own execution guard sees it.
+    if (!isToolEligibleForStack(spec.toolId, stack)) return null;
     if (!options.capabilities.includes(spec.capability)) return null;
     if (seen.has(step.id)) continue;
     seen.add(step.id);
@@ -132,8 +149,10 @@ export const materializeServerPlan = (
 
   if (raw.intent === "request_access" && actions.length > 0) return null;
 
-  const requestedAccess = (raw.requestedAccess ?? []).filter((item): item is AccessType =>
-    (ACCESS_TYPES as string[]).includes(item),
+  // Only access this stack actually uses may be asked for.
+  const allowedAccess = new Set<string>(accessTypesForStack(stack));
+  const requestedAccess = (raw.requestedAccess ?? []).filter(
+    (item): item is AccessType => (ACCESS_TYPES as string[]).includes(item) && allowedAccess.has(item),
   );
 
   return {

@@ -56,7 +56,7 @@ export function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
           <img src="/trust-tai-logo.png" alt="Trust Tai" />
           <p className="eyebrow">Ops</p>
           <h1>Engineering Command Center</h1>
-          <p>Sign in to the WordPress engineering command center.</p>
+          <p>Sign in to the engineering command center.</p>
         </div>
 
         <div className="auth-tabs">

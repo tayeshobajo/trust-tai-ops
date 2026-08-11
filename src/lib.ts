@@ -38,7 +38,33 @@ export const getRunProgress = (run: Run) => {
   };
 };
 
+/**
+ * A release is not an investigation. The states are identical; only the words
+ * a person reads change, in step with the deploy phase labels.
+ */
+const deployNarrative: Partial<Record<RunState, { now: string; next: string }>> = {
+  environment_mapping: {
+    now: "Checking the pipeline: which branch the work sits on, and whether staging is current.",
+    next: "Once the branch state is clear, staging gets verified before anything ships.",
+  },
+  diagnosis: {
+    now: "Pre-deploy verification: confirming staging is live and the tests pass.",
+    next: "If staging holds up, the release can be merged and watched through CI.",
+  },
+  execution: {
+    now: "Running the deploy: merging, watching CI, and confirming the service comes back healthy.",
+    next: "After the deploy lands, production gets a health check before anyone calls it done.",
+  },
+  qa: {
+    now: "Post-deploy health check: the production URL, the process status, and the error rate.",
+    next: "If production is healthy, the release closes with recommendations and updated memory.",
+  },
+};
+
 export const getRunStateNarrative = (run: Run) => {
+  const deployCopy = run.taskType === "deploy" ? deployNarrative[run.state] : undefined;
+  if (deployCopy) return deployCopy;
+
   switch (run.state) {
     case "access_check":
       return {
@@ -194,7 +220,6 @@ const normalizeDomain = (websiteUrl: string) => {
 };
 
 export const createProjectFromDraft = (draft: ProjectDraft): Project => {
-  const nowStamp = "2026-08-05 00:50 CDT";
   const baseId = slugify(draft.name || draft.clientName || draft.websiteUrl || `project-${Date.now()}`) || `project-${Date.now()}`;
   const primaryDomain = normalizeDomain(draft.websiteUrl);
   const environmentId = `${baseId}-production`;
@@ -206,7 +231,8 @@ export const createProjectFromDraft = (draft: ProjectDraft): Project => {
       label: accessTypeLabels[selection.type] ?? "Hosting / Other",
       status: "available",
       authMethod: "Pending secure credential handoff",
-      lastVerifiedAt: nowStamp,
+      // Selecting a card records an intention, not a verified connection.
+      lastVerifiedAt: "",
       notes: "Access path added during project creation. Verification should happen during the first real run.",
     }));
 

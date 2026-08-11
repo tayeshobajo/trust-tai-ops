@@ -338,7 +338,7 @@ function App() {
           <p className="eyebrow">Ops</p>
           <h1>Engineering Command Center</h1>
           <p className="rail-copy">
-            Calm command center for WordPress engineering work. Careful execution, visible guardrails, operator-first design.
+            Calm command center for engineering work. Careful execution, visible guardrails, operator-first design.
           </p>
           <div className="brand-chip">
             <span className="brand-mark">TT</span>
