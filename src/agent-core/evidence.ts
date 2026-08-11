@@ -98,6 +98,44 @@ export const describeHealth = (evidence: AgentEvidence): string[] => {
 };
 
 /**
+ * What a real browser observed while loading the page. Stack-neutral, and
+ * strictly limited to timings and errors the page itself produced.
+ */
+export const describePageInspection = (evidence: AgentEvidence): string[] => {
+  const data = evidence.data;
+  const viewport = str(data.viewport) === "mobile" ? "on a phone-sized screen" : "on a desktop-sized screen";
+  const load = num(data.loadEventMs) ?? num(data.domContentLoadedMs);
+  const ttfb = num(data.ttfbMs);
+  const lines: string[] = [];
+
+  lines.push(
+    load !== null
+      ? `I loaded the page in a real browser ${viewport}. It finished loading in about ${(load / 1000).toFixed(1)}s.`
+      : `I loaded the page in a real browser ${viewport}.`,
+  );
+  if (ttfb !== null) lines.push(`The server sent its first byte after about ${(ttfb / 1000).toFixed(1)}s.`);
+
+  const requests = num(data.requestCount);
+  const bytes = num(data.transferBytes);
+  if (requests !== null && bytes !== null) {
+    lines.push(`The page made ${requests} requests and transferred about ${Math.round(bytes / 1024)} KB.`);
+  }
+
+  const consoleErrors = Array.isArray(data.consoleErrors) ? (data.consoleErrors as string[]) : [];
+  if (consoleErrors.length > 0) {
+    lines.push(`The browser reported ${consoleErrors.length} JavaScript errors while the page loaded.`);
+    lines.push(`The first one reads: ${safeSummary(consoleErrors[0], 160)}`);
+  }
+
+  const failed = Array.isArray(data.failedRequests) ? (data.failedRequests as Array<Record<string, unknown>>) : [];
+  if (failed.length > 0) {
+    const hosts = [...new Set(failed.map((item) => str(item.host)).filter((host): host is string => Boolean(host)))];
+    lines.push(`${failed.length} requests failed to load${hosts.length > 0 ? `, from ${hosts.slice(0, 3).join(", ")}` : ""}.`);
+  }
+  return lines;
+};
+
+/**
  * The plugin inventory, described only as counts and names. No judgement about
  * a plugin being outdated, abandoned or vulnerable is made here: a version
  * string alone cannot prove any of those.
@@ -174,6 +212,32 @@ export const describeErrorLog = (evidence: AgentEvidence): string[] => {
 export const findingFromEvidence = (
   evidence: AgentEvidence,
 ): { severity: "low" | "medium" | "high" | "critical"; title: string; summary: string } | null => {
+  if (evidence.toolId === "browser.inspect_page_readonly") {
+    const load = num(evidence.data.loadEventMs);
+    const consoleErrors = Array.isArray(evidence.data.consoleErrors)
+      ? (evidence.data.consoleErrors as string[])
+      : [];
+    if (load !== null && load > 5000) {
+      return {
+        severity: "medium",
+        title: "Page takes a long time to finish loading",
+        summary: safeSummary(
+          `Loaded in a real browser, the page took about ${(load / 1000).toFixed(1)}s to finish loading.`,
+        ),
+      };
+    }
+    if (consoleErrors.length >= 3) {
+      return {
+        severity: "medium",
+        title: "The page reports JavaScript errors in the browser",
+        summary: safeSummary(
+          `A real browser recorded ${consoleErrors.length} JavaScript errors while loading the page. That points at broken front-end behaviour, though it does not prove the cause.`,
+        ),
+      };
+    }
+    return null;
+  }
+
   if (evidence.toolId === "wordpress.read_error_log") {
     const counts = (evidence.data.countsBySeverity ?? {}) as Record<string, unknown>;
     const fatal = num(counts.fatal) ?? 0;
