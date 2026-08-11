@@ -21,6 +21,7 @@ export const WP_CLI_READONLY_COMMAND_IDS = [
   "maintenance_mode.status",
   "db.size",
   "config.get_table_prefix",
+  "config.get_debug_log",
 ] as const;
 
 export type WpCliCommandId = (typeof WP_CLI_READONLY_COMMAND_IDS)[number];

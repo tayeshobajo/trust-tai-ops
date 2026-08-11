@@ -11,6 +11,7 @@ import type { AccessType, MemoryEntry, Organization, NewProjectMessage, Project,
 import { workspaceRepository } from "../repository";
 import {
   describeHealth,
+  describeErrorLog,
   describePlugins,
   describePublicSurface,
   describeSiteInspection,
@@ -166,6 +167,8 @@ const describe = (evidence: AgentEvidence): string[] => {
       return describeHealth(evidence);
     case "wordpress.list_plugins":
       return describePlugins(evidence);
+    case "wordpress.read_error_log":
+      return describeErrorLog(evidence);
     default:
       return [evidence.summary];
   }
