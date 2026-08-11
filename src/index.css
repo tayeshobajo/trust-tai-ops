@@ -3994,7 +3994,7 @@ button:focus-visible {
   border: 0;
   background: none;
   padding: 0;
-  color: var(--tt-signal);
+  color: var(--tt-royal);
   font-size: 0.84rem;
   cursor: pointer;
 }
