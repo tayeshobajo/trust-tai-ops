@@ -34,7 +34,9 @@ const buildRun = (input: {
 export const createSeedWorkspace = (): Organization => ({
   id: "trusttai",
   name: "TrustTai Ops",
-  descriptor: "WordPress engineering command center",
+  // The workspace holds projects on several stacks, so the product-level
+  // descriptor stays stack-neutral. Project descriptors come from `stacks.ts`.
+  descriptor: "Engineering command center",
   subdomain: "ops.trust-tai.com",
   projects: [
     {

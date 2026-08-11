@@ -22,10 +22,15 @@ export type StackVersionField = { key: string; label: string; placeholder: strin
 
 export type StackCopy = {
   label: string;
-  /** Organization/project descriptor shown in the interface. */
+  /** Project descriptor. Never used to brand the whole product. */
   descriptor: string;
-  /** What "the admin surface" is called for this stack, if it has one. */
-  adminLabel: string | null;
+  /** What an admin surface would be called for this stack, in words only. */
+  adminLabel: string;
+  /**
+   * True only when a credential for that admin surface can actually be stored
+   * and used. A label alone must never invent a credential surface.
+   */
+  adminCredentialSupported: boolean;
   /** Human phrase for the thing the agent inspects. */
   surfaceLabel: string;
   versionFields: StackVersionField[];
@@ -37,8 +42,9 @@ export type StackCopy = {
 export const stackCopy: Record<ProjectStack, StackCopy> = {
   wordpress: {
     label: "WordPress",
-    descriptor: "WordPress engineering command center",
+    descriptor: "WordPress engineering",
     adminLabel: "WordPress Admin",
+    adminCredentialSupported: true,
     surfaceLabel: "WordPress surface",
     versionFields: [
       { key: "wordpress", label: "WordPress version", placeholder: "6.7.1" },
@@ -50,8 +56,9 @@ export const stackCopy: Record<ProjectStack, StackCopy> = {
   },
   meteor: {
     label: "Meteor",
-    descriptor: "Meteor engineering command center",
-    adminLabel: null,
+    descriptor: "Application engineering",
+    adminLabel: "Admin Panel",
+    adminCredentialSupported: false,
     surfaceLabel: "application surface",
     versionFields: [
       { key: "meteor", label: "Meteor version", placeholder: "2.15" },
@@ -64,8 +71,9 @@ export const stackCopy: Record<ProjectStack, StackCopy> = {
   },
   nextjs: {
     label: "Next.js",
-    descriptor: "Next.js engineering command center",
-    adminLabel: null,
+    descriptor: "Full-stack engineering",
+    adminLabel: "Admin Dashboard",
+    adminCredentialSupported: false,
     surfaceLabel: "application surface",
     versionFields: [
       { key: "nextjs", label: "Next.js version", placeholder: "15.1" },
@@ -76,8 +84,9 @@ export const stackCopy: Record<ProjectStack, StackCopy> = {
   },
   custom: {
     label: "Custom",
-    descriptor: "Engineering command center",
-    adminLabel: null,
+    descriptor: "Systems engineering",
+    adminLabel: "Admin Panel",
+    adminCredentialSupported: false,
     surfaceLabel: "application surface",
     versionFields: [
       { key: "version", label: "Application version", placeholder: "1.0" },
@@ -109,6 +118,13 @@ export const getStackCopy = (project: Project | null | undefined): StackCopy =>
 
 export const isWordPressProject = (project: Project | null | undefined): boolean =>
   getProjectStack(project) === "wordpress";
+
+/**
+ * The admin credential label, but only when one can genuinely be stored. Any
+ * other stack gets null so no interface can imply a door that does not exist.
+ */
+export const adminCredentialLabel = (stack: ProjectStack): string | null =>
+  stackCopy[stack].adminCredentialSupported ? stackCopy[stack].adminLabel : null;
 
 /**
  * Legacy rows carry `wordpressVersion` / `phpVersion` and no `versions` map.

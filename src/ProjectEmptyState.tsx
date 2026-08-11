@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Project } from "./types";
 import { getProjectInitials } from "./home";
 import { getProjectStack } from "./stacks";
+import { ProjectPipelineSummary } from "./ProjectPipelineSummary";
 
 /** Openings that match what the project actually is. */
 const starterPromptsFor = (project: Project): string[] =>
@@ -130,6 +131,9 @@ export function ProjectEmptyState({
             </button>
           ))}
         </div>
+
+        {/* A project with no runs still has a release protocol worth knowing. */}
+        <ProjectPipelineSummary pipeline={project.deployPipeline} />
       </main>
     </div>
   );

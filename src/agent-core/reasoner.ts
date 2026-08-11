@@ -287,6 +287,7 @@ export const isValidPlan = (value: unknown): value is AgentPlan => {
  * already been said in plain English and what has already been observed.
  */
 export const reasoningDigest = (context: AgentContext): Record<string, unknown> => ({
+  stack: getProjectStack(context.project),
   taskType: context.run.taskType,
   taskTitle: context.run.title ?? "",
   siteKnown: Boolean(context.environment.primaryUrl),
@@ -321,6 +322,7 @@ class ServerModelReasoner implements AgentReasoner {
       runId: context.run.id,
       url: context.environment.primaryUrl,
       capabilities: context.capabilities,
+      stack: getProjectStack(context.project),
     });
     if (!plan || !isValidPlan(plan)) return null;
     // A reasoning layer may never plan a change: this pass is read-only.

@@ -3,7 +3,8 @@ import type { AccessType, Organization, Project, ProjectAccessMethod } from "./t
 import { workspaceRepository } from "./repository";
 import { getProjectInitials } from "./home";
 import { submitCredential, verifyStoredCredential } from "./agent-core/secrets";
-import { getProjectStack, stackCopy } from "./stacks";
+import { adminCredentialLabel, getProjectStack, stackCopy } from "./stacks";
+import type { ProjectStack } from "./types";
 
 type Props = {
   project: Project;
@@ -32,7 +33,7 @@ type Field = {
   optional?: boolean;
 };
 
-const CONNECTION_TYPES: Array<{
+type ConnectionDefinition = {
   type: AccessType;
   label: string;
   blurb: string;
@@ -40,7 +41,9 @@ const CONNECTION_TYPES: Array<{
   fields: Field[];
   /** True when a real credential can be sealed server-side for this type. */
   executable?: boolean;
-}> = [
+};
+
+const CONNECTION_TYPES: ConnectionDefinition[] = [
   {
     type: "wordpress_admin",
     label: "WordPress Admin",
@@ -158,6 +161,30 @@ const CONNECTION_TYPES: Array<{
   },
 ];
 
+/**
+ * WordPress-specific fields and wording only exist on WordPress projects. On
+ * any other stack the SSH key can still be sealed and checked against the
+ * server's identity — but no command executor exists for it yet, and the
+ * interface must not pretend otherwise.
+ */
+const definitionForStack = (definition: ConnectionDefinition, stack: ProjectStack): ConnectionDefinition => {
+  if (definition.type !== "ssh" || stack === "wordpress") return definition;
+  return {
+    ...definition,
+    blurb: "Server-level access. The key is sealed on the server and checked against the server's identity.",
+    fields: definition.fields
+      .filter((field) => field.key !== "wpRoot")
+      .map((field) =>
+        field.key === "secret"
+          ? {
+              ...field,
+              hint: "Paste the whole private key file. Use a key created just for this agent so it can be revoked on its own.",
+            }
+          : field,
+      ),
+  };
+};
+
 /** True only when a real check has ever succeeded. */
 const isVerified = (method: ProjectAccessMethod | null): boolean => {
   const stamp = method?.lastVerifiedAt ?? "";
@@ -165,10 +192,14 @@ const isVerified = (method: ProjectAccessMethod | null): boolean => {
   return !Number.isNaN(new Date(stamp).getTime());
 };
 
+/** A sealed credential actually exists for this record. */
+const hasSealedCredential = (method: ProjectAccessMethod | null): boolean =>
+  Boolean(method?.credentialReference);
+
 /**
- * Stored and verified are different facts, and the label says which one is
- * true. A credential we hold but WordPress has never accepted is "Stored
- * securely" — never "Verified".
+ * Recorded, stored, and verified are three different facts, and the label says
+ * which one is true. A record with no sealed credential is only "Details
+ * recorded" — never "Stored securely", never "Verified".
  */
 const statusLabel = (method: ProjectAccessMethod | null, executable = false): string => {
   if (!method) return "Not connected";
@@ -177,6 +208,7 @@ const statusLabel = (method: ProjectAccessMethod | null, executable = false): st
   // "Verified" is reserved for a credential the provider itself accepted.
   // Details a person typed in are only ever "Confirmed".
   if (!executable) return isVerified(method) ? "Confirmed" : "Connected";
+  if (!hasSealedCredential(method)) return "Details recorded";
   return isVerified(method) ? "Verified" : "Stored securely";
 };
 
@@ -202,6 +234,8 @@ export function ProjectAccessPanel({
 
   const stack = getProjectStack(project);
   const copy = stackCopy[stack];
+  // Only a stack whose admin credential can genuinely be sealed gets named.
+  const adminLabel = adminCredentialLabel(stack);
 
   /**
    * Only the connections this stack actually uses — plus anything already
@@ -210,8 +244,10 @@ export function ProjectAccessPanel({
   const connectionTypes = useMemo(() => {
     const allowed = new Set<AccessType>(copy.accessTypes);
     for (const method of project.accessMethods) allowed.add(method.type);
-    return CONNECTION_TYPES.filter((definition) => allowed.has(definition.type));
-  }, [copy.accessTypes, project.accessMethods]);
+    return CONNECTION_TYPES.filter((definition) => allowed.has(definition.type)).map((definition) =>
+      definitionForStack(definition, stack),
+    );
+  }, [copy.accessTypes, project.accessMethods, stack]);
 
   const staging = useMemo(
     () => project.environments.find((environment) => environment.type === "staging") ?? null,
@@ -326,7 +362,12 @@ export function ProjectAccessPanel({
     setEditing(null);
   };
 
-  const activeDefinition = editing ? CONNECTION_TYPES.find((item) => item.type === editing.type) ?? null : null;
+  const activeDefinition = editing
+    ? (() => {
+        const found = CONNECTION_TYPES.find((item) => item.type === editing.type);
+        return found ? definitionForStack(found, stack) : null;
+      })()
+    : null;
 
   /**
    * A real, server-side, read-only check. The browser sends only the project
@@ -380,10 +421,13 @@ export function ProjectAccessPanel({
 
       <p className="access-intro">
         Share only what the agent needs.{" "}
-        {copy.adminLabel ? `A ${copy.adminLabel} credential and an SSH private key are` : "An SSH private key is"} sealed
-        on the server the moment you save {copy.adminLabel ? "them" : "it"} and can never be read back — not by you, not
-        by the agent, not by this page. SSH is used for a fixed list of read-only inspections only. The other
-        connections record where access lives; their credentials aren't stored here yet.
+        {adminLabel ? `A ${adminLabel} credential and an SSH private key are` : "An SSH private key is"} sealed on the
+        server the moment you save {adminLabel ? "them" : "it"} and can never be read back — not by you, not by the
+        agent, not by this page.{" "}
+        {stack === "wordpress"
+          ? "SSH is used for a fixed list of read-only inspections only."
+          : "SSH is stored and checked against the server's identity; running commands on this stack isn't enabled yet."}{" "}
+        The other connections record where access lives; their credentials aren&apos;t stored here yet.
       </p>
 
       {notice ? <p className="access-notice">{notice}</p> : null}
@@ -405,9 +449,11 @@ export function ProjectAccessPanel({
               {method ? (
                 <small className="access-stamp">
                   {definition.executable && !isVerified(method)
-                    ? definition.type === "ssh"
-                      ? "Stored securely · server identity not confirmed yet"
-                      : "Stored securely · not yet checked with WordPress"
+                    ? !hasSealedCredential(method)
+                      ? "Details recorded · no credential stored yet"
+                      : definition.type === "ssh"
+                        ? "Stored securely · server identity not confirmed yet"
+                        : "Stored securely · not yet checked with WordPress"
                     : formatVerified(method)}
                 </small>
               ) : null}
@@ -505,9 +551,9 @@ export function ProjectAccessPanel({
             <p className="access-drawer-note">
               {activeDefinition.executable
                 ? activeDefinition.type === "ssh"
-                  ? `The private key is sent straight to the secure store and is never shown again. Only a fixed list of read-only ${
-                      stack === "wordpress" ? "WP-CLI" : "command"
-                    } inspections can ever be run with it.`
+                  ? stack === "wordpress"
+                    ? "The private key is sent straight to the secure store and is never shown again. Only a fixed list of read-only WP-CLI inspections can ever be run with it."
+                    : "The private key is sent straight to the secure store and is never shown again. It can be checked against the server's identity; running commands on this stack isn't enabled yet."
                   : "The password is sent straight to the secure store and is never shown again."
                 : "Connection details only. Don't paste a password here — it wouldn't be stored securely yet."}
             </p>
@@ -546,9 +592,7 @@ export function ProjectAccessPanel({
                 ? activeDefinition.type === "ssh"
                   ? "You can remove this key from the server's authorized_keys at any time. Nothing here can write, install, update, or delete."
                   : "You can revoke this Application Password in WordPress at any time, without changing your login."
-                : `Deeper server access will get the same secure treatment as ${
-                    copy.adminLabel ?? "SSH"
-                  } before it goes live.`}
+                : `Deeper server access will get the same secure treatment as ${adminLabel ?? "SSH"} before it goes live.`}
             </p>
 
             <div className="access-drawer-actions">

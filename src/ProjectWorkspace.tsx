@@ -17,7 +17,7 @@ import {
 import { formatActivityStamp, getProjectInitials, signalForRun } from "./home";
 import { HUMAN_PHASES } from "./home";
 import { workspaceRepository } from "./repository";
-import { describeBuildTime, rollbackCopy } from "./stacks";
+import { ProjectPipelineSummary } from "./ProjectPipelineSummary";
 import { validateAdvance } from "./operations";
 import { projectHasUsableAccess } from "./agent";
 import { agentStepIdentity, executeAgentStep } from "./agentExecutor";
@@ -1226,23 +1226,7 @@ export function ProjectWorkspace({
         )}
 
         {/* Deploy protocol is a fact about the project, not about a run. */}
-        {project.deployPipeline ? (
-          <section className="pw-context-block">
-            <p className="eyebrow">How this ships</p>
-            <ol className="pw-pipeline">
-              {project.deployPipeline.steps.map((step) => (
-                <li key={step.kind}>
-                  <strong>{step.label}</strong>
-                  <span>{step.detail}</span>
-                </li>
-              ))}
-            </ol>
-            <p className="pw-pipeline-note">
-              Build {describeBuildTime(project.deployPipeline)} · Rollback:{" "}
-              {rollbackCopy[project.deployPipeline.rollbackStrategy]}
-            </p>
-          </section>
-        ) : null}
+        <ProjectPipelineSummary pipeline={project.deployPipeline} />
       </aside>
       </>
       )}

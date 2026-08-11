@@ -6279,3 +6279,39 @@ p, li {
   font-size: 0.76rem;
   color: var(--tt-ink-soft, var(--tt-muted));
 }
+
+/* Release facts underneath the step flow. Description, never a control. */
+.pipeline-facts {
+  margin: var(--tt-space-3) 0 0;
+  display: grid;
+  gap: var(--tt-space-2);
+}
+
+.pipeline-facts > div {
+  display: grid;
+  grid-template-columns: minmax(0, 7.5rem) minmax(0, 1fr);
+  gap: var(--tt-space-2);
+  align-items: baseline;
+}
+
+.pipeline-facts dt {
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tt-muted);
+}
+
+.pipeline-facts dd {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--tt-ink-soft, var(--tt-muted));
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .pipeline-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--tt-space-1);
+  }
+}

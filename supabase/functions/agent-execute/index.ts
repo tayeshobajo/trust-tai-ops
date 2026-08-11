@@ -11,7 +11,8 @@
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { authorizeProject } from "../_shared/authz.ts";
-import { authzDeps, executionContextConfigured, secretStoreDeps } from "../_shared/clients.ts";
+import { authzDeps, executionContextConfigured, secretStoreDeps, stackDeps } from "../_shared/clients.ts";
+import { authorizeToolForStack, isWordPressTool } from "../_shared/stackGuard.ts";
 import { fetchSafely, readBounded, redact, safeHeaders, validatePublicUrl } from "../_shared/net.ts";
 import { capabilityTruth, resolveCredential } from "../_shared/secretStore.ts";
 import { authenticatedGet, normalizeHealthTest, normalizePlugins } from "../_shared/wordpress.ts";
@@ -430,14 +431,17 @@ Deno.serve(async (req) => {
   const authorization = req.headers.get("Authorization");
 
   const needsServerTruth = mode === "capabilities" || PRIVATE_TOOLS.has(toolId) || toolId === "wordpress.read_health";
+  // Every WordPress tool — public inspection included — needs proven project
+  // ownership, because the stack decision has to come from the database.
+  const needsProject = needsServerTruth || isWordPressTool(toolId);
 
   let authorizedProjectId: string | null = null;
   let canonicalUrl: string | null = null;
 
-  if (needsServerTruth) {
+  if (needsProject) {
     if (!executionContextConfigured()) {
       // Fail closed: no proof of ownership means no private execution.
-      if (mode === "capabilities" || PRIVATE_TOOLS.has(toolId)) {
+      if (mode === "capabilities" || isWordPressTool(toolId)) {
         return fail("execution_context_unavailable", "I can't verify project access from here yet.", false);
       }
     } else {
@@ -445,7 +449,7 @@ Deno.serve(async (req) => {
       if (authz.ok) {
         authorizedProjectId = authz.project.projectId;
         canonicalUrl = authz.project.canonicalUrl;
-      } else if (mode === "capabilities" || PRIVATE_TOOLS.has(toolId)) {
+      } else if (mode === "capabilities" || isWordPressTool(toolId)) {
         return fail(authz.code, AUTH_FAIL_SUMMARY[authz.code], false);
       }
     }
@@ -470,27 +474,40 @@ Deno.serve(async (req) => {
 
   if (!toolId) return fail("invalid_input", "That request was missing what I need to run a check.", false);
 
+  // The authoritative stack gate. Nothing WordPress-specific — no HTTP probe,
+  // no secret resolution, no SSH or SFTP session — is reached past this point
+  // for a project that does not run WordPress.
+  if (isWordPressTool(toolId)) {
+    if (!authorizedProjectId) return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
+    const verdict = await authorizeToolForStack(stackDeps(), authorizedProjectId, toolId);
+    if (!verdict.ok) return fail(verdict.code, verdict.summary, false);
+  }
+
+  // Proven above for every WordPress tool.
+  const wpProjectId = authorizedProjectId ?? "";
+
   switch (toolId) {
     case "public_http.inspect_site":
       if (!clientUrl) return fail("invalid_input", "That request was missing the site address.", false);
       return await inspectSite(clientUrl);
     case "wordpress.inspect_public_surface":
-      if (!clientUrl) return fail("invalid_input", "That request was missing the site address.", false);
-      return await inspectPublicSurface(clientUrl);
+      // Canonical, server-resolved address first. The browser's URL is only a
+      // fallback for the transitional case where no environment is recorded.
+      if (!canonicalUrl && !clientUrl) {
+        return fail("invalid_input", "That request was missing the site address.", false);
+      }
+      return await inspectPublicSurface(canonicalUrl ?? clientUrl);
     case "wordpress.read_health":
       if (!clientUrl && !canonicalUrl) {
         return fail("invalid_input", "That request was missing the site address.", false);
       }
       return await readHealth(clientUrl, authorizedProjectId, canonicalUrl);
     case "wordpress.list_plugins":
-      if (!authorizedProjectId) return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
-      return await listPlugins(authorizedProjectId, canonicalUrl);
+      return await listPlugins(wpProjectId, canonicalUrl);
     case "wordpress.run_wp_cli_readonly":
-      if (!authorizedProjectId) return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
-      return await runWpCli(authorizedProjectId, args);
+      return await runWpCli(wpProjectId, args);
     case "wordpress.read_error_log":
-      if (!authorizedProjectId) return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
-      return await readErrorLog(authorizedProjectId);
+      return await readErrorLog(wpProjectId);
     default:
       return fail("not_implemented", "That capability is not enabled yet.", false);
   }
