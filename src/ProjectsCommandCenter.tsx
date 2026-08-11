@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react";
 import type { AuthState, Organization, Project } from "./types";
+import { GlobalRail } from "./GlobalRail";
+import type { GlobalDestination } from "./GlobalRail";
+import { countPendingDecisions } from "./globalFeed";
 import {
   HUMAN_PHASES,
   formatActivityStamp,
@@ -21,14 +24,8 @@ type Props = {
   onOpenProject: (projectId: string) => void;
   onCreateProject: () => void;
   onNewTask: (projectId: string) => void;
+  onNavigate: (destination: GlobalDestination) => void;
 };
-
-const navItems = [
-  { id: "projects", label: "Projects" },
-  { id: "activity", label: "Activity" },
-  { id: "team", label: "Team" },
-  { id: "settings", label: "Settings" },
-] as const;
 
 const agentStateCopy = {
   ready: "Agent ready",
@@ -44,6 +41,7 @@ export function ProjectsCommandCenter({
   onOpenProject,
   onCreateProject,
   onNewTask,
+  onNavigate,
 }: Props) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -75,30 +73,11 @@ export function ProjectsCommandCenter({
 
   const selected = workspace.projects.find((project) => project.id === selectedProjectId) ?? ordered[0] ?? null;
   const operator = authState.userEmail ?? "Operator";
+  const approvalsCount = useMemo(() => countPendingDecisions(workspace), [workspace]);
 
   return (
     <div className={`home-shell ${mobilePreview ? "is-preview" : ""}`}>
-      <nav className="global-rail" aria-label="Primary">
-        <div className="global-rail-brand">
-          <img src="/trust-tai-logo-white.png" alt="Trust Tai" />
-        </div>
-        <ul className="global-rail-nav">
-          {navItems.map((item) => (
-            <li key={item.id}>
-              <button className={`global-rail-link ${item.id === "projects" ? "is-active" : ""}`} type="button">
-                <span className="global-rail-dot" aria-hidden="true" />
-                {item.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-        <div className="global-rail-operator">
-          <span className="global-rail-avatar" aria-hidden="true">
-            {operator.slice(0, 1).toUpperCase()}
-          </span>
-          <small>{operator}</small>
-        </div>
-      </nav>
+      <GlobalRail active="projects" onNavigate={onNavigate} operator={operator} approvalsCount={approvalsCount} />
 
       <section className="inbox-column" aria-label="Projects">
         <header className="inbox-head">

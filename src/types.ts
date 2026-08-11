@@ -47,7 +47,15 @@ export type ProjectStatus = "active" | "watchlist" | "blocked";
 
 export type WorkspaceTab = "overview" | "active_run" | "qa" | "history" | "memory";
 export type RepositoryAdapter = "auto" | "demo" | "supabase";
-export type WorkspaceView = "home" | "project_home" | "workspace" | "create_project" | "first_run";
+export type WorkspaceView =
+  | "home"
+  | "project_home"
+  | "workspace"
+  | "create_project"
+  | "first_run"
+  | "global_activity"
+  | "approvals"
+  | "settings";
 
 export type PhaseStatus = "pending" | "active" | "completed" | "blocked" | "failed";
 

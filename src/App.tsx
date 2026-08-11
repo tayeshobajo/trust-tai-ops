@@ -7,6 +7,12 @@ import { ProjectsCommandCenter } from "./ProjectsCommandCenter";
 import { CreateProjectPage } from "./CreateProjectPage";
 import { ProjectEmptyState } from "./ProjectEmptyState";
 import { ProjectWorkspace } from "./ProjectWorkspace";
+import { GlobalPage } from "./GlobalRail";
+import type { GlobalDestination } from "./GlobalRail";
+import { GlobalActivityPage } from "./GlobalActivityPage";
+import { ApprovalsPage } from "./ApprovalsPage";
+import { SettingsPage } from "./SettingsPage";
+import { countPendingDecisions } from "./globalFeed";
 import { draftFromBrief } from "./conversation";
 import { starterProjectDraft, starterRunDraft, stateCopy, taskTypeOptions, workspaceTabs } from "./data";
 import {
@@ -180,6 +186,31 @@ function App() {
   // Re-enable by setting this to: repositoryHealth.adapter === "supabase" && !authState.isAuthenticated && authState.status !== "loading"
   const authGateEnabled = false;
 
+  const operatorLabel = authState.userEmail ?? "Operator";
+  const approvalsCount = countPendingDecisions(workspace);
+
+  const openProjectById = (projectId: string) => {
+    const project = getProjectById(workspace, projectId);
+    setSelectedProjectId(projectId);
+    setStartInNewTask(false);
+    setWorkspaceSurface("conversation");
+    setWorkspaceView(project && project.runs.length === 0 ? "project_home" : "workspace");
+    setActiveTab("active_run");
+  };
+
+  const navigateGlobal = (destination: GlobalDestination) => {
+    setSaveMessage("");
+    setWorkspaceView(
+      destination === "projects"
+        ? "home"
+        : destination === "activity"
+          ? "global_activity"
+          : destination === "approvals"
+            ? "approvals"
+            : "settings",
+    );
+  };
+
   if (authGateEnabled && repositoryHealth.adapter === "supabase" && !authState.isAuthenticated && authState.status !== "loading") {
     return (
       <AuthScreen
@@ -207,12 +238,7 @@ function App() {
           setSaveMessage("");
         }}
         onOpenProject={(projectId) => {
-          const project = getProjectById(workspace, projectId);
-          setSelectedProjectId(projectId);
-          setStartInNewTask(false);
-          setWorkspaceSurface("conversation");
-          setWorkspaceView(project && project.runs.length === 0 ? "project_home" : "workspace");
-          setActiveTab("active_run");
+          openProjectById(projectId);
         }}
         onCreateProject={() => {
           setSaveMessage("");
@@ -225,7 +251,20 @@ function App() {
           setWorkspaceSurface("conversation");
           setWorkspaceView("workspace");
         }}
+        onNavigate={navigateGlobal}
       />
+    ) : workspaceView === "global_activity" ? (
+      <GlobalPage active="activity" onNavigate={navigateGlobal} operator={operatorLabel} approvalsCount={approvalsCount}>
+        <GlobalActivityPage workspace={workspace} onOpenProject={openProjectById} />
+      </GlobalPage>
+    ) : workspaceView === "approvals" ? (
+      <GlobalPage active="approvals" onNavigate={navigateGlobal} operator={operatorLabel} approvalsCount={approvalsCount}>
+        <ApprovalsPage workspace={workspace} onOpenProject={openProjectById} />
+      </GlobalPage>
+    ) : workspaceView === "settings" ? (
+      <GlobalPage active="settings" onNavigate={navigateGlobal} operator={operatorLabel} approvalsCount={approvalsCount}>
+        <SettingsPage workspace={workspace} authState={authState} repositoryHealth={repositoryHealth} />
+      </GlobalPage>
     ) : workspaceView === "create_project" ? (
       <CreateProjectPage
         canCreateProject={canCreateProject}
