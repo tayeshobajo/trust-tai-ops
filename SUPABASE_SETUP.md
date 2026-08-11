@@ -67,6 +67,24 @@ authentication. Only the fixed catalog in
 `supabase/functions/_shared/wpCliCatalog.ts` can be executed; there is no
 free-text command path. Verify the safety model with `npm run check:wpcli`.
 
+### Optional: server-side reasoning
+
+Additive, read-only, and never required for the product to work. The browser
+never talks to a model and holds no model credential.
+
+13. Set the Edge Function secret `LOVABLE_API_KEY` (server-side only, no
+    `VITE_` prefix)
+14. Deploy `agent-reason`
+
+`agent-reason` proves the caller belongs to the project, sends a redacted
+digest of what is already known, and returns only steps drawn from the closed
+catalog in `supabase/functions/_shared/reasonCatalog.ts`. The browser rebuilds
+every real action from the tool registry, so a model can never author a tool,
+a command, an argument or a URL, and can never plan a change. If the function
+is not deployed, the key is missing, the model is rate limited, or the answer
+falls outside the catalog, the deterministic operator takes the turn instead.
+Verify the boundary with `npm run check:reasoner`.
+
 ## Tenant identity
 
 `auth_user_id` is preferred and resolves from `auth.uid()`. Email matching is a
