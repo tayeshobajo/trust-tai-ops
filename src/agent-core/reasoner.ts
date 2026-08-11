@@ -12,6 +12,7 @@ import type { AccessType } from "../types";
 import { getProjectStack, stackCopy } from "../stacks";
 import { planAction } from "./registry";
 import { executionGateway } from "./gateway";
+import { redactSecrets } from "./secretGuard";
 import { materializeServerPlan } from "./reasonPlan";
 import type {
   AgentAction,
