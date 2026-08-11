@@ -29,6 +29,8 @@ import { deriveMemoryFromRun } from "./memory";
 import { MeetingPlanReview } from "./MeetingPlanReview";
 import { decideProposedTask, ingestAndAnalyzeMeeting, meetingIntelligenceAvailable } from "./meetings";
 import type { MeetingAnalysisView, ProposedTask } from "./meetings";
+import { containsSecretMaterial } from "./agent-core/secretGuard";
+import { credentialIntakeAvailable, submitCredentialText } from "./agent-core/credentialIntake";
 
 // Long conversations render in a trailing window and grow on request, so a
 // task with hundreds of messages opens as fast as a fresh one.
