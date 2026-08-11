@@ -11,7 +11,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { authorizeProject } from "../_shared/authz.ts";
 import { authzDeps, executionContextConfigured } from "../_shared/clients.ts";
 import { validateReasonPlan } from "../_shared/reasonCatalog.ts";
-import { resolveReasonModel, type ReasonModel } from "../_shared/reasonModels.ts";
+import { readModelText, resolveReasonModel, type ReasonModel } from "../_shared/reasonModels.ts";
 import { SYSTEM_PROMPT, parseModelJson, sanitizeDigest, userPrompt } from "../_shared/reasonPrompt.ts";
 import type { ReasonDigest } from "../_shared/reasonPrompt.ts";
 
@@ -63,24 +63,6 @@ const buildCall = (model: ReasonModel, apiKey: string, digest: ReasonDigest): Pr
   };
 };
 
-/** Pulls the answer text out of either provider's envelope. Never throws. */
-export const readModelText = (provider: ReasonModel["provider"], payload: unknown): string => {
-  const root = (payload && typeof payload === "object" ? payload : {}) as Record<string, unknown>;
-  if (provider === "anthropic") {
-    const blocks = Array.isArray(root.content) ? root.content : [];
-    return blocks
-      .map((block) => {
-        const entry = (block && typeof block === "object" ? block : {}) as Record<string, unknown>;
-        return entry.type === "text" && typeof entry.text === "string" ? entry.text : "";
-      })
-      .join("")
-      .trim();
-  }
-  const choices = Array.isArray(root.choices) ? root.choices : [];
-  const first = (choices[0] && typeof choices[0] === "object" ? choices[0] : {}) as Record<string, unknown>;
-  const message = (first.message && typeof first.message === "object" ? first.message : {}) as Record<string, unknown>;
-  return typeof message.content === "string" ? message.content : "";
-};
 
 const AUTH_FAIL_SUMMARY: Record<string, string> = {
   unauthorized: "I need you to be signed in before I can think about this project.",
