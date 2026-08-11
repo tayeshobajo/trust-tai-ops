@@ -19,6 +19,7 @@ export type Capability =
 
 export type ToolId =
   | "public_http.inspect_site"
+  | "browser.inspect_page_readonly"
   | "wordpress.inspect_public_surface"
   | "wordpress.list_plugins"
   | "wordpress.read_health"
@@ -48,6 +49,11 @@ export type AgentContext = {
    */
   verifiedCapabilities?: Capability[];
   evidence: AgentEvidence[];
+  /**
+   * Tools that already failed or were unavailable during this investigation.
+   * The reasoner uses these to stop asking for the same thing again.
+   */
+  failedObservations?: Array<{ toolId: ToolId; code: ToolFailureCode }>;
   environment: {
     primaryUrl: string | null;
     executionBackendAvailable: boolean;
@@ -96,6 +102,7 @@ export type ToolFailureCode =
   | "unauthorized"
   | "forbidden"
   | "not_implemented"
+  | "tool_unavailable"
   | "invalid_input"
   | "unsafe_destination"
   | "network_error"
@@ -144,6 +151,16 @@ export type AgentPlan = {
   qaPlan: string[];
 };
 
+/** Why an autonomous investigation stopped. Internal; never shown verbatim. */
+export type AgentStopReason =
+  | "sufficient_evidence"
+  | "needs_access"
+  | "needs_user_input"
+  | "approval_required"
+  | "tool_unavailable"
+  | "budget_exhausted"
+  | "safe_stop";
+
 export type AgentTurnResult = {
   /** Evidence produced during this turn. */
   learned: AgentEvidence[];
@@ -151,6 +168,10 @@ export type AgentTurnResult = {
   acted: boolean;
   /** Set when the run cannot progress without the human. */
   awaiting: "access" | "backup" | "approval" | null;
+  /** Why the loop stopped. */
+  stopReason?: AgentStopReason;
+  /** How many reasoning iterations the loop used. */
+  iterations?: number;
   /** Lines already appended to the conversation by the orchestrator. */
   spoke: string[];
 };
