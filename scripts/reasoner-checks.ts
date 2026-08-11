@@ -10,6 +10,8 @@
  * unavailable or nonsense model never stalls a run.
  */
 
+import { readFileSync } from "node:fs";
+
 const failures: string[] = [];
 const check = (name: string, condition: boolean) => {
   if (condition) console.log(`  ok  ${name}`);
@@ -346,8 +348,8 @@ console.log("all reasoning boundary checks passed");
 // own header. A Bearer token on the gateway path is a silent auth failure.
 {
   const fn = readFileSync("supabase/functions/agent-reason/index.ts", "utf8");
-  assert(fn.includes('"Lovable-API-Key": apiKey'), "gateway call must authenticate with the Lovable-API-Key header");
-  assert(!/Authorization:\s*`Bearer/.test(fn), "gateway call must not use a Bearer token");
-  assert(fn.includes('"x-api-key": apiKey'), "anthropic call must authenticate with x-api-key");
-  assert(fn.includes('"anthropic-version"'), "anthropic call must pin an API version");
+  check("gateway call authenticates with the Lovable-API-Key header", fn.includes('"Lovable-API-Key": apiKey'));
+  check("gateway call never uses a Bearer token", !/Authorization:\s*`Bearer/.test(fn));
+  check("anthropic call authenticates with x-api-key", fn.includes('"x-api-key": apiKey'));
+  check("anthropic call pins an API version", fn.includes('"anthropic-version"'));
 }
