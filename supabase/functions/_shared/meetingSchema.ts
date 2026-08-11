@@ -270,7 +270,7 @@ export const validateMeetingAnalysis = (
         taskType: oneOf(entry.taskType ?? entry.task_type, TASK_TYPES, "qa_only"),
         riskLevel,
         needsInvestigation: bool(entry.needsInvestigation ?? entry.needs_investigation),
-        accessNeeded: accessNeeded.filter((item) => knownAccess.length === 0 || true),
+        accessNeeded,
         dependsOn: array(entry.dependsOn ?? entry.depends_on)
           .map((item) => line(item, 160))
           .filter((item) => item.length > 0)
