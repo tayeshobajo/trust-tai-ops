@@ -217,13 +217,19 @@ export const TOOL_REGISTRY: Record<ToolId, ToolDefinition> = {
     validate: requireUrl,
     execute: runThroughGateway,
   },
-  "wordpress.read_error_log": declared(
-    "wordpress.read_error_log",
-    "Read the PHP/WordPress error log.",
-    "sftp",
-    true,
-    "I can't read the error log yet — that needs file access to the server.",
-  ),
+  "wordpress.read_error_log": {
+    id: "wordpress.read_error_log",
+    purpose: "Read a bounded tail of WordPress's own error log, without changing anything.",
+    // The read runs over the SSH credential's file subsystem, so SSH is the
+    // access this genuinely needs — not a separate SFTP login.
+    capability: "ssh",
+    readOnly: true,
+    risk: classifyRisk("wordpress.read_error_log"),
+    implemented: true,
+    // The server derives every path it may open. A client cannot name one.
+    validate: () => null,
+    execute: runThroughGateway,
+  },
   "wordpress.run_wp_cli_readonly": {
     id: "wordpress.run_wp_cli_readonly",
     purpose: "Run a read-only WP-CLI inspection on the server, without changing anything.",
