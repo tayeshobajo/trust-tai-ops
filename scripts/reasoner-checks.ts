@@ -296,7 +296,7 @@ const { REASON_MODELS, DEFAULT_REASON_MODEL_ID, resolveReasonModel } = await imp
 const { REASON_MODEL_OPTIONS, DEFAULT_REASON_MODEL_ID: CLIENT_DEFAULT, readReasonModelId } = await import(
   "../src/agent-core/reasonModels.ts"
 );
-const { readModelText } = await import("../supabase/functions/agent-reason/index.ts");
+const { readModelText } = await import("../supabase/functions/_shared/reasonModels.ts");
 
 check(
   "the browser list mirrors the server list exactly",
