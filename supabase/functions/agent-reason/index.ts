@@ -1,25 +1,34 @@
 // Trust Tai Ops — server-side reasoning boundary.
 //
-// The browser never talks to a model and never holds a model credential. It
-// sends a redacted digest of what it already knows; this function proves the
-// caller belongs to the project, asks a model what should happen next, and
-// returns only a plan drawn from a closed catalog of read-only inspections.
+// The browser never talks to a model and never holds a model credential. This
+// function proves the caller belongs to the project, asks a model a question,
+// and returns only answers that survive validation.
 //
-// Nothing here executes a tool, and nothing here can mutate WordPress.
+// Two modes share the boundary:
+//   plan_next_agent_turn   — the next read-only inspection, from a closed catalog.
+//   analyze_meeting_source — what a client meeting means for this project.
+//
+// Nothing here executes a tool, approves anything, or mutates WordPress.
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { authorizeProject } from "../_shared/authz.ts";
-import { authzDeps, executionContextConfigured } from "../_shared/clients.ts";
+import { authzDeps, executionContextConfigured, serviceClient } from "../_shared/clients.ts";
+import { loadMemoryIndex, loadProjectContext } from "../_shared/contextLoader.ts";
 import { validateReasonPlan } from "../_shared/reasonCatalog.ts";
 import { readModelText, resolveReasonModel, type ReasonModel } from "../_shared/reasonModels.ts";
 import { SYSTEM_PROMPT, parseModelJson, sanitizeDigest, userPrompt } from "../_shared/reasonPrompt.ts";
 import type { ReasonDigest } from "../_shared/reasonPrompt.ts";
+import { MEETING_PROMPT_VERSION, MEETING_SYSTEM_PROMPT, meetingUserPrompt } from "../_shared/meetingPrompt.ts";
+import { candidateKeyFor, taskKeyFor, validateMeetingAnalysis } from "../_shared/meetingSchema.ts";
+import { chunkTranscript } from "../_shared/transcript.ts";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const ANTHROPIC = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 const TIMEOUT_MS = 20_000;
 const MAX_OUTPUT_TOKENS = 1200;
+const MEETING_TIMEOUT_MS = 90_000;
+const MEETING_MAX_OUTPUT_TOKENS = 8_000;
 
 const fail = (code: string, summary: string, retryable: boolean, status = 200) =>
   Response.json({ ok: false, code, summary, retryable }, { status, headers: corsHeaders });
@@ -31,7 +40,13 @@ type ProviderCall = { url: string; headers: Record<string, string>; body: unknow
  * only thing that varies is the wire format — never what the model is allowed
  * to answer with.
  */
-const buildCall = (model: ReasonModel, apiKey: string, digest: ReasonDigest): ProviderCall => {
+const buildCall = (
+  model: ReasonModel,
+  apiKey: string,
+  system: string,
+  user: string,
+  maxTokens: number,
+): ProviderCall => {
   if (model.provider === "anthropic") {
     return {
       url: ANTHROPIC,
@@ -42,9 +57,9 @@ const buildCall = (model: ReasonModel, apiKey: string, digest: ReasonDigest): Pr
       },
       body: {
         model: model.providerModel,
-        max_tokens: MAX_OUTPUT_TOKENS,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: userPrompt(digest) }],
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: "user", content: user }],
       },
     };
   }
@@ -60,13 +75,16 @@ const buildCall = (model: ReasonModel, apiKey: string, digest: ReasonDigest): Pr
     body: {
       model: model.providerModel,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userPrompt(digest) },
+        { role: "system", content: system },
+        { role: "user", content: user },
       ],
       response_format: { type: "json_object" },
     },
   };
 };
+
+const planCall = (model: ReasonModel, apiKey: string, digest: ReasonDigest): ProviderCall =>
+  buildCall(model, apiKey, SYSTEM_PROMPT, userPrompt(digest), MAX_OUTPUT_TOKENS);
 
 
 const AUTH_FAIL_SUMMARY: Record<string, string> = {
