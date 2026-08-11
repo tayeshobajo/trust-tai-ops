@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "check:agent": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/agent-core-checks.ts",
+    "check:autonomy": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/autonomy-checks.ts",
+    "check:browser": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/browser-checks.ts",
     "check:private": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/private-access-checks.ts",
     "check:wpcli": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/wpcli-checks.ts",
     "check:logs": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/log-checks.ts",
