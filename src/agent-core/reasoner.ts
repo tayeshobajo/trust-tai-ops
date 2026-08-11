@@ -296,8 +296,10 @@ export const reasoningDigest = (context: AgentContext): Record<string, unknown> 
   evidence: context.evidence.slice(-12).map((item) => ({ toolId: item.toolId, summary: item.summary })),
   messages: context.recentMessages
     .slice(-12)
-    .map((message) => ({ role: message.role, text: message.body.join(" ") })),
-  memory: context.memory.slice(-8).map((entry) => `${entry.title}: ${entry.content}`),
+    // Persisted messages are already sanitized; redacting again means no
+    // credential-shaped text can reach a model even if one ever slipped in.
+    .map((message) => ({ role: message.role, text: redactSecrets(message.body.join(" ")) })),
+  memory: context.memory.slice(-8).map((entry) => redactSecrets(`${entry.title}: ${entry.content}`)),
 });
 
 /**
