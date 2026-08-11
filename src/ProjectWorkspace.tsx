@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AccessType, NewProjectMessage, Organization, Project, ProjectMessage, Run } from "./types";
+import type { AccessType, NewProjectMessage, Organization, Project, ProjectMessage, Run, RunDraft } from "./types";
 import { buildThread, draftFromBrief } from "./conversation";
 import type { DecisionKind, ThreadCard, ThreadMessage } from "./conversation";
 import {
@@ -35,6 +35,9 @@ import { credentialIntakeAvailable, submitCredentialText } from "./agent-core/cr
 // Long conversations render in a trailing window and grow on request, so a
 // task with hundreds of messages opens as fast as a fresh one.
 const PAGE_SIZE = 40;
+
+// One small read-only task holds every access-confirmation conversation.
+const ACCESS_RUN_TITLE = "Confirm project access";
 
 /** Marks the searched phrase inside a line so results are scannable. */
 function Highlight({ text, query }: { text: string; query: string }) {
