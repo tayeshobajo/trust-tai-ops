@@ -3088,9 +3088,8 @@ button:focus-visible {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 799px) {
   .home-shell {
-    grid-template-columns: minmax(0, 1fr);
     padding-bottom: 64px;
   }
 
@@ -4746,7 +4745,7 @@ button:focus-visible {
    ═══════════════════════════════════════════════════════════ */
 
 :root {
-  --tt-rail: 88px;
+  --tt-rail: 82px;
   --tt-inbox: 380px;
   --tt-measure: 720px;
   --tt-workspace-max: 1180px;
@@ -5138,7 +5137,7 @@ button:focus-visible {
 
 :root {
   /* Layout tokens */
-  --tt-rail: 80px;
+  --tt-rail: 82px;
   --tt-inbox: clamp(320px, 24vw, 390px);
   --tt-gutter: clamp(28px, 3vw, 52px);
   --tt-workspace-max: 1480px;
@@ -5521,7 +5520,7 @@ p, li {
 
 @media (max-width: 1099px) and (min-width: 800px) {
   .home-shell {
-    grid-template-columns: 72px clamp(280px, 32vw, 330px) minmax(0, 1fr);
+    grid-template-columns: var(--tt-rail) clamp(280px, 32vw, 330px) minmax(0, 1fr);
   }
 
   .pw-shell {
@@ -5535,7 +5534,8 @@ p, li {
 
 @media (max-width: 799px) {
   .home-shell {
-    grid-template-columns: 64px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    padding-bottom: 64px;
   }
 
   .preview-column {
@@ -5898,13 +5898,7 @@ p, li {
   color: rgba(1, 5, 27, 0.5);
 }
 
-@media (max-width: 1180px) {
-  .home-shell.is-single {
-    grid-template-columns: 82px minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 860px) {
+@media (max-width: 799px) {
   .home-shell.is-single {
     grid-template-columns: minmax(0, 1fr);
   }
