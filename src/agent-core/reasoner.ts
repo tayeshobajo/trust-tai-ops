@@ -265,27 +265,85 @@ export const isValidPlan = (value: unknown): value is AgentPlan => {
 };
 
 /**
- * Server-side model reasoner. Scaffold only: it reports itself unavailable
- * unless a server-side provider is configured, and the orchestrator then uses
- * the deterministic reasoner. No provider key is ever read in the browser.
+ * The redacted picture the server-side reasoner is allowed to see. No
+ * credential, no header, no raw provider error, no full URL — only what has
+ * already been said in plain English and what has already been observed.
+ */
+export const reasoningDigest = (context: AgentContext): Record<string, unknown> => ({
+  taskType: context.run.taskType,
+  taskTitle: context.run.title ?? "",
+  siteKnown: Boolean(context.environment.primaryUrl),
+  capabilities: context.capabilities,
+  verifiedCapabilities: context.verifiedCapabilities ?? [],
+  evidence: context.evidence.slice(-12).map((item) => ({ toolId: item.toolId, summary: item.summary })),
+  messages: context.recentMessages
+    .slice(-12)
+    .map((message) => ({ role: message.role, text: message.body.join(" ") })),
+  memory: context.memory.slice(-8).map((entry) => `${entry.title}: ${entry.content}`),
+});
+
+/**
+ * Server-side model reasoner. The model never runs in the browser and never
+ * sees a credential: the browser asks the `agent-reason` function, and only a
+ * plan drawn from the closed catalog comes back. Any doubt returns null so the
+ * deterministic operator takes the turn instead.
  */
 class ServerModelReasoner implements AgentReasoner {
   readonly id = "server-model";
 
   available(): boolean {
-    // Flipped on only when the reasoning function is deployed and configured
-    // server-side. There is deliberately no client-side provider credential.
-    return false;
+    // Reasoning lives behind the same server boundary as execution.
+    return executionGateway().available();
   }
 
-  async plan(): Promise<AgentPlan | null> {
-    return null;
+  async plan(context: AgentContext): Promise<AgentPlan | null> {
+    if (!this.available()) return null;
+    const payload = await executionGateway().reason(context.project.id, reasoningDigest(context));
+    if (!payload) return null;
+    const plan = materializeServerPlan(payload, {
+      runId: context.run.id,
+      url: context.environment.primaryUrl,
+      capabilities: context.capabilities,
+    });
+    if (!plan || !isValidPlan(plan)) return null;
+    // A reasoning layer may never plan a change: this pass is read-only.
+    if (plan.actions.some((action) => !action.readOnly)) return null;
+    return plan;
   }
 }
 
 export const deterministicReasoner: AgentReasoner = new DeterministicReasoner();
 export const serverModelReasoner: AgentReasoner = new ServerModelReasoner();
 
-/** Prefers real reasoning when it is genuinely configured; falls back safely. */
+/**
+ * Real reasoning first, deterministic operator as the floor. The fallback is
+ * not an error path: it is how the agent stays useful when the model is
+ * unavailable, rate limited, or returns something outside the catalog.
+ */
+class FallbackReasoner implements AgentReasoner {
+  readonly id = "server-model+deterministic";
+
+  constructor(
+    private readonly preferred: AgentReasoner,
+    private readonly floor: AgentReasoner,
+  ) {}
+
+  available(): boolean {
+    return true;
+  }
+
+  async plan(context: AgentContext): Promise<AgentPlan | null> {
+    if (this.preferred.available()) {
+      try {
+        const plan = await this.preferred.plan(context);
+        if (plan) return plan;
+      } catch {
+        // Fall through: an unreachable model must never stall a run.
+      }
+    }
+    return this.floor.plan(context);
+  }
+}
+
 export const selectReasoner = (): AgentReasoner =>
-  serverModelReasoner.available() ? serverModelReasoner : deterministicReasoner;
+  new FallbackReasoner(serverModelReasoner, deterministicReasoner);
