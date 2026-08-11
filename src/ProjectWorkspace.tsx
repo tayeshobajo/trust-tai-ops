@@ -726,7 +726,7 @@ export function ProjectWorkspace({
     ) : null;
 
   return (
-    <div className={`pw-shell pane-${mobilePane}`}>
+    <div className={`pw-shell pane-${mobilePane} ${secondarySurface ? "is-surface" : ""}`}>
       <aside className="pw-tasks">
         <div className="pw-tasks-head">
           <button className="create-back is-back" type="button" onClick={onBackToProjects}>
