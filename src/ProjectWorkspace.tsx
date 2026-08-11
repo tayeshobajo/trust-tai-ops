@@ -585,6 +585,7 @@ export function ProjectWorkspace({
   };
 
   const sendMessage = async () => {
+    // (defined below: the secure handoff for credential-shaped composer text)
     const value = composerValue.trim();
     if (!value) return;
 
