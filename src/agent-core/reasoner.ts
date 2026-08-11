@@ -81,6 +81,18 @@ const needsServerInspection = (context: AgentContext): boolean =>
   hasEvidenceFrom(context, "wordpress.list_plugins") &&
   ["malware", "performance", "update", "recovery"].includes(context.run.taskType);
 
+/** Task types where runtime PHP errors are genuinely useful evidence. */
+const ERROR_LOG_TASK_TYPES: readonly string[] = [
+  "broken_site",
+  "plugin_theme_conflict",
+  "performance",
+  "malware",
+];
+
+const unusedNeedsServerInspection = (context: AgentContext): boolean =>
+  hasEvidenceFrom(context, "wordpress.list_plugins") &&
+  ["malware", "performance", "update", "recovery"].includes(context.run.taskType);
+
 const emptyPlan = (decision: AgentDecision): AgentPlan => ({
   decision,
   actions: [],
