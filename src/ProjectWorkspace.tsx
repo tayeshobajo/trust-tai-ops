@@ -524,8 +524,9 @@ export function ProjectWorkspace({
    * second one.
    */
   const approveProposedTask = async (task: ProposedTask) => {
-    if (!canWrite || taskBusyId || decisionRef.current) return;
-    decisionRef.current = true;
+    const claim = `proposal:${task.id}`;
+    if (!canWrite || taskBusyId || decisionRef.current.has(claim)) return;
+    decisionRef.current.add(claim);
     setTaskBusyId(task.id);
     try {
       const decision = await decideProposedTask(project.id, task.id, "approved");
@@ -550,14 +551,15 @@ export function ProjectWorkspace({
     } catch {
       setMeetingError("I couldn't start that task. Nothing was changed.");
     } finally {
-      decisionRef.current = false;
+      decisionRef.current.delete(claim);
       setTaskBusyId(null);
     }
   };
 
   const rejectProposedTask = async (task: ProposedTask) => {
-    if (!canWrite || taskBusyId || decisionRef.current) return;
-    decisionRef.current = true;
+    const claim = `proposal:${task.id}`;
+    if (!canWrite || taskBusyId || decisionRef.current.has(claim)) return;
+    decisionRef.current.add(claim);
     setTaskBusyId(task.id);
     try {
       const decision = await decideProposedTask(project.id, task.id, "rejected");
@@ -574,7 +576,7 @@ export function ProjectWorkspace({
         dedupeKey: `proposal-rejected-${task.id}`,
       });
     } finally {
-      decisionRef.current = false;
+      decisionRef.current.delete(claim);
       setTaskBusyId(null);
     }
   };
