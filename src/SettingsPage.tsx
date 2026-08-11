@@ -1,3 +1,9 @@
+import { useState } from "react";
+import {
+  REASON_MODEL_OPTIONS,
+  readReasonModelId,
+  writeReasonModelId,
+} from "./agent-core/reasonModels";
 import type { AuthState, Organization, RepositoryHealth } from "./types";
 
 type Props = {
@@ -7,6 +13,9 @@ type Props = {
 };
 
 export function SettingsPage({ workspace, authState, repositoryHealth }: Props) {
+  const [modelId, setModelId] = useState(readReasonModelId);
+  const selected = REASON_MODEL_OPTIONS.find((option) => option.id === modelId);
+
   return (
     <div className="global-surface">
       <header className="global-surface-head">
@@ -38,6 +47,35 @@ export function SettingsPage({ workspace, authState, repositoryHealth }: Props) 
           </div>
         </dl>
         <p className="set-note">Workspace naming is read-only in this version.</p>
+      </section>
+
+      <section className="set-block">
+        <h2>Reasoning model</h2>
+        <p className="set-note">
+          This is the model the agent thinks with. It changes how the work is explained and which check it reaches for
+          next — never what the agent is allowed to do. Safety, approvals and read-only limits are unaffected.
+        </p>
+        <div className="set-choices" role="radiogroup" aria-label="Reasoning model">
+          {REASON_MODEL_OPTIONS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={option.id === modelId}
+              className={`set-choice${option.id === modelId ? " is-selected" : ""}`}
+              onClick={() => setModelId(writeReasonModelId(option.id))}
+            >
+              <span className="set-choice-name">{option.label}</span>
+              <span className="set-choice-note">{option.note}</span>
+            </button>
+          ))}
+        </div>
+        {selected?.provider === "anthropic" ? (
+          <p className="set-note">
+            Claude runs on your own Anthropic key, stored server-side. If the key is missing or rejected, the agent
+            quietly falls back to its standard checks rather than stalling.
+          </p>
+        ) : null}
       </section>
 
       <section className="set-block">
