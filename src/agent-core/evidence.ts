@@ -134,9 +134,69 @@ export const describePlugins = (evidence: AgentEvidence): string[] => {
   return lines;
 };
 
+/**
+ * The error log, described as what was read — not as a diagnosis. A component
+ * named repeatedly in recent fatals is evidence pointing somewhere; it is not
+ * proof of a root cause, and the wording here stays inside that limit.
+ */
+export const describeErrorLog = (evidence: AgentEvidence): string[] => {
+  const data = evidence.data;
+  const found = num(data.filesFound);
+  if (found === null) return [safeSummary(evidence.summary)];
+  if (found === 0) {
+    return ["I checked the WordPress-scoped error logs I can safely read, but none are present."];
+  }
+
+  const entries = Array.isArray(data.recentEntries) ? (data.recentEntries as Array<Record<string, unknown>>) : [];
+  const counts = (data.countsBySeverity ?? {}) as Record<string, unknown>;
+  const fatal = num(counts.fatal) ?? 0;
+  const warning = num(counts.warning) ?? 0;
+  const lines: string[] = [`I read the most recent ${entries.length} entries from the WordPress error log.`];
+
+  if (fatal > 0) {
+    lines.push(`${fatal} of them are fatal PHP errors.`);
+  } else if (warning > 0) {
+    lines.push(`There are no fatal errors in that window, but ${warning} warnings.`);
+  }
+
+  const components = Array.isArray(data.likelyWordPressComponents)
+    ? (data.likelyWordPressComponents as Array<Record<string, unknown>>)
+    : [];
+  const top = components[0];
+  const topName = top ? str(top.name) : null;
+  if (topName) {
+    lines.push(`The entries most often mention the ${str(top?.kind) ?? "component"} ${topName}.`);
+  }
+  if (data.truncated === true) lines.push("That's only the end of the log; older entries were not read.");
+  return lines;
+};
+
 export const findingFromEvidence = (
   evidence: AgentEvidence,
 ): { severity: "low" | "medium" | "high" | "critical"; title: string; summary: string } | null => {
+  if (evidence.toolId === "wordpress.read_error_log") {
+    const counts = (evidence.data.countsBySeverity ?? {}) as Record<string, unknown>;
+    const fatal = num(counts.fatal) ?? 0;
+    const components = Array.isArray(evidence.data.likelyWordPressComponents)
+      ? (evidence.data.likelyWordPressComponents as Array<Record<string, unknown>>)
+      : [];
+    const top = components[0];
+    const name = top ? str(top.name) : null;
+    const mentions = top ? num(top.mentions) ?? 0 : 0;
+    // Only a repeated pattern earns a finding, and it is phrased as what the
+    // log says — never as a proven cause.
+    if (fatal >= 2 && name && mentions >= 2) {
+      return {
+        severity: "high",
+        title: `Recent fatal errors repeatedly reference ${name}`,
+        summary: safeSummary(
+          `The recent error log repeatedly references ${name} in ${fatal} fatal PHP errors. That makes it the strongest lead, though it does not prove the cause on its own.`,
+        ),
+      };
+    }
+    return null;
+  }
+
   if (evidence.toolId === "wordpress.read_health") {
     if (evidence.data.usersPubliclyListed === true) {
       return {

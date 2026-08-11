@@ -214,3 +214,211 @@ export const denoSshTransport = (): SshTransport => ({
     });
   },
 });
+// ---------------------------------------------------------------------------
+// Narrow file-read primitive (SFTP subsystem over the same SSH credential).
+// ---------------------------------------------------------------------------
+
+/**
+ * Deliberately not a filesystem API. It accepts a list of paths the server has
+ * already resolved and validated, stats each one, refuses anything that is not
+ * a regular file, and reads only a bounded tail. There is no listing, no
+ * globbing, no write mode, and no way for a caller to name a path that did not
+ * come out of the closed candidate set.
+ */
+export type SftpTailRequest = {
+  paths: readonly string[];
+  maxBytesPerFile: number;
+  maxTotalBytes: number;
+};
+
+export type SftpTailFile =
+  | { path: string; status: "read"; bytesRead: number; size: number; truncated: boolean; text: string }
+  | { path: string; status: "missing" | "not_regular" | "unreadable" | "skipped" };
+
+export type SftpTailOutcome =
+  | { ok: true; files: SftpTailFile[]; fingerprint: string; durationMs: number }
+  | {
+      ok: false;
+      kind: "auth_failed" | "unreachable" | "timeout" | "host_key_rejected" | "protocol_error" | "sftp_unavailable";
+      fingerprint: string | null;
+      detail: string;
+    };
+
+export type SftpTransport = {
+  readTails: (
+    target: SshTarget,
+    request: SftpTailRequest,
+    timeoutMs: number,
+    acceptHostKey: (fingerprint: string) => boolean,
+  ) => Promise<SftpTailOutcome>;
+};
+
+type SftpStats = { size: number; isFile: () => boolean };
+type SftpSession = {
+  stat(path: string, cb: (error: Error | undefined, stats: SftpStats | undefined) => void): void;
+  open(path: string, flags: string, cb: (error: Error | undefined, handle: unknown) => void): void;
+  read(
+    handle: unknown,
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number,
+    cb: (error: Error | undefined, bytesRead: number, buffer: Uint8Array) => void,
+  ): void;
+  close(handle: unknown, cb: (error?: Error) => void): void;
+  end(): void;
+};
+
+export const denoSftpTransport = (): SftpTransport => ({
+  async readTails(target, request, timeoutMs, acceptHostKey) {
+    const startedAt = Date.now();
+    const { Client } = await import("npm:ssh2@1.16.0");
+    const { createHash } = await import("node:crypto");
+
+    const client = new Client();
+    let presented: string | null = null;
+    let settled = false;
+
+    return await new Promise<SftpTailOutcome>((resolve) => {
+      const finish = (outcome: SftpTailOutcome) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadline);
+        try {
+          client.end();
+        } catch {
+          // Already gone.
+        }
+        resolve(outcome);
+      };
+
+      const deadline = setTimeout(() => {
+        finish({ ok: false, kind: "timeout", fingerprint: presented, detail: "The server did not answer in time." });
+      }, timeoutMs + SSH_CONNECT_TIMEOUT_MS);
+
+      client.on("ready", () => {
+        client.sftp(async (error: Error | undefined, sftp: SftpSession | undefined) => {
+          if (error || !sftp) {
+            finish({
+              ok: false,
+              kind: "sftp_unavailable",
+              fingerprint: presented,
+              detail: "The server connected but does not offer file reads over SSH.",
+            });
+            return;
+          }
+
+          const files: SftpTailFile[] = [];
+          let budget = request.maxTotalBytes;
+
+          const stat = (path: string) =>
+            new Promise<SftpStats | null>((done) => sftp.stat(path, (err, stats) => done(err || !stats ? null : stats)));
+
+          try {
+            for (const path of request.paths) {
+              if (budget <= 0) {
+                files.push({ path, status: "skipped" });
+                continue;
+              }
+              const stats = await stat(path);
+              if (!stats) {
+                files.push({ path, status: "missing" });
+                continue;
+              }
+              if (typeof stats.isFile === "function" && !stats.isFile()) {
+                files.push({ path, status: "not_regular" });
+                continue;
+              }
+
+              const size = Number(stats.size) || 0;
+              const want = Math.min(request.maxBytesPerFile, budget, size);
+              if (want <= 0) {
+                files.push({ path, status: "read", bytesRead: 0, size, truncated: false, text: "" });
+                continue;
+              }
+              const position = Math.max(0, size - want);
+
+              const handle = await new Promise<unknown>((done) =>
+                sftp.open(path, "r", (err, value) => done(err ? null : value)),
+              );
+              if (!handle) {
+                files.push({ path, status: "unreadable" });
+                continue;
+              }
+
+              const buffer = new Uint8Array(want);
+              const bytesRead = await new Promise<number>((done) =>
+                sftp.read(handle, buffer, 0, want, position, (err, read) => done(err ? -1 : read)),
+              );
+              await new Promise<void>((done) => sftp.close(handle, () => done()));
+
+              if (bytesRead < 0) {
+                files.push({ path, status: "unreadable" });
+                continue;
+              }
+              budget -= bytesRead;
+              files.push({
+                path,
+                status: "read",
+                bytesRead,
+                size,
+                truncated: position > 0,
+                text: new TextDecoder().decode(buffer.subarray(0, bytesRead)),
+              });
+            }
+          } finally {
+            try {
+              sftp.end();
+            } catch {
+              // The session is already closing.
+            }
+          }
+
+          finish({ ok: true, files, fingerprint: presented ?? "", durationMs: Date.now() - startedAt });
+        });
+      });
+
+      client.on("error", (error: Error & { level?: string }) => {
+        const level = String(error?.level ?? "");
+        const message = String(error?.message ?? "");
+        if (level.includes("authentication") || /authentication/i.test(message)) {
+          finish({ ok: false, kind: "auth_failed", fingerprint: presented, detail: "The server did not accept that SSH key." });
+          return;
+        }
+        if (/host key|hostkey/i.test(message)) {
+          finish({ ok: false, kind: "host_key_rejected", fingerprint: presented, detail: message.slice(0, 200) });
+          return;
+        }
+        finish({
+          ok: false,
+          kind: /timed out|ETIMEDOUT/i.test(message) ? "timeout" : "unreachable",
+          fingerprint: presented,
+          detail: "I could not reach that server over SSH.",
+        });
+      });
+
+      try {
+        client.connect({
+          host: target.host,
+          port: target.port,
+          username: target.username,
+          privateKey: target.privateKey,
+          passphrase: target.passphrase || undefined,
+          readyTimeout: SSH_CONNECT_TIMEOUT_MS,
+          keepaliveInterval: 0,
+          algorithms: {
+            cipher: [...SSH_ALGORITHMS.cipher],
+            hmac: [...SSH_ALGORITHMS.hmac],
+            serverHostKey: [...SSH_ALGORITHMS.serverHostKey],
+          },
+          hostVerifier: (key: Uint8Array) => {
+            presented = `SHA256:${createHash("sha256").update(key).digest("base64").replace(/=+$/, "")}`;
+            return acceptHostKey(presented);
+          },
+        });
+      } catch {
+        finish({ ok: false, kind: "unreachable", fingerprint: presented, detail: "I could not open an SSH connection to that server." });
+      }
+    });
+  },
+});
