@@ -16,7 +16,9 @@ import { fetchSafely, readBounded, redact, safeHeaders, validatePublicUrl } from
 import { capabilityTruth, resolveCredential } from "../_shared/secretStore.ts";
 import { authenticatedGet, normalizeHealthTest, normalizePlugins } from "../_shared/wordpress.ts";
 import { runReadOnlyWpCli } from "../_shared/wpCli.ts";
-import { denoSshTransport } from "../_shared/sshTransport.ts";
+import { denoSftpTransport, denoSshTransport } from "../_shared/sshTransport.ts";
+import { readWordPressErrorLog } from "../_shared/errorLog.ts";
+import { relativeCandidateFrom } from "../_shared/errorLogSafety.ts";
 
 const fail = (code: string, summary: string, retryable: boolean) =>
   Response.json({ ok: false, code, summary, retryable }, { headers: corsHeaders });
@@ -27,7 +29,11 @@ const AUTH_FAIL_SUMMARY: Record<string, string> = {
   execution_context_unavailable: "I can't confirm who this project belongs to right now, so I stopped.",
 };
 
-const PRIVATE_TOOLS = new Set(["wordpress.list_plugins", "wordpress.run_wp_cli_readonly"]);
+const PRIVATE_TOOLS = new Set([
+  "wordpress.list_plugins",
+  "wordpress.run_wp_cli_readonly",
+  "wordpress.read_error_log",
+]);
 
 /** Every access type whose credential the server can actually resolve. */
 const EXECUTABLE_ACCESS_TYPES = ["wordpress_admin", "ssh"];
