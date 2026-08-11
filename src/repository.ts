@@ -4,6 +4,7 @@ import { createProjectFromDraft, createRunFromDraft, getActiveRun, getProjectByI
 import { advanceRunState } from "./operations";
 import { createSeedWorkspace } from "./seed";
 import { getSupabaseClient } from "./supabase";
+import { redactBody } from "./agent-core/secretGuard";
 import { isProjectStack, normalizeVersions } from "./stacks";
 import type {
   AccessType,
