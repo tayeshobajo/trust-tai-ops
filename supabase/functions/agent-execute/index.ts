@@ -349,6 +349,41 @@ const listPlugins = async (projectId: string, canonicalUrl: string | null) => {
  * server resolves the host, port, user, key and WordPress path itself, and the
  * command is composed from the closed catalog — never from client text.
  */
+/**
+ * Reads a bounded, sanitized tail of WordPress's own error logs. No path comes
+ * from the client: the candidates are derived from the project's stored
+ * WordPress root, plus — at most — the location WordPress itself reports.
+ */
+const readErrorLog = async (projectId: string) => {
+  let debugLogHint: string | null = null;
+  try {
+    const configured = await runReadOnlyWpCli(secretStoreDeps(), denoSshTransport(), {
+      projectId,
+      commandId: "config.get_debug_log",
+      params: {},
+      allowFirstUse: false,
+    });
+    if (configured.ok) {
+      const stdout = (configured.data as { stdout?: unknown } | undefined)?.stdout;
+      if (typeof stdout === "string") debugLogHint = stdout.trim().split("\n")[0] ?? null;
+    }
+  } catch {
+    // Discovery is a convenience. The fixed candidate list still applies.
+  }
+
+  const outcome = await readWordPressErrorLog(secretStoreDeps(), denoSftpTransport(), {
+    projectId,
+    debugLogHint,
+  });
+
+  if (!outcome.ok) return fail(outcome.code, outcome.summary, outcome.retryable);
+
+  return Response.json(
+    { ok: true, summary: redact(outcome.summary), data: outcome.data },
+    { headers: corsHeaders },
+  );
+};
+
 const runWpCli = async (projectId: string, args: Record<string, unknown>) => {
   const commandId = typeof args.commandId === "string" ? args.commandId : "";
   if (!commandId) {
@@ -454,6 +489,9 @@ Deno.serve(async (req) => {
     case "wordpress.run_wp_cli_readonly":
       if (!authorizedProjectId) return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
       return await runWpCli(authorizedProjectId, args);
+    case "wordpress.read_error_log":
+      if (!authorizedProjectId) return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
+      return await readErrorLog(authorizedProjectId);
     default:
       return fail("not_implemented", "That capability is not enabled yet.", false);
   }

@@ -18,6 +18,7 @@ import {
   componentsMentioned,
   countBySeverity,
   eligibleLogPaths,
+  relativeCandidateFrom,
   LOG_MAX_BYTES_PER_FILE,
   LOG_MAX_LINES,
   LOG_MAX_TOTAL_BYTES,
@@ -42,12 +43,22 @@ const FAILURE_SUMMARY: Record<string, string> = {
 export const readWordPressErrorLog = async (
   deps: SecretStoreDeps,
   transport: SftpTransport,
-  input: { projectId: string; timeoutMs?: unknown; extraCandidates?: readonly string[] },
+  input: {
+    projectId: string;
+    timeoutMs?: unknown;
+    /**
+     * Raw value of WordPress's own `WP_DEBUG_LOG` setting, if it was read. It
+     * is treated as untrusted: it only becomes a candidate when it resolves
+     * inside the project's WordPress root.
+     */
+    debugLogHint?: string | null;
+  },
 ): Promise<ErrorLogResult> => {
   const access = await resolveSshAccess(deps, input.projectId);
   if (!access.ok) return { ok: false, code: access.code, summary: access.summary, retryable: false };
 
-  const candidates = eligibleLogPaths(access.access.wpRoot, input.extraCandidates ?? []);
+  const hinted = input.debugLogHint ? relativeCandidateFrom(access.access.wpRoot, input.debugLogHint) : null;
+  const candidates = eligibleLogPaths(access.access.wpRoot, hinted ? [hinted] : []);
   if (candidates.length === 0) {
     return {
       ok: false,
