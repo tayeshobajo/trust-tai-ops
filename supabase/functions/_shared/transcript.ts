@@ -96,17 +96,19 @@ export const chunkTranscript = (text: string): string[] => {
   let current = "";
 
   for (const paragraph of paragraphs) {
-    const candidate = current ? `${current}\n\n${paragraph}` : paragraph;
-    if (candidate.length <= CHUNK_CHARS) {
-      current = candidate;
-      continue;
-    }
-    if (current) chunks.push(current);
-    current = paragraph.slice(0, CHUNK_CHARS);
     // A single oversized paragraph is hard-split rather than dropped.
-    for (let offset = CHUNK_CHARS; offset < paragraph.length; offset += CHUNK_CHARS) {
-      chunks.push(current);
-      current = paragraph.slice(offset, offset + CHUNK_CHARS);
+    const pieces: string[] = [];
+    for (let offset = 0; offset < paragraph.length; offset += CHUNK_CHARS) {
+      pieces.push(paragraph.slice(offset, offset + CHUNK_CHARS));
+    }
+    for (const piece of pieces) {
+      const candidate = current ? `${current}\n\n${piece}` : piece;
+      if (candidate.length <= CHUNK_CHARS) {
+        current = candidate;
+        continue;
+      }
+      if (current) chunks.push(current);
+      current = piece;
     }
   }
   if (current) chunks.push(current);
