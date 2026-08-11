@@ -10,6 +10,8 @@
 
 import type { AccessType } from "../types";
 import { planAction } from "./registry";
+import { executionGateway } from "./gateway";
+import { materializeServerPlan } from "./reasonPlan";
 import type {
   AgentAction,
   AgentActionArguments,
