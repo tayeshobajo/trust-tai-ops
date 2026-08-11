@@ -67,7 +67,9 @@ export const normalizeTranscript = (value: string): string =>
   String(value ?? "")
     .slice(0, MAX_TRANSCRIPT_BYTES)
     .replace(/\r\n?/g, "\n")
-    .replace(/\u0000/g, "")
+    // split/join rather than a regex: a control character in a pattern is a
+    // readability trap, and this is exactly as literal.
+    .split("\u0000").join("")
     .split("\n")
     .map((line) => line.replace(/[ \t]+/g, " ").trimEnd())
     .join("\n")

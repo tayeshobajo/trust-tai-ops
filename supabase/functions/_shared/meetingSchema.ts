@@ -186,7 +186,6 @@ export const validateMeetingAnalysis = (
   }
   const raw = value as Record<string, unknown>;
   const chunks = context.chunks ?? [];
-  const knownAccess = context.knownAccess ?? [];
   const allowedHosts = (context.allowedHosts ?? []).map((host) => host.toLowerCase().replace(/^www\./, ""));
   const dropped: string[] = [];
 
