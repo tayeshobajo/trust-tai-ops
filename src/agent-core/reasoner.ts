@@ -323,10 +323,13 @@ export const serverModelReasoner: AgentReasoner = new ServerModelReasoner();
 class FallbackReasoner implements AgentReasoner {
   readonly id = "server-model+deterministic";
 
-  constructor(
-    private readonly preferred: AgentReasoner,
-    private readonly floor: AgentReasoner,
-  ) {}
+  private readonly preferred: AgentReasoner;
+  private readonly floor: AgentReasoner;
+
+  constructor(preferred: AgentReasoner, floor: AgentReasoner) {
+    this.preferred = preferred;
+    this.floor = floor;
+  }
 
   available(): boolean {
     return true;
