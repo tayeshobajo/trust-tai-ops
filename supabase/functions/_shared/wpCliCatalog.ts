@@ -134,6 +134,17 @@ export const WP_CLI_READONLY_CATALOG: readonly WpCliCommand[] = [
     params: [],
     json: false,
   },
+  {
+    // The single closed inspection used to discover where WordPress writes its
+    // debug log. It reads one constant from wp-config; it executes no PHP of
+    // ours, and its answer is only used when it resolves inside the WordPress
+    // root.
+    id: "config.get_debug_log",
+    purpose: "Read where WordPress is configured to write its debug log.",
+    argv: ["config", "get", "WP_DEBUG_LOG"],
+    params: [],
+    json: false,
+  },
 ];
 
 export const WP_CLI_COMMAND_IDS: readonly string[] = WP_CLI_READONLY_CATALOG.map((entry) => entry.id);
