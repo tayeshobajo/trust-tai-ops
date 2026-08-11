@@ -12,7 +12,15 @@
 
 export const MAX_TRANSCRIPT_BYTES = 400_000;
 export const CHUNK_CHARS = 6_000;
-export const MAX_CHUNKS = 12;
+/** Enough chunks to cover a maximum-size transcript, with slack for hard splits. */
+export const MAX_CHUNKS = 80;
+/** Chunks handed to the model in one extraction call. */
+export const CHUNKS_PER_WINDOW = 8;
+/** Extraction calls one transcript may cost. Coverage above this is refused, never silently dropped. */
+export const MAX_WINDOWS = 10;
+
+/** Transcript limits are byte limits: a 400k-char emoji transcript is not 400kB. */
+export const byteLength = (value: string): number => new TextEncoder().encode(value).length;
 
 export type RedactionReport = {
   /** Counts only. The removed values are never retained anywhere. */
