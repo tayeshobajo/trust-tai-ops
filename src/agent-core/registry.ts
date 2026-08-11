@@ -226,8 +226,9 @@ export const TOOL_REGISTRY: Record<ToolId, ToolDefinition> = {
     readOnly: true,
     risk: classifyRisk("wordpress.read_error_log"),
     implemented: true,
-    // The server derives every path it may open. A client cannot name one.
-    validate: () => null,
+    // The server derives every path it may open, so there is nothing from the
+    // client to validate and nothing from the client to forward.
+    validate: () => ({ ok: true, args: {} }),
     execute: runThroughGateway,
   },
   "wordpress.run_wp_cli_readonly": {
