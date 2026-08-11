@@ -130,11 +130,11 @@ export const relativeCandidateFrom = (wpRoot: string | null | undefined, absolut
  */
 const REDACTIONS: Array<[RegExp, string]> = [
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[redacted key]"],
-  [/(authorization|proxy-authorization)\s*[:=]\s*\S+/gi, "$1: [redacted]"],
+  [/(authorization|proxy-authorization)\s*[:=]\s*[^\n]+/gi, "$1: [redacted]"],
   [/\b(set-cookie|cookie)\s*[:=]\s*[^\n]+/gi, "$1: [redacted]"],
   [/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 [redacted]"],
   [
-    /\b(pass(?:word|wd)?|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|auth[_-]?key|private[_-]?key|application[_-]?password|app[_-]?password|db[_-]?password|session[_-]?id|nonce)\b(\s*(?:=>|[:=])\s*)(["']?)[^\s"',;)]+\3/gi,
+    /\b(pass(?:word|wd)?|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|auth[_-]?key|private[_-]?key|application[_-]?password|app[_-]?password|db[_-]?password|session[_-]?id|nonce)\b(\s*(?:=>|[:=])\s*)(?:(["'])[^"'\n]*\2|[^\s"',;)]+)/gi,
     "$1$2[redacted]",
   ],
   [
