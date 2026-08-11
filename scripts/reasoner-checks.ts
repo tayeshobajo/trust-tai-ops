@@ -341,3 +341,13 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log("all reasoning boundary checks passed");
+
+// Provider auth headers: Anthropic uses x-api-key, the Lovable gateway uses its
+// own header. A Bearer token on the gateway path is a silent auth failure.
+{
+  const fn = readFileSync("supabase/functions/agent-reason/index.ts", "utf8");
+  assert(fn.includes('"Lovable-API-Key": apiKey'), "gateway call must authenticate with the Lovable-API-Key header");
+  assert(!/Authorization:\s*`Bearer/.test(fn), "gateway call must not use a Bearer token");
+  assert(fn.includes('"x-api-key": apiKey'), "anthropic call must authenticate with x-api-key");
+  assert(fn.includes('"anthropic-version"'), "anthropic call must pin an API version");
+}
