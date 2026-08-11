@@ -19,7 +19,7 @@
     "check:migrations": "node --experimental-strip-types --no-warnings scripts/migration-checks.ts"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.112.2",
+    "@supabase/supabase-js": "^2.112.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
