@@ -14,6 +14,7 @@ import { ApprovalsPage } from "./ApprovalsPage";
 import { SettingsPage } from "./SettingsPage";
 import { countPendingDecisions } from "./globalFeed";
 import { draftFromBrief } from "./conversation";
+import { describeRuntime, describeVersions } from "./stacks";
 import { starterProjectDraft, starterRunDraft, stateCopy, taskTypeOptions, workspaceTabs } from "./data";
 import {
   countOpenRecommendations,
@@ -1060,7 +1061,9 @@ function OverviewPanel({ project }: { project: Project }) {
                 </div>
                 <p>{environment.primaryUrl}</p>
                 <small>
-                  {environment.hostingProvider} · WP {environment.wordpressVersion} · PHP {environment.phpVersion}
+                  {[environment.hostingProvider, describeVersions(environment), describeRuntime(environment)]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </small>
                 <small>{environment.notes}</small>
               </div>

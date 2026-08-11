@@ -17,6 +17,7 @@ import {
 import { formatActivityStamp, getProjectInitials, signalForRun } from "./home";
 import { HUMAN_PHASES } from "./home";
 import { workspaceRepository } from "./repository";
+import { describeBuildTime, rollbackCopy } from "./stacks";
 import { validateAdvance } from "./operations";
 import { projectHasUsableAccess } from "./agent";
 import { agentStepIdentity, executeAgentStep } from "./agentExecutor";
@@ -1214,6 +1215,24 @@ export function ProjectWorkspace({
               <p className="eyebrow">Agent needs</p>
               <p>{signal.needsYou ?? "Nothing needed from you right now."}</p>
             </section>
+
+            {project.deployPipeline ? (
+              <section className="pw-context-block">
+                <p className="eyebrow">How this ships</p>
+                <ol className="pw-pipeline">
+                  {project.deployPipeline.steps.map((step) => (
+                    <li key={step.kind}>
+                      <strong>{step.label}</strong>
+                      <span>{step.detail}</span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="pw-pipeline-note">
+                  Build {describeBuildTime(project.deployPipeline)} · Rollback:{" "}
+                  {rollbackCopy[project.deployPipeline.rollbackStrategy]}
+                </p>
+              </section>
+            ) : null}
           </>
         ) : (
           <>

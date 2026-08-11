@@ -48,6 +48,9 @@ const ACCESS_LABELS: Record<AccessType, string> = {
   hosting_portal: "hosting",
   database: "database",
   cdn: "CDN",
+  server_pm2: "server process manager",
+  ci_cd: "CI/CD pipeline",
+  container: "container platform",
 };
 
 const primaryUrlFor = (project: Project, run: Run): string | null => {

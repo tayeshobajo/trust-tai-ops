@@ -4,6 +4,7 @@ import { createProjectFromDraft, createRunFromDraft, getActiveRun, getProjectByI
 import { advanceRunState } from "./operations";
 import { createSeedWorkspace } from "./seed";
 import { getSupabaseClient } from "./supabase";
+import { isProjectStack, normalizeVersions } from "./stacks";
 import type {
   AccessType,
   MemoryEntry,
@@ -49,6 +50,7 @@ type ProjectRow = {
   primary_domain: string;
   status: Project["status"];
   environment_health: Project["environmentHealth"];
+  deploy_pipeline?: Project["deployPipeline"] | null;
 };
 
 type ProjectEnvironmentRow = {
@@ -58,8 +60,11 @@ type ProjectEnvironmentRow = {
   environment_type: ProjectEnvironment["type"];
   primary_url: string;
   hosting_provider: string;
-  wordpress_version: string;
-  php_version: string;
+  stack?: ProjectEnvironment["stack"] | null;
+  versions?: Record<string, string> | null;
+  runtime?: ProjectEnvironment["runtime"] | null;
+  wordpress_version?: string | null;
+  php_version?: string | null;
   cache_layers: string[] | null;
   notes: string;
 };
@@ -816,6 +821,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
         primaryDomain: project.primary_domain,
         status: project.status,
         environmentHealth: project.environment_health,
+        deployPipeline: project.deploy_pipeline ?? undefined,
         environments: environmentRows
           .filter((environment) => environment.project_id === project.id)
           .map(mapEnvironment),
@@ -953,6 +959,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       primary_domain: newProject.primaryDomain,
       status: newProject.status,
       environment_health: newProject.environmentHealth,
+      deploy_pipeline: newProject.deployPipeline ?? null,
     }] as never);
 
     if (projectError) {
@@ -967,8 +974,12 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
         environment_type: environment.type,
         primary_url: environment.primaryUrl,
         hosting_provider: environment.hostingProvider,
-        wordpress_version: environment.wordpressVersion,
-        php_version: environment.phpVersion,
+        stack: environment.stack,
+        versions: environment.versions,
+        runtime: environment.runtime ?? null,
+        // Legacy columns stay populated so anything still reading them is truthful.
+        wordpress_version: environment.versions.wordpress ?? "",
+        php_version: environment.versions.php ?? "",
         cache_layers: environment.cacheLayers,
         notes: environment.notes,
       })) as never));
@@ -1411,14 +1422,24 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
 }
 
 function mapEnvironment(row: ProjectEnvironmentRow): ProjectEnvironment {
+  // Legacy rows carry only wordpress/php columns and no stack. They stay valid.
+  const versions = normalizeVersions({
+    versions: row.versions ?? undefined,
+    wordpressVersion: row.wordpress_version,
+    phpVersion: row.php_version,
+  });
+
   return {
     id: row.id,
     name: row.name,
     type: row.environment_type,
     primaryUrl: row.primary_url,
     hostingProvider: row.hosting_provider,
-    wordpressVersion: row.wordpress_version,
-    phpVersion: row.php_version,
+    stack: isProjectStack(row.stack) ? (row.stack as ProjectEnvironment["stack"]) : "wordpress",
+    versions,
+    runtime: row.runtime ?? undefined,
+    wordpressVersion: row.wordpress_version ?? undefined,
+    phpVersion: row.php_version ?? undefined,
     cacheLayers: row.cache_layers ?? [],
     notes: row.notes,
   };

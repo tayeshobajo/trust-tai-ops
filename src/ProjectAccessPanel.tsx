@@ -3,6 +3,7 @@ import type { AccessType, Organization, Project, ProjectAccessMethod } from "./t
 import { workspaceRepository } from "./repository";
 import { getProjectInitials } from "./home";
 import { submitCredential, verifyStoredCredential } from "./agent-core/secrets";
+import { getProjectStack, stackCopy } from "./stacks";
 
 type Props = {
   project: Project;
@@ -125,6 +126,36 @@ const CONNECTION_TYPES: Array<{
       { key: "user", label: "Account email", kind: "text" },
     ],
   },
+  {
+    type: "server_pm2",
+    label: "App process / PM2",
+    blurb: "For reading process health, restarts, and app logs.",
+    authMethod: "Process manager access",
+    fields: [
+      { key: "host", label: "Server", kind: "text", placeholder: "app-01.example.com" },
+      { key: "user", label: "Process name or user", kind: "text" },
+    ],
+  },
+  {
+    type: "ci_cd",
+    label: "CI / CD pipeline",
+    blurb: "For build history, branch gates, and deploy state.",
+    authMethod: "Pipeline account access",
+    fields: [
+      { key: "host", label: "Provider", kind: "text", placeholder: "GitHub Actions, GitLab CI..." },
+      { key: "user", label: "Account or repository", kind: "text" },
+    ],
+  },
+  {
+    type: "container",
+    label: "Container platform",
+    blurb: "For image, service, and orchestration checks.",
+    authMethod: "Container platform access",
+    fields: [
+      { key: "host", label: "Platform", kind: "text", placeholder: "Docker, Kubernetes..." },
+      { key: "user", label: "Account or namespace", kind: "text" },
+    ],
+  },
 ];
 
 /** True only when a real check has ever succeeded. */
@@ -168,6 +199,19 @@ export function ProjectAccessPanel({
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+
+  const stack = getProjectStack(project);
+  const copy = stackCopy[stack];
+
+  /**
+   * Only the connections this stack actually uses — plus anything already
+   * recorded, so nothing a person shared earlier disappears from view.
+   */
+  const connectionTypes = useMemo(() => {
+    const allowed = new Set<AccessType>(copy.accessTypes);
+    for (const method of project.accessMethods) allowed.add(method.type);
+    return CONNECTION_TYPES.filter((definition) => allowed.has(definition.type));
+  }, [copy.accessTypes, project.accessMethods]);
 
   const staging = useMemo(
     () => project.environments.find((environment) => environment.type === "staging") ?? null,
@@ -335,16 +379,17 @@ export function ProjectAccessPanel({
       </header>
 
       <p className="access-intro">
-        Share only what the agent needs. A WordPress Application Password and an SSH private key are sealed on the
-        server the moment you save them and can never be read back — not by you, not by the agent, not by this page.
-        SSH is used for a fixed list of read-only inspections only. The other connections record where access lives;
-        their credentials aren't stored here yet.
+        Share only what the agent needs.{" "}
+        {copy.adminLabel ? `A ${copy.adminLabel} credential and an SSH private key are` : "An SSH private key is"} sealed
+        on the server the moment you save {copy.adminLabel ? "them" : "it"} and can never be read back — not by you, not
+        by the agent, not by this page. SSH is used for a fixed list of read-only inspections only. The other
+        connections record where access lives; their credentials aren't stored here yet.
       </p>
 
       {notice ? <p className="access-notice">{notice}</p> : null}
 
       <div className="access-grid">
-        {CONNECTION_TYPES.map((definition) => {
+        {connectionTypes.map((definition) => {
           const method = methodFor(definition.type);
           const status = method?.status ?? "missing";
           const verified = isVerified(method);
@@ -460,7 +505,9 @@ export function ProjectAccessPanel({
             <p className="access-drawer-note">
               {activeDefinition.executable
                 ? activeDefinition.type === "ssh"
-                  ? "The private key is sent straight to the secure store and is never shown again. Only a fixed list of read-only WP-CLI inspections can ever be run with it."
+                  ? `The private key is sent straight to the secure store and is never shown again. Only a fixed list of read-only ${
+                      stack === "wordpress" ? "WP-CLI" : "command"
+                    } inspections can ever be run with it.`
                   : "The password is sent straight to the secure store and is never shown again."
                 : "Connection details only. Don't paste a password here — it wouldn't be stored securely yet."}
             </p>
@@ -499,7 +546,9 @@ export function ProjectAccessPanel({
                 ? activeDefinition.type === "ssh"
                   ? "You can remove this key from the server's authorized_keys at any time. Nothing here can write, install, update, or delete."
                   : "You can revoke this Application Password in WordPress at any time, without changing your login."
-                : "Deeper server access will get the same secure treatment as WordPress Admin before it goes live."}
+                : `Deeper server access will get the same secure treatment as ${
+                    copy.adminLabel ?? "SSH"
+                  } before it goes live.`}
             </p>
 
             <div className="access-drawer-actions">

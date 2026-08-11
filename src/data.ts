@@ -1,4 +1,4 @@
-import type { ProjectDraft, Recommendation, RunDraft, RunPhase, RunState, TaskType, WorkspaceTab } from "./types";
+import type { AccessType, ProjectDraft, Recommendation, RunDraft, RunPhase, RunState, TaskType, WorkspaceTab } from "./types";
 
 export const workspaceTabs: Array<{ id: WorkspaceTab; label: string; detail: string }> = [
   { id: "overview", label: "Project Overview", detail: "Memory, risks, environments" },
@@ -15,6 +15,10 @@ export const taskTypeOptions: Array<{ value: TaskType; label: string; hint: stri
   { value: "plugin_theme_conflict", label: "Plugin / Theme Conflict", hint: "Compatibility breakage and behavioral regressions." },
   { value: "hardening", label: "Hardening / Cleanup", hint: "Config tightening, cleanup, and preventive work." },
   { value: "qa_only", label: "QA / Verification", hint: "Post-change validation without a fix run." },
+  { value: "deploy", label: "Deploy", hint: "Ship a change through the project's release pipeline." },
+  { value: "migration", label: "Migration", hint: "Schema or data migration with rollback posture." },
+  { value: "feature", label: "Feature", hint: "Build or change application behaviour." },
+  { value: "dependency_upgrade", label: "Dependency Upgrade", hint: "Runtime, framework, or package version work." },
 ];
 
 export const stateCopy: Record<RunState, { label: string; tone: string; guardrail: string }> = {
@@ -103,6 +107,37 @@ export const phaseOrder: RunState[] = [
   "complete",
 ];
 
+/**
+ * Deploy runs use the same states and the same transitions. Only the words a
+ * person reads change, because "Environment Mapping" is not what a release
+ * actually is.
+ */
+const deployStateCopy: Partial<Record<RunState, { label: string; tone: string }>> = {
+  environment_mapping: {
+    label: "Pipeline Check",
+    tone: "Verifying branch state and whether staging is current.",
+  },
+  diagnosis: {
+    label: "Pre-deploy Verification",
+    tone: "Confirming staging is live and the tests pass.",
+  },
+  execution: {
+    label: "Deploy Execution",
+    tone: "Merging, watching CI, and confirming the service comes back healthy.",
+  },
+  qa: {
+    label: "Post-deploy Health Check",
+    tone: "Checking the production URL, the process status, and the error rate.",
+  },
+};
+
+/** The label and tone a person should see for a state, given the task. */
+export const stateCopyFor = (state: RunState, taskType?: TaskType) => {
+  const base = stateCopy[state];
+  const override = taskType === "deploy" ? deployStateCopy[state] : undefined;
+  return override ? { ...base, ...override } : base;
+};
+
 export const starterRunDraft = (environmentId: string): RunDraft => ({
   title: "",
   taskType: "performance",
@@ -119,8 +154,8 @@ export const starterProjectDraft = (): ProjectDraft => ({
   websiteUrl: "",
   description: "",
   hostingProvider: "",
-  wordpressVersion: "Latest / unknown",
-  phpVersion: "Unknown",
+  stack: "wordpress",
+  versions: {},
   createProductionEnvironment: true,
   accessSelections: [
     { type: "wordpress_admin", enabled: false },
@@ -130,7 +165,7 @@ export const starterProjectDraft = (): ProjectDraft => ({
   ],
 });
 
-export const accessTypeCopy: Record<ProjectDraft["accessSelections"][number]["type"], { label: string; detail: string; blurb: string }> = {
+export const accessTypeCopy: Record<AccessType, { label: string; detail: string; blurb: string }> = {
   wordpress_admin: {
     label: "WordPress Admin",
     detail: "Needed for most investigations and safe first-pass validation.",
@@ -161,12 +196,27 @@ export const accessTypeCopy: Record<ProjectDraft["accessSelections"][number]["ty
     detail: "Cache or edge-layer access when a project needs it later.",
     blurb: "Not part of the default create-project card set.",
   },
+  server_pm2: {
+    label: "Server process manager",
+    detail: "Where the application process runs and restarts.",
+    blurb: "Recorded so the agent knows how the app is kept alive. Metadata only for now.",
+  },
+  ci_cd: {
+    label: "CI/CD pipeline",
+    detail: "The build and release pipeline for this project.",
+    blurb: "Recorded so the agent understands how a change reaches production.",
+  },
+  container: {
+    label: "Container platform",
+    detail: "Container or orchestration platform, when one is in play.",
+    blurb: "Recorded as environment truth. Metadata only for now.",
+  },
 };
 
 export const recommendationSummary = (recommendations: Recommendation[]) =>
   recommendations.filter((item) => item.status === "open" || item.status === "accepted");
 
-export const createPhases = (currentState: RunState): RunPhase[] =>
+export const createPhases = (currentState: RunState, taskType?: TaskType): RunPhase[] =>
   phaseOrder.map((state, index) => {
     const currentIndex = phaseOrder.indexOf(currentState);
     const status =
@@ -176,11 +226,13 @@ export const createPhases = (currentState: RunState): RunPhase[] =>
           ? "active"
           : "pending";
 
+    const copy = stateCopyFor(state, taskType);
+
     return {
       id: state,
       state,
-      label: stateCopy[state].label,
-      summary: stateCopy[state].tone,
+      label: copy.label,
+      summary: copy.tone,
       status,
     };
   });

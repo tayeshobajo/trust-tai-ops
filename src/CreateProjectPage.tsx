@@ -1,24 +1,19 @@
 import type { Dispatch, SetStateAction } from "react";
 import { accessTypeCopy } from "./data";
-import type { ProjectDraft } from "./types";
+import { PROJECT_STACKS, accessTypesForStack, stackCopy } from "./stacks";
+import type { AccessType, ProjectDraft, ProjectStack } from "./types";
 
-const accessInitials: Record<ProjectDraft["accessSelections"][number]["type"], string> = {
+const accessInitials: Record<AccessType, string> = {
   wordpress_admin: "WP",
   sftp: "SF",
   ssh: "SH",
   hosting_portal: "HO",
   database: "DB",
   cdn: "CD",
+  server_pm2: "PM",
+  ci_cd: "CI",
+  container: "CT",
 };
-
-// Only these four are offered during initial project creation. Database and
-// CDN/Cloudflare stay in the domain model but are added later from Access & Connections.
-const visibleAccessTypes: ProjectDraft["accessSelections"][number]["type"][] = [
-  "wordpress_admin",
-  "sftp",
-  "ssh",
-  "hosting_portal",
-];
 
 export function CreateProjectPage({
   canCreateProject,
@@ -36,6 +31,22 @@ export function CreateProjectPage({
   saveMessage: string;
 }) {
   const canSubmit = canCreateProject && draft.name.trim().length > 0 && draft.websiteUrl.trim().length > 0;
+  const stack = draft.stack ?? "wordpress";
+  const copyForStack = stackCopy[stack];
+  // Access choices follow the stack. Nothing irrelevant is offered, and
+  // nothing irrelevant survives a change of mind.
+  const visibleAccessTypes = accessTypesForStack(stack);
+
+  const chooseStack = (next: ProjectStack) =>
+    onDraftChange((current) => {
+      const allowed = accessTypesForStack(next);
+      return {
+        ...current,
+        stack: next,
+        versions: {},
+        accessSelections: current.accessSelections.filter((selection) => allowed.includes(selection.type)),
+      };
+    });
 
   return (
     <div className="create-page">
@@ -48,8 +59,7 @@ export function CreateProjectPage({
           <p className="eyebrow">New Project</p>
           <h1>Create a project</h1>
           <p>
-            Just the basics. The agent will discover hosting, WordPress details, and the rest of the technical picture
-            on its own.
+            Just the basics. The agent will discover hosting and the rest of the technical picture on its own.
           </p>
         </header>
 
@@ -83,6 +93,43 @@ export function CreateProjectPage({
               onChange={(event) => onDraftChange((current) => ({ ...current, websiteUrl: event.target.value }))}
             />
           </label>
+
+          <div className="create-field">
+            <span>What does this project run on?</span>
+            <div className="create-stack-grid">
+              {PROJECT_STACKS.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={`create-stack-card ${stack === option ? "is-enabled" : ""}`}
+                  aria-pressed={stack === option}
+                  onClick={() => chooseStack(option)}
+                >
+                  {stackCopy[option].label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="create-versions">
+            {copyForStack.versionFields.map((field) => (
+              <label className="create-field" key={field.key}>
+                <span>
+                  {field.label} <em>Optional</em>
+                </span>
+                <input
+                  value={draft.versions?.[field.key] ?? ""}
+                  placeholder={field.placeholder}
+                  onChange={(event) =>
+                    onDraftChange((current) => ({
+                      ...current,
+                      versions: { ...(current.versions ?? {}), [field.key]: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+            ))}
+          </div>
 
           <label className="create-field">
             <span>Anything the agent should know? <em>Optional</em></span>
