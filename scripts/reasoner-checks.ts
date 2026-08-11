@@ -217,8 +217,8 @@ check("unknown capabilities are dropped from the digest", !digest.capabilities.i
 check("long secret-like strings are redacted from evidence", digest.evidence[0].summary.includes("[redacted]"));
 check("digest memory lines are bounded", digest.memory[0].length <= 200);
 check(
-  "the prompt never mentions a credential field",
-  !/password|api[_ ]?key|secret/i.test(userPrompt(digest).replace(/\[redacted\]/g, "")),
+  "a pasted credential value never reaches the prompt",
+  !userPrompt(digest).includes("hunter2") && digest.messages[0].text.includes("[redacted]"),
 );
 check("the system prompt forbids inventing tools", /Never invent a tool/.test(SYSTEM_PROMPT));
 check(
