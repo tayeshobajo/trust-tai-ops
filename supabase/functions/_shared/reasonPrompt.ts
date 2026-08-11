@@ -22,8 +22,18 @@ export type ReasonDigest = {
   memory: string[];
 };
 
+/**
+ * People paste credentials into chat. Anything that looks like "the password
+ * is X" loses its value here, before a model or a log ever sees it.
+ */
+const scrubCredentialPhrases = (value: string): string =>
+  value.replace(
+    /\b(password|passwd|pass|api[\s_-]?key|secret|token|passphrase)\b\s*(?:is|=|:)?\s*\S+/gi,
+    "$1 [redacted]",
+  );
+
 const line = (value: unknown, max = 300): string =>
-  typeof value === "string" ? redact(value.replace(/\s+/g, " ").trim()).slice(0, max) : "";
+  typeof value === "string" ? redact(scrubCredentialPhrases(value.replace(/\s+/g, " ").trim())).slice(0, max) : "";
 
 const list = (value: unknown, allowed?: readonly string[]): string[] =>
   Array.isArray(value)
