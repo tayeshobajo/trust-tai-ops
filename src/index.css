@@ -6002,3 +6002,14 @@ p, li {
     border-radius: var(--tt-radius-sm);
   }
 }
+
+.pw-task-surface {
+  list-style: none;
+  margin: var(--tt-space-4) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--tt-space-2);
+  max-width: 720px;
+}
+
+.pw-task-surface .pw-task-row { width: 100%; }
