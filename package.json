@@ -17,7 +17,8 @@
     "check:reasoner": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/reasoner-checks.ts",
     "check:meetings": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/meeting-checks.ts",
     "check:migrations": "node --experimental-strip-types --no-warnings scripts/migration-checks.ts",
-    "check:stacks": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/stack-checks.ts"
+    "check:stacks": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/stack-checks.ts",
+    "check:chat-secrets": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/chat-secret-checks.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.0",
