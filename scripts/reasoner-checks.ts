@@ -10,6 +10,8 @@
  * unavailable or nonsense model never stalls a run.
  */
 
+import { readFileSync } from "node:fs";
+
 const failures: string[] = [];
 const check = (name: string, condition: boolean) => {
   if (condition) console.log(`  ok  ${name}`);
@@ -334,6 +336,16 @@ check(
   validateReasonPlan(parseModelJson('{"intent":"inspect_public_surface","steps":[{"id":"delete-plugin"}]}'), ALL).ok ===
     false,
 );
+
+// Provider auth headers: Anthropic uses x-api-key, the Lovable gateway uses its
+// own header. A Bearer token on the gateway path is a silent auth failure.
+{
+  const fn = readFileSync("supabase/functions/agent-reason/index.ts", "utf8");
+  check("gateway call authenticates with the Lovable-API-Key header", fn.includes('"Lovable-API-Key": apiKey'));
+  check("gateway call never uses a Bearer token", !/Authorization:\s*`Bearer/.test(fn));
+  check("anthropic call authenticates with x-api-key", fn.includes('"x-api-key": apiKey'));
+  check("anthropic call pins an API version", fn.includes('"anthropic-version"'));
+}
 
 console.log("");
 if (failures.length > 0) {
