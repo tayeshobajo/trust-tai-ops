@@ -235,7 +235,8 @@ anyone):
 - `SUPABASE_ANON_KEY` — only if used for verifying caller token claims
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `AGENT_SECRET_ENCRYPTION_KEY`
-- `LOVABLE_API_KEY` — model access for `agent-reason` only
+- `LOVABLE_API_KEY` — built-in model access for `agent-reason` only
+- `ANTHROPIC_API_KEY` — Claude access for `agent-reason` only
 
 The SSH private key and its passphrase are sealed with
 `AGENT_SECRET_ENCRYPTION_KEY` and never leave the server. `host`, `port`,
