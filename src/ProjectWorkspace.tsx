@@ -25,6 +25,9 @@ import type { AccessEvent } from "./ProjectAccessPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { ProjectActivityPanel } from "./ProjectActivityPanel";
 import { deriveMemoryFromRun } from "./memory";
+import { MeetingPlanReview } from "./MeetingPlanReview";
+import { decideProposedTask, ingestAndAnalyzeMeeting, meetingIntelligenceAvailable } from "./meetings";
+import type { MeetingAnalysisView, ProposedTask } from "./meetings";
 
 // Long conversations render in a trailing window and grow on request, so a
 // task with hundreds of messages opens as fast as a fresh one.
@@ -117,6 +120,15 @@ export function ProjectWorkspace({
   const [accessFocus, setAccessFocus] = useState<AccessType[]>([]);
   const [query, setQuery] = useState("");
   const [windowSize, setWindowSize] = useState(PAGE_SIZE);
+  // Meeting intake lives inside the conversation, not in a separate CRM.
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [transcriptTitle, setTranscriptTitle] = useState("");
+  const [transcriptText, setTranscriptText] = useState("");
+  const [meetingBusy, setMeetingBusy] = useState(false);
+  const [meetingError, setMeetingError] = useState<string | null>(null);
+  const [meetingAnalysis, setMeetingAnalysis] = useState<MeetingAnalysisView | null>(null);
+  const [taskDecisions, setTaskDecisions] = useState<Record<string, "approved" | "rejected">>({});
+  const [taskBusyId, setTaskBusyId] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
@@ -442,6 +454,120 @@ export function ProjectWorkspace({
     setComposerValue("");
     setMobilePane("chat");
     window.setTimeout(() => composerRef.current?.focus(), 0);
+  };
+
+  /**
+   * A meeting enters the project as conversation. The agent says it received
+   * the transcript, then says what it understood. Nothing is started here.
+   */
+  const submitTranscript = async () => {
+    const text = transcriptText.trim();
+    if (text.length < 40) {
+      setMeetingError("I need the meeting text itself before I can read it.");
+      return;
+    }
+
+    setMeetingBusy(true);
+    setMeetingError(null);
+    const title = transcriptTitle.trim() || "Client meeting";
+    const stamp = Date.now();
+
+    try {
+      await emit({
+        runId: activeRun?.id ?? null,
+        role: "user",
+        kind: "message",
+        body: [`Shared a transcript from ${title}.`],
+        dedupeKey: `transcript-${project.id}-${stamp}`,
+      });
+
+      const result = await ingestAndAnalyzeMeeting({ projectId: project.id, text, title });
+      if (!result.ok) {
+        setMeetingError(result.summary);
+        return;
+      }
+
+      setTranscriptOpen(false);
+      setTranscriptText("");
+      setTranscriptTitle("");
+      setMeetingAnalysis(result.analysis);
+      setTaskDecisions({});
+
+      const redactionNote =
+        result.redactedCount > 0
+          ? ` I removed ${result.redactedCount} credential-looking value${result.redactedCount === 1 ? "" : "s"} before storing it.`
+          : "";
+
+      await emit({
+        runId: activeRun?.id ?? null,
+        role: "agent",
+        kind: "message",
+        body: [
+          `${result.analysis.summary}${redactionNote}`,
+          result.analysis.proposedTasks.length > 0
+            ? "Here's the work I'd suggest. Tell me which of it to pick up."
+            : "Nothing in there needs work from me yet — I've noted the context.",
+        ],
+        dedupeKey: `meeting-summary-${result.analysis.analysisId}`,
+      });
+    } catch {
+      setMeetingError("I couldn't take that transcript just now.");
+    } finally {
+      setMeetingBusy(false);
+    }
+  };
+
+  /** Approval is the moment a proposal becomes real work. Only a human does it. */
+  const approveProposedTask = async (task: ProposedTask) => {
+    if (!canWrite || taskBusyId) return;
+    setTaskBusyId(task.id);
+    try {
+      const next = await workspaceRepository.createRun(project.id, {
+        title: task.title,
+        taskType: task.taskType,
+        taskSummary: task.clientAsk || task.implementationApproach || task.title,
+        urgency: "normal",
+        environmentId: project.environments[0]?.id ?? "",
+        accessReady: projectHasUsableAccess(project),
+        backupConfirmed: false,
+      });
+      onWorkspaceUpdate(next);
+      const created = next.projects.find((item) => item.id === project.id)?.runs[0] ?? null;
+
+      await decideProposedTask(task.id, "approved", created?.id ?? null);
+      setTaskDecisions((current) => ({ ...current, [task.id]: "approved" }));
+
+      await emit({
+        runId: created?.id ?? null,
+        role: "user",
+        kind: "decision_response",
+        body: [`Approved from the meeting: ${task.title}.`],
+        dedupeKey: `proposal-approved-${task.id}`,
+      });
+      if (created) setActiveRunId(created.id);
+    } catch {
+      setMeetingError("I couldn't start that task. Nothing was changed.");
+    } finally {
+      setTaskBusyId(null);
+    }
+  };
+
+  const rejectProposedTask = async (task: ProposedTask) => {
+    if (!canWrite || taskBusyId) return;
+    setTaskBusyId(task.id);
+    try {
+      await decideProposedTask(task.id, "rejected");
+      setTaskDecisions((current) => ({ ...current, [task.id]: "rejected" }));
+      await emit({
+        runId: activeRun?.id ?? null,
+        role: "user",
+        kind: "decision_response",
+        body: [`Left for now: ${task.title}.`],
+        dedupeKey: `proposal-rejected-${task.id}`,
+      });
+    } finally {
+      setTaskBusyId(null);
+    }
   };
 
   const sendMessage = async () => {
@@ -945,10 +1071,68 @@ export function ProjectWorkspace({
               <button type="button" onClick={() => setPersistError(null)}>Dismiss</button>
             </p>
           ) : null}
+
+          {meetingAnalysis ? (
+            <MeetingPlanReview
+              analysis={meetingAnalysis}
+              canWrite={canWrite}
+              busyTaskId={taskBusyId}
+              decided={taskDecisions}
+              onApprove={(task) => void approveProposedTask(task)}
+              onReject={(task) => void rejectProposedTask(task)}
+            />
+          ) : null}
           <div ref={threadEndRef} />
         </div>
 
         <div className="pw-composer">
+          {transcriptOpen ? (
+            <div className="transcript-intake">
+              <label className="transcript-field">
+                <span>Meeting</span>
+                <input
+                  type="text"
+                  value={transcriptTitle}
+                  placeholder="Weekly client call"
+                  onChange={(event) => setTranscriptTitle(event.target.value)}
+                />
+              </label>
+              <textarea
+                className="composer-input"
+                rows={6}
+                value={transcriptText}
+                placeholder="Paste the meeting transcript here. I'll strip anything that looks like a credential before storing it."
+                aria-label="Meeting transcript"
+                onChange={(event) => setTranscriptText(event.target.value)}
+              />
+              <input
+                type="file"
+                accept=".txt,.md,.vtt,.srt,text/plain"
+                aria-label="Upload a transcript file"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  setTranscriptText(await file.text());
+                  if (!transcriptTitle.trim()) setTranscriptTitle(file.name.replace(/\.[^.]+$/, ""));
+                }}
+              />
+              {meetingError ? <p className="pw-persist-error" role="status">{meetingError}</p> : null}
+              <div className="composer-row">
+                <button className="ghost-button" type="button" onClick={() => setTranscriptOpen(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={meetingBusy || transcriptText.trim().length < 40}
+                  onClick={() => void submitTranscript()}
+                >
+                  {meetingBusy ? "Reading the meeting…" : "Share with the agent"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <textarea
             ref={composerRef}
             className="composer-input"
@@ -965,7 +1149,17 @@ export function ProjectWorkspace({
             }}
           />
           <div className="composer-row">
-            <button className="composer-attach" type="button" aria-label="Attach a file">＋</button>
+            {meetingIntelligenceAvailable() ? (
+              <button
+                className="composer-attach"
+                type="button"
+                aria-label="Share a meeting transcript"
+                title="Share a meeting transcript"
+                onClick={() => setTranscriptOpen((open) => !open)}
+              >
+                ＋
+              </button>
+            ) : null}
             <button className="primary-button" type="button" disabled={!composerValue.trim() || busy} onClick={() => void sendMessage()}>
               Send
             </button>

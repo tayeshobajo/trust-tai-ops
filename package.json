@@ -15,6 +15,7 @@
     "check:wpcli": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/wpcli-checks.ts",
     "check:logs": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/log-checks.ts",
     "check:reasoner": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/reasoner-checks.ts",
+    "check:meetings": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/meeting-checks.ts",
     "check:migrations": "node --experimental-strip-types --no-warnings scripts/migration-checks.ts"
   },
   "dependencies": {
