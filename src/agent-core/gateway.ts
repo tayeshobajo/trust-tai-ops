@@ -39,6 +39,11 @@ export interface ExecutionGateway {
   available(): boolean;
   invoke(request: GatewayRequest): Promise<GatewayResponse>;
   /**
+   * Asks the server-side reasoner what should happen next. Returns null
+   * whenever reasoning is unavailable, refused, or unsafe — never a guess.
+   */
+  reason(projectId: string, digest: Record<string, unknown>): Promise<unknown | null>;
+  /**
    * Server truth about which private capabilities this project can actually
    * use, split into stored and verified. Client-side access state is only ever
    * a hint, and "stored" is never presented to a person as "verified".
@@ -77,6 +82,48 @@ class SupabaseFunctionGateway implements ExecutionGateway {
   }
 
   async projectCapabilities(projectId: string): Promise<ProjectCapabilities> {
+    const none: ProjectCapabilities = { stored: [], verified: [] };
+    if (!this.available()) return none;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke("agent-execute", {
+        body: { mode: "capabilities", projectId },
+      });
+      if (error) return none;
+      const payload = data as
+        | { ok?: boolean; data?: { capabilities?: unknown; verifiedCapabilities?: unknown } }
+        | null;
+      if (!payload?.ok) return none;
+      const strings = (value: unknown): string[] =>
+        Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+      return {
+        stored: strings(payload.data?.capabilities),
+        verified: strings(payload.data?.verifiedCapabilities),
+      };
+    } catch {
+      // Unproven means unavailable. Never assume a capability exists.
+      return none;
+    }
+  }
+
+  async reason(projectId: string, digest: Record<string, unknown>): Promise<unknown | null> {
+    if (!this.available()) return null;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke("agent-reason", {
+        body: { projectId, digest },
+      });
+      if (error) return null;
+      const payload = data as { ok?: boolean; plan?: unknown } | null;
+      if (!payload?.ok || !payload.plan) return null;
+      return payload.plan;
+    } catch {
+      // Reasoning is an enhancement, never a dependency.
+      return null;
+    }
+  }
+
+  private async unusedCapabilities(projectId: string): Promise<ProjectCapabilities> {
     const none: ProjectCapabilities = { stored: [], verified: [] };
     if (!this.available()) return none;
     try {
