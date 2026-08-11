@@ -72,9 +72,17 @@ free-text command path. Verify the safety model with `npm run check:wpcli`.
 Additive, read-only, and never required for the product to work. The browser
 never talks to a model and holds no model credential.
 
-13. Set the Edge Function secret `LOVABLE_API_KEY` (server-side only, no
-    `VITE_` prefix)
+13. Set the model credential as an Edge Function secret (server-side only, no
+    `VITE_` prefix): `ANTHROPIC_API_KEY` for the Claude models (the default is
+    Claude Sonnet), `LOVABLE_API_KEY` for the built-in Gemini and GPT models.
+    Set both if operators should be able to switch freely.
 14. Deploy `agent-reason`
+
+The model is chosen once, in Settings, from the closed list in
+`supabase/functions/_shared/reasonModels.ts`. The browser sends only an id; the
+server decides which provider that id means and which secret it uses. If the
+chosen model's secret is missing or rejected, the agent falls back to its
+deterministic checks instead of stalling.
 
 `agent-reason` proves the caller belongs to the project, sends a redacted
 digest of what is already known, and returns only steps drawn from the closed
