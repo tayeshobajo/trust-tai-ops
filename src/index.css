@@ -5933,3 +5933,72 @@ p, li {
 }
 
 .create-back.is-back:hover span { transform: translateX(-2px); }
+
+/* ─── Persistent project shell: chrome + surface ─────────── */
+
+.pw-surface {
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--tt-paper);
+}
+
+.pw-shell.is-surface {
+  grid-template-columns: var(--tt-tasks) minmax(0, 1fr);
+}
+
+.access-surface.is-embedded {
+  min-height: 0;
+}
+
+.pw-mobile-top,
+.pw-secondary-bar {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .pw-shell,
+  .pw-shell.is-surface {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  .pw-tasks .pw-secondary { display: none; }
+
+  .pw-mobile-top {
+    display: flex;
+    align-items: center;
+    gap: var(--tt-space-3);
+    padding: var(--tt-space-2) var(--tt-space-4);
+    border-bottom: 1px solid var(--tt-rule);
+    background: var(--tt-white);
+    order: -1;
+  }
+
+  .pw-mobile-title {
+    font-family: var(--tt-font-display);
+    font-size: 15px;
+    color: var(--tt-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pw-tasks .pw-tasks-head .create-back.is-back { display: none; }
+
+  .pw-secondary-bar {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0;
+    border-top: 1px solid var(--tt-rule);
+    background: var(--tt-white);
+    padding: var(--tt-space-1) var(--tt-space-1) calc(var(--tt-space-1) + env(safe-area-inset-bottom));
+    margin: 0;
+  }
+
+  .pw-secondary-bar button {
+    padding: var(--tt-space-2) 2px;
+    font-size: 0.7rem;
+    text-align: center;
+    border-radius: var(--tt-radius-sm);
+  }
+}
