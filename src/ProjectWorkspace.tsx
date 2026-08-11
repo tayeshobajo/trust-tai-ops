@@ -113,7 +113,7 @@ export function ProjectWorkspace({
   const [persistError, setPersistError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [mobilePane, setMobilePane] = useState<"tasks" | "chat" | "context">("chat");
-  const [surface, setSurface] = useState<"conversation" | "access" | "memory" | "activity">(initialSurface);
+  const [surface, setSurface] = useState<"conversation" | "tasks" | "access" | "memory" | "activity">(initialSurface);
   const [accessFocus, setAccessFocus] = useState<AccessType[]>([]);
   const [query, setQuery] = useState("");
   const [windowSize, setWindowSize] = useState(PAGE_SIZE);
