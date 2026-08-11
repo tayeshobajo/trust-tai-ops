@@ -32,6 +32,25 @@ export interface AgentReasoner {
 const hasEvidenceFrom = (context: AgentContext, toolId: ToolId) =>
   context.evidence.some((item) => item.toolId === toolId);
 
+/** A tool that already failed this investigation is never asked for again. */
+const toolFailed = (context: AgentContext, toolId: ToolId) =>
+  (context.failedObservations ?? []).some((item) => item.toolId === toolId);
+
+/** Has a real browser already loaded the page at this viewport? */
+const hasPageEvidence = (context: AgentContext, viewport: "desktop" | "mobile") =>
+  context.evidence.some(
+    (item) => item.toolId === "browser.inspect_page_readonly" && item.data.viewport === viewport,
+  );
+
+/** Tasks where how the page actually behaves in a browser is real evidence. */
+const BROWSER_TASK_TYPES: readonly string[] = [
+  "performance",
+  "broken_site",
+  "plugin_theme_conflict",
+  "display",
+  "recovery",
+];
+
 /**
  * The catalog inspection each planned WP-CLI action stands for. Named here so
  * the planner can never assemble a command; it only chooses a catalog id.
@@ -207,10 +226,38 @@ class DeterministicReasoner implements AgentReasoner {
       });
     }
 
-    for (const item of want) {
+    // How the page really behaves is stack-neutral evidence: it is the same
+    // question on WordPress, Meteor or anything else. Desktop first; the
+    // phone-sized view is only worth a second load for performance work.
+    if (
+      hasEvidenceFrom(context, "public_http.inspect_site") &&
+      BROWSER_TASK_TYPES.includes(context.run.taskType) &&
+      !toolFailed(context, "browser.inspect_page_readonly")
+    ) {
+      if (!hasPageEvidence(context, "desktop")) {
+        want.push({
+          id: "inspect-page-desktop",
+          toolId: "browser.inspect_page_readonly",
+          purpose: "Load the page in a real browser and watch how it performs.",
+        });
+      } else if (context.run.taskType === "performance" && !hasPageEvidence(context, "mobile")) {
+        want.push({
+          id: "inspect-page-mobile",
+          toolId: "browser.inspect_page_readonly",
+          purpose: "Load the same page on a phone-sized screen and compare how it performs.",
+        });
+      }
+    }
+
+    for (const item of want.filter((entry) => !toolFailed(context, entry.toolId))) {
       // Private tools resolve their own target server-side from the project.
-      const args: AgentActionArguments = wpCliArgsFor(item.id) ??
-        (item.toolId === "wordpress.list_plugins" || item.toolId === "wordpress.read_error_log" ? {} : { url });
+      const args: AgentActionArguments =
+        wpCliArgsFor(item.id) ??
+        (item.toolId === "wordpress.list_plugins" || item.toolId === "wordpress.read_error_log"
+          ? {}
+          : item.toolId === "browser.inspect_page_readonly"
+          ? { url, viewport: item.id === "inspect-page-mobile" ? "mobile" : "desktop" }
+          : { url });
       const built = planAction(item.id, item.toolId, context.run.id, args, item.purpose);
       if ("error" in built) {
         return emptyPlan({
