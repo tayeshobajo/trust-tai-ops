@@ -5898,6 +5898,47 @@ p, li {
   color: rgba(1, 5, 27, 0.5);
 }
 
+.set-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--tt-space-3);
+  margin-top: var(--tt-space-4);
+}
+
+.set-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-4);
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--tt-rule);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.set-choice:hover {
+  border-color: rgba(1, 5, 27, 0.28);
+}
+
+.set-choice.is-selected {
+  border-color: var(--tt-signal, #1f5fd8);
+  background: rgba(31, 95, 216, 0.05);
+}
+
+.set-choice-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tt-ink);
+}
+
+.set-choice-note {
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(1, 5, 27, 0.55);
+}
+
 @media (max-width: 799px) {
   .home-shell.is-single {
     grid-template-columns: minmax(0, 1fr);
