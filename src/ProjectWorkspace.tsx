@@ -776,6 +776,7 @@ export function ProjectWorkspace({
       {secondarySurface ? (
         <main className="pw-surface">{secondarySurface}</main>
       ) : (
+      <>
       <main className="pw-chat">
         <header className="pw-chat-head">
           <button className="pw-pane-toggle" type="button" onClick={() => setMobilePane("tasks")}>
