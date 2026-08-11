@@ -981,6 +981,18 @@ export function ProjectWorkspace({
           </>
         )}
       </aside>
+      </>
+      )}
+
+      <div className="pw-mobile-top">
+        <button className="create-back is-back" type="button" onClick={onBackToProjects}>
+          <span aria-hidden="true">&#8592;</span>
+          All projects
+        </button>
+        <span className="pw-mobile-title">{project.name}</span>
+      </div>
+
+      {renderProjectNav("bar")}
     </div>
   );
 }
