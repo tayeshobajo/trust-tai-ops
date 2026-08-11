@@ -177,7 +177,9 @@ type Field =
   | "protocol";
 
 const FIELD_RULES: Array<{ re: RegExp; field: Field; section?: Section }> = [
-  { re: /^(?:wp[ _-]?admin|wp[ _-]?admin[ _-]?url|admin[ _-]?url|admin[ _-]?login|dashboard)$/i, field: "adminUrl", section: "wordpress" },
+  // "Wp-admin:" arrives here as the bare word "admin" once the section prefix
+  // has been peeled off.
+  { re: /^(?:admin|wp[ _-]?admin|wp[ _-]?admin[ _-]?url|admin[ _-]?url|admin[ _-]?login|dashboard)$/i, field: "adminUrl", section: "wordpress" },
   { re: /^(?:url|site|site[ _-]?url|website|domain|wordpress[ _-]?url)$/i, field: "siteUrl", section: "wordpress" },
   { re: /^(?:app(?:lication)?[ _-]?password)$/i, field: "appPassword", section: "wordpress" },
   { re: /^(?:email|e-?mail|login|user[ _-]?email)$/i, field: "identity", section: "wordpress" },
