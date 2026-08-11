@@ -1216,23 +1216,6 @@ export function ProjectWorkspace({
               <p>{signal.needsYou ?? "Nothing needed from you right now."}</p>
             </section>
 
-            {project.deployPipeline ? (
-              <section className="pw-context-block">
-                <p className="eyebrow">How this ships</p>
-                <ol className="pw-pipeline">
-                  {project.deployPipeline.steps.map((step) => (
-                    <li key={step.kind}>
-                      <strong>{step.label}</strong>
-                      <span>{step.detail}</span>
-                    </li>
-                  ))}
-                </ol>
-                <p className="pw-pipeline-note">
-                  Build {describeBuildTime(project.deployPipeline)} · Rollback:{" "}
-                  {rollbackCopy[project.deployPipeline.rollbackStrategy]}
-                </p>
-              </section>
-            ) : null}
           </>
         ) : (
           <>
@@ -1241,6 +1224,25 @@ export function ProjectWorkspace({
             <p className="pw-empty-note">Send your first message and I&apos;ll open a task for it.</p>
           </>
         )}
+
+        {/* Deploy protocol is a fact about the project, not about a run. */}
+        {project.deployPipeline ? (
+          <section className="pw-context-block">
+            <p className="eyebrow">How this ships</p>
+            <ol className="pw-pipeline">
+              {project.deployPipeline.steps.map((step) => (
+                <li key={step.kind}>
+                  <strong>{step.label}</strong>
+                  <span>{step.detail}</span>
+                </li>
+              ))}
+            </ol>
+            <p className="pw-pipeline-note">
+              Build {describeBuildTime(project.deployPipeline)} · Rollback:{" "}
+              {rollbackCopy[project.deployPipeline.rollbackStrategy]}
+            </p>
+          </section>
+        ) : null}
       </aside>
       </>
       )}
