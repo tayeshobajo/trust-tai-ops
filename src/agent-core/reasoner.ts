@@ -89,10 +89,6 @@ const ERROR_LOG_TASK_TYPES: readonly string[] = [
   "malware",
 ];
 
-const unusedNeedsServerInspection = (context: AgentContext): boolean =>
-  hasEvidenceFrom(context, "wordpress.list_plugins") &&
-  ["malware", "performance", "update", "recovery"].includes(context.run.taskType);
-
 const emptyPlan = (decision: AgentDecision): AgentPlan => ({
   decision,
   actions: [],
