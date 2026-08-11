@@ -696,8 +696,9 @@ export function ProjectWorkspace({
     <div className={`pw-shell pane-${mobilePane}`}>
       <aside className="pw-tasks">
         <div className="pw-tasks-head">
-          <button className="create-back" type="button" onClick={onBackToProjects}>
-            Projects
+          <button className="create-back is-back" type="button" onClick={onBackToProjects}>
+            <span aria-hidden="true">&#8592;</span>
+            All projects
           </button>
           <div className="pw-identity">
             <span className="preview-avatar" aria-hidden="true">{getProjectInitials(project)}</span>

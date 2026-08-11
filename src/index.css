@@ -5912,3 +5912,24 @@ p, li {
     font-size: 30px;
   }
 }
+
+/* Back control reads as navigation, not as a filter chip */
+.create-back.is-back {
+  gap: var(--tt-space-1);
+  border-color: transparent;
+  padding-inline: var(--tt-space-2);
+  margin-left: calc(-1 * var(--tt-space-2));
+}
+
+.create-back.is-back span {
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 140ms ease;
+}
+
+.create-back.is-back:hover {
+  border-color: transparent;
+  background: rgba(29, 84, 193, 0.08);
+}
+
+.create-back.is-back:hover span { transform: translateX(-2px); }
