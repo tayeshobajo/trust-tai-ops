@@ -12,6 +12,7 @@
 
 import { hasSupabasePublicConfig, resolveOpsEnv } from "../env";
 import { getSupabaseClient } from "../supabase";
+import { readReasonModelId } from "./reasonModels";
 import type { AgentActionArguments, ToolFailureCode, ToolId } from "./types";
 
 export type GatewayRequest = {
@@ -111,7 +112,7 @@ class SupabaseFunctionGateway implements ExecutionGateway {
     try {
       const client = getSupabaseClient();
       const { data, error } = await client.functions.invoke("agent-reason", {
-        body: { projectId, digest },
+        body: { projectId, digest, model: readReasonModelId() },
       });
       if (error) return null;
       const payload = data as { ok?: boolean; plan?: unknown } | null;
