@@ -93,6 +93,235 @@ const AUTH_FAIL_SUMMARY: Record<string, string> = {
   execution_context_unavailable: "I can't confirm who this project belongs to right now, so I stopped.",
 };
 
+/** One provider round-trip, with every transport failure mapped to a spoken reason. */
+const askModel = async (
+  model: ReasonModel,
+  call: ProviderCall,
+  timeoutMs: number,
+): Promise<{ ok: true; content: string } | { ok: false; response: Response }> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(call.url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: call.headers,
+      body: JSON.stringify(call.body),
+    });
+  } catch {
+    return { ok: false, response: fail("reasoner_unavailable", "I couldn't reach my reasoning service just now.", true) };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (response.status === 429) {
+    return {
+      ok: false,
+      response: fail("rate_limited", "I'm being rate limited right now — I'll fall back to my standard checks.", true),
+    };
+  }
+  if (response.status === 401 || response.status === 403) {
+    return {
+      ok: false,
+      response: fail(
+        "reasoner_unauthorized",
+        model.provider === "anthropic"
+          ? "My Anthropic key was rejected, so I'm using my standard checks."
+          : "My reasoning service rejected its own credential.",
+        false,
+      ),
+    };
+  }
+  if (response.status === 402) {
+    return { ok: false, response: fail("payment_required", "My reasoning service needs credits topped up.", false) };
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    console.error(`agent-reason ${model.provider} failed [${response.status}]: ${detail.slice(0, 500)}`);
+    return { ok: false, response: fail("reasoner_unavailable", "My reasoning service returned an error.", true) };
+  }
+
+  let content = "";
+  try {
+    content = readModelText(model.provider, await response.json());
+  } catch {
+    content = "";
+  }
+  return { ok: true, content };
+};
+
+/**
+ * Meeting analysis. The transcript and the project history are both read
+ * server-side from the authorized project; the browser supplies only the
+ * source id. Everything the model returns is validated against the transcript
+ * before a single row is written, and every row is written as a proposal.
+ */
+const analyzeMeetingSource = async (
+  projectId: string,
+  canonicalUrl: string | null,
+  primaryDomain: string,
+  sourceId: string,
+  model: ReasonModel,
+  apiKey: string,
+): Promise<Response> => {
+  if (!sourceId) return fail("invalid_input", "No transcript was named.", false);
+  const service = serviceClient();
+
+  const source = await service
+    .from("project_sources")
+    .select("id, project_id, title, occurred_at, normalized_text, processing_status")
+    .eq("id", sourceId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+
+  // Scoped by project on the query itself: a source id from another project
+  // simply does not exist here.
+  if (!source.data) return fail("source_not_found", "I couldn't find that transcript on this project.", false);
+
+  const transcript = String(source.data.normalized_text ?? "");
+  if (transcript.trim().length < 40) {
+    return fail("invalid_input", "That transcript has no usable content.", false);
+  }
+
+  const chunks = chunkTranscript(transcript);
+  const context = await loadProjectContext(projectId, canonicalUrl, transcript);
+  const prompt = meetingUserPrompt(context, chunks, {
+    title: String(source.data.title ?? "Client meeting"),
+    occurredAt: String(source.data.occurred_at ?? "date not recorded"),
+  });
+
+  await service.from("project_sources").update({ processing_status: "analyzing" }).eq("id", sourceId);
+
+  const asked = await askModel(
+    model,
+    buildCall(model, apiKey, MEETING_SYSTEM_PROMPT, prompt, MEETING_MAX_OUTPUT_TOKENS),
+    MEETING_TIMEOUT_MS,
+  );
+  if (!asked.ok) {
+    await service.from("project_sources").update({ processing_status: "failed" }).eq("id", sourceId);
+    return asked.response;
+  }
+
+  const memoryIndex = await loadMemoryIndex(projectId);
+  const validated = validateMeetingAnalysis(parseModelJson(asked.content), {
+    chunks,
+    allowedHosts: [primaryDomain, canonicalUrl ?? ""].filter(Boolean).map((value) =>
+      value.replace(/^https?:\/\//, "").split("/")[0]
+    ),
+  });
+
+  if (!validated.ok) {
+    console.error(`agent-reason rejected meeting analysis: ${validated.reason}`);
+    await service.from("project_sources").update({ processing_status: "failed" }).eq("id", sourceId);
+    return fail("analysis_rejected", "I read the meeting but couldn't turn it into something I trust yet.", true);
+  }
+
+  const analysis = validated.analysis;
+
+  // Re-analysis produces a new version rather than overwriting the record the
+  // human may already have acted on.
+  const previous = await service
+    .from("source_analyses")
+    .select("version")
+    .eq("source_id", sourceId)
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const version = Number(previous.data?.version ?? 0) + 1;
+
+  const analysisRow = await service
+    .from("source_analyses")
+    .insert({
+      project_id: projectId,
+      source_id: sourceId,
+      version,
+      mode: "analyze_meeting_source",
+      model_id: model.id,
+      prompt_version: MEETING_PROMPT_VERSION,
+      status: "complete",
+      result: analysis,
+    })
+    .select("id")
+    .single();
+
+  if (analysisRow.error || !analysisRow.data) {
+    console.error(`agent-reason analysis write failed: ${analysisRow.error?.message ?? "unknown"}`);
+    await service.from("project_sources").update({ processing_status: "failed" }).eq("id", sourceId);
+    return fail("analysis_write_failed", "I read the meeting but couldn't file what I found.", true);
+  }
+
+  const analysisId = String(analysisRow.data.id);
+
+  if (analysis.proposedTasks.length > 0) {
+    await service.from("proposed_tasks").upsert(
+      analysis.proposedTasks.map((task) => ({
+        project_id: projectId,
+        analysis_id: analysisId,
+        source_id: sourceId,
+        task_key: taskKeyFor(analysisId, task.title),
+        title: task.title,
+        client_ask: task.clientAsk,
+        provenance: task.provenance,
+        task_type: task.taskType,
+        risk_level: task.riskLevel,
+        needs_investigation: task.needsInvestigation,
+        access_needed: task.accessNeeded,
+        depends_on: task.dependsOn,
+        implementation_approach: task.implementationApproach,
+        verification_expectation: task.verificationExpectation,
+        requires_execution_approval: task.requiresExecutionApproval,
+        status: "proposed",
+      })),
+      { onConflict: "project_id,task_key" },
+    );
+  }
+
+  if (analysis.memoryCandidates.length > 0) {
+    // A hint is matched against real memory titles here, server-side. The model
+    // never gets to name a memory row id.
+    const resolveSupersedes = (hint: string): string | null => {
+      const needle = hint.trim().toLowerCase();
+      if (needle.length < 4) return null;
+      const hit = memoryIndex.find((entry) => entry.title.toLowerCase().includes(needle));
+      return hit ? hit.id : null;
+    };
+
+    await service.from("memory_candidates").upsert(
+      analysis.memoryCandidates.map((candidate) => ({
+        project_id: projectId,
+        analysis_id: analysisId,
+        source_id: sourceId,
+        candidate_key: candidateKeyFor(analysisId, candidate.title),
+        kind: candidate.kind,
+        title: candidate.title,
+        content: candidate.content,
+        memory_type: candidate.memoryType,
+        importance: candidate.importance,
+        supersedes_memory_id: resolveSupersedes(candidate.supersedesHint),
+        provenance: candidate.provenance,
+        status: "pending",
+      })),
+      { onConflict: "project_id,candidate_key" },
+    );
+  }
+
+  await service.from("project_sources").update({ processing_status: "analyzed" }).eq("id", sourceId);
+
+  return Response.json(
+    {
+      ok: true,
+      model: model.id,
+      sourceId,
+      analysisId,
+      version,
+      dropped: validated.dropped,
+      analysis,
+    },
+    { headers: corsHeaders },
+  );
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return fail("invalid_input", "Unsupported request.", false);
@@ -128,54 +357,27 @@ Deno.serve(async (req) => {
     );
   }
 
-  const digest = sanitizeDigest(body.digest);
-  const call = buildCall(model, apiKey, digest);
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  let response: Response;
-  try {
-    response = await fetch(call.url, {
-      method: "POST",
-      signal: controller.signal,
-      headers: call.headers,
-      body: JSON.stringify(call.body),
-    });
-  } catch {
-    return fail("reasoner_unavailable", "I couldn't reach my reasoning service just now.", true);
-  } finally {
-    clearTimeout(timer);
+  const mode = typeof body.mode === "string" ? body.mode : "plan_next_agent_turn";
+  if (mode !== "plan_next_agent_turn" && mode !== "analyze_meeting_source") {
+    return fail("invalid_input", "I don't know how to think about that.", false);
   }
 
-  if (response.status === 429) {
-    return fail("rate_limited", "I'm being rate limited right now — I'll fall back to my standard checks.", true);
-  }
-  if (response.status === 401 || response.status === 403) {
-    return fail(
-      "reasoner_unauthorized",
-      model.provider === "anthropic"
-        ? "My Anthropic key was rejected, so I'm using my standard checks."
-        : "My reasoning service rejected its own credential.",
-      false,
+  if (mode === "analyze_meeting_source") {
+    return await analyzeMeetingSource(
+      authz.project.projectId,
+      authz.project.canonicalUrl,
+      authz.project.primaryDomain,
+      typeof body.sourceId === "string" ? body.sourceId : "",
+      model,
+      apiKey,
     );
   }
-  if (response.status === 402) {
-    return fail("payment_required", "My reasoning service needs credits topped up.", false);
-  }
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    console.error(`agent-reason ${model.provider} failed [${response.status}]: ${detail.slice(0, 500)}`);
-    return fail("reasoner_unavailable", "My reasoning service returned an error.", true);
-  }
 
-  let content = "";
-  try {
-    content = readModelText(model.provider, await response.json());
-  } catch {
-    content = "";
-  }
+  const digest = sanitizeDigest(body.digest);
+  const asked = await askModel(model, planCall(model, apiKey, digest), TIMEOUT_MS);
+  if (!asked.ok) return asked.response;
 
-  const validated = validateReasonPlan(parseModelJson(content), digest.capabilities);
+  const validated = validateReasonPlan(parseModelJson(asked.content), digest.capabilities);
   if (!validated.ok) {
     console.error(`agent-reason rejected model plan: ${validated.reason}`);
     return fail("plan_rejected", "I couldn't form a safe next step, so I'm using my standard checks.", false);
