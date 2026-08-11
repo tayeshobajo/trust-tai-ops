@@ -123,30 +123,6 @@ class SupabaseFunctionGateway implements ExecutionGateway {
     }
   }
 
-  private async unusedCapabilities(projectId: string): Promise<ProjectCapabilities> {
-    const none: ProjectCapabilities = { stored: [], verified: [] };
-    if (!this.available()) return none;
-    try {
-      const client = getSupabaseClient();
-      const { data, error } = await client.functions.invoke("agent-execute", {
-        body: { mode: "capabilities", projectId },
-      });
-      if (error) return none;
-      const payload = data as
-        | { ok?: boolean; data?: { capabilities?: unknown; verifiedCapabilities?: unknown } }
-        | null;
-      if (!payload?.ok) return none;
-      const strings = (value: unknown): string[] =>
-        Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-      return {
-        stored: strings(payload.data?.capabilities),
-        verified: strings(payload.data?.verifiedCapabilities),
-      };
-    } catch {
-      // Unproven means unavailable. Never assume a capability exists.
-      return none;
-    }
-  }
 }
 
 let gateway: ExecutionGateway = new SupabaseFunctionGateway();
