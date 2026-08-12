@@ -321,7 +321,24 @@ function App() {
       </GlobalPage>
     ) : workspaceView === "settings" ? (
       <GlobalPage active="settings" onNavigate={navigateGlobal} operator={operatorLabel} approvalsCount={approvalsCount}>
-        <SettingsPage workspace={workspace} authState={authState} repositoryHealth={repositoryHealth} />
+        <SettingsPage
+          workspace={workspace}
+          authState={authState}
+          repositoryHealth={repositoryHealth}
+          onSignOut={async () => {
+            await signOutIfSupported();
+            setAuthState({
+              adapter: authState.adapter,
+              isAuthenticated: false,
+              userEmail: null,
+              userId: null,
+              role: null,
+              status: "ready",
+              message: "Signed out.",
+            });
+            setWorkspaceView("home");
+          }}
+        />
       </GlobalPage>
     ) : workspaceView === "create_project" ? (
       <CreateProjectPage

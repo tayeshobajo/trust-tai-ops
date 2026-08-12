@@ -10,9 +10,10 @@ type Props = {
   workspace: Organization;
   authState: AuthState;
   repositoryHealth: RepositoryHealth;
+  onSignOut?: () => void;
 };
 
-export function SettingsPage({ workspace, authState, repositoryHealth }: Props) {
+export function SettingsPage({ workspace, authState, repositoryHealth, onSignOut }: Props) {
   const [modelId, setModelId] = useState(readReasonModelId);
   const selected = REASON_MODEL_OPTIONS.find((option) => option.id === modelId);
 
@@ -46,6 +47,11 @@ export function SettingsPage({ workspace, authState, repositoryHealth }: Props) 
             <dd>{authState.userEmail ?? "Local operator"}{authState.role ? ` · ${authState.role.replace(/_/g, " ")}` : ""}</dd>
           </div>
         </dl>
+        {onSignOut ? (
+          <button type="button" className="secondary-button" onClick={onSignOut}>
+            Sign out
+          </button>
+        ) : null}
         <p className="set-note">Workspace naming is read-only in this version.</p>
       </section>
 
