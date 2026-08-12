@@ -283,6 +283,91 @@ await resolveContinuity(
 );
 check("every read is scoped to the authorized project", sawProject === "project-under-test");
 
+// A named lookup must be pushed into the store, not filtered out of a recency
+// window: an old choice in a busy project would otherwise silently vanish.
+let labelQuery: { normalizedLabel: string | null; alias: string | null } | null = null;
+let aliasQuery: typeof labelQuery = null;
+await resolveContinuity(
+  { projectId: "p1", runId: null, text: "let's do option B", now: NOW },
+  {
+    listAnchors: async (_projectId: string, query) => {
+      labelQuery = query;
+      return [];
+    },
+    searchMessages: async () => [],
+  },
+);
+await resolveContinuity(
+  { projectId: "p1", runId: null, text: "do the second one", now: NOW },
+  {
+    listAnchors: async (_projectId: string, query) => {
+      aliasQuery = query;
+      return [];
+    },
+    searchMessages: async () => [],
+  },
+);
+check("a named label is asked for by name", labelQuery?.normalizedLabel === "option b");
+check("an ordinal is asked for by alias", aliasQuery?.alias === "second option");
+check("a label lookup does not also ask by alias", labelQuery?.alias === null);
+
+let touchedStore = false;
+await resolveContinuity(
+  { projectId: "p1", runId: null, text: "Check the homepage performance", now: NOW },
+  {
+    listAnchors: async () => {
+      touchedStore = true;
+      return [];
+    },
+    searchMessages: async () => {
+      touchedStore = true;
+      return [];
+    },
+  },
+);
+check("a self-contained turn never reads history at all", !touchedStore);
+
+// Legacy backfill: conversations that predate anchoring are re-read through the
+// same parser, and only unmistakable agent option lists may mint anything.
+const legacyAgent = extractAnchors({
+  id: "legacy-1",
+  runId: "run-old",
+  role: "agent",
+  body: ["We can go two ways here. Option A) restore last night's backup. Option B) patch the plugin in place."],
+  createdAt: daysAgo(120),
+});
+check("a legacy agent offer backfills into anchors", legacyAgent.filter((d) => d.anchorType === "option").length === 2);
+check(
+  "a legacy user message backfills nothing",
+  extractAnchors({
+    id: "legacy-2",
+    runId: "run-old",
+    role: "user",
+    body: ["Option A) restore the backup. Option B) patch it."],
+    createdAt: daysAgo(120),
+  }).length === 0,
+);
+check(
+  "legacy prose that merely lists ideas backfills nothing",
+  extractAnchors({
+    id: "legacy-3",
+    runId: "run-old",
+    role: "agent",
+    body: ["We could restore the backup, or we could patch the plugin in place."],
+    createdAt: daysAgo(120),
+  }).length === 0,
+);
+
+// Backfilled anchors behave exactly like live ones once present.
+const backfilled = await resolve("option B", [
+  anchorRow("a-legacy-b", "Option B", "Patch the plugin in place.", daysAgo(120), "run-old", "Plugin crash", 1),
+]);
+check("a backfilled months-old Option B resolves", backfilled.status === "resolved");
+check(
+  "and it carries the wording that was actually offered",
+  backfilled.references[0]?.summary.includes("Patch the plugin in place") === true,
+);
+
 check("time is described in plain English", whenLabel(daysAgo(1.2), NOW) === "yesterday");
 check("older moments are placed, not timestamped", whenLabel(daysAgo(40), NOW) === "last month");
 
