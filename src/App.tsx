@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { loadAuthState, signOutIfSupported } from "./auth";
+import { ensureQaSession, loadAuthState, signOutIfSupported } from "./auth";
 import { AuthScreen } from "./AuthScreen";
 import { OperationsPanel } from "./OperationsPanel";
 import { ProjectsCommandCenter } from "./ProjectsCommandCenter";
@@ -80,6 +80,8 @@ function App() {
     let cancelled = false;
 
     const hydrateWorkspace = async () => {
+      // Temporary QA mode signs the shared QA account in before anything reads.
+      await ensureQaSession();
       const [health, auth] = await Promise.all([
         workspaceRepository.health(),
         loadAuthState(),
