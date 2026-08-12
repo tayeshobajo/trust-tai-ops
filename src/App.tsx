@@ -268,6 +268,23 @@ function App() {
     );
   }
 
+  // Signed in, but the workspace could not be read: say so plainly rather than
+  // rendering an empty command center that looks like "no projects yet".
+  if (fatalError) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="auth-brand">
+            <p className="eyebrow">Ops</p>
+            <h1>Workspace unavailable</h1>
+            <p>{fatalError}</p>
+            <p>Check this deployment's Supabase configuration, then reload.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     workspaceView === "home" ? (
       <ProjectsCommandCenter
