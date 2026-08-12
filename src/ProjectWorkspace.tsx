@@ -1316,6 +1316,21 @@ export function ProjectWorkspace({
                       </ul>
                     </div>
                   ) : null}
+                  {evidenceForMessage(message.key).length > 0 ? (
+                    <ul className="pw-evidence-list">
+                      {evidenceForMessage(message.key).map((item) => (
+                        <li key={item.id} className={`pw-evidence pw-evidence-${item.status}`}>
+                          <button type="button" className="pw-evidence-open" onClick={() => void openEvidence(item)}>
+                            <span className="pw-evidence-name">{item.filename}</span>
+                            <span className="pw-evidence-meta">
+                              {item.kind} · {formatBytes(item.sizeBytes)}
+                            </span>
+                          </button>
+                          {item.analysis ? <p className="pw-evidence-read">{item.analysis.summary}</p> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                   {activeRun && message.decision ? renderDecision(activeRun, message.decision) : null}
                   {message.role === "user" && message.createdAt ? (
                     <time className="pw-msg-time" dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time>
@@ -1408,7 +1423,58 @@ export function ProjectWorkspace({
               }
             }}
           />
+          {pendingFiles.length > 0 ? (
+            <ul className="pw-pending-files">
+              {pendingFiles.map((file, index) => (
+                <li key={`${file.name}-${index}`}>
+                  <span className="pw-evidence-name">{file.name}</span>
+                  <span className="pw-evidence-meta">{formatBytes(file.size)}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${file.name}`}
+                    onClick={() => setPendingFiles((current) => current.filter((_, at) => at !== index))}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {attachError ? (
+            <p className="pw-persist-error" role="status">
+              {attachError}
+              <button type="button" onClick={() => setAttachError(null)}>Dismiss</button>
+            </p>
+          ) : null}
+
           <div className="composer-row">
+            {evidenceIntakeAvailable() ? (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="sr-only"
+                  accept={ACCEPT_ATTRIBUTE}
+                  aria-label="Attach files for the agent to read"
+                  onChange={(event) => {
+                    queueFiles(Array.from(event.target.files ?? []));
+                    event.target.value = "";
+                  }}
+                />
+                <button
+                  className="composer-attach"
+                  type="button"
+                  aria-label="Attach a screenshot, recording, log or export"
+                  title="Attach a screenshot, recording, log or export"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  📎
+                </button>
+              </>
+            ) : null}
             {meetingIntelligenceAvailable() ? (
               <button
                 className="composer-attach"
@@ -1420,8 +1486,13 @@ export function ProjectWorkspace({
                 ＋
               </button>
             ) : null}
-            <button className="primary-button" type="button" disabled={!composerValue.trim() || busy} onClick={() => void sendMessage()}>
-              Send
+            <button
+              className="primary-button"
+              type="button"
+              disabled={(!composerValue.trim() && pendingFiles.length === 0) || busy || uploading}
+              onClick={() => void sendMessage()}
+            >
+              {uploading ? "Reading files…" : "Send"}
             </button>
           </div>
         </div>
