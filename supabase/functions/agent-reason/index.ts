@@ -479,11 +479,9 @@ Deno.serve(async (req) => {
     attachments = await loadRunEvidence(authz.project.projectId, runClaim).catch(() => []);
   }
 
-  // Long-term recall: what this turn's message was proven to refer back to.
-  const messageClaim = typeof body.messageId === "string" ? body.messageId : "";
-  const retrieved = messageClaim
-    ? await loadRetrievedConversation(authz.project.projectId, messageClaim).catch(() => [])
-    : [];
+  // Long-term recall: what the person was proven to be referring back to on
+  // this task. Written by the continuity boundary, never by the browser.
+  const retrieved = await loadRetrievedConversation(authz.project.projectId, runClaim || null).catch(() => []);
 
   const asked = await askModel(model, planCall(model, apiKey, digest, attachments, retrieved), TIMEOUT_MS);
   if (!asked.ok) return asked.response;

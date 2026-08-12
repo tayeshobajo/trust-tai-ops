@@ -262,6 +262,9 @@ export const runBelongsToProject = async (projectId: string, runId: string): Pro
   return Boolean(data && String(data.project_id) === projectId);
 };
 
+/** A resolution older than this belongs to a different conversation. */
+const RECALL_WINDOW_MS = 2 * 60 * 60 * 1000;
+
 /**
  * Conversation the person pointed back at.
  *
@@ -272,19 +275,25 @@ export const runBelongsToProject = async (projectId: string, runId: string): Pro
  */
 export const loadRetrievedConversation = async (
   projectId: string,
-  messageId: string | null,
+  runId: string | null,
   now = Date.now(),
 ): Promise<RetrievedConversation[]> => {
-  if (!messageId) return [];
   const service = serviceClient();
+  const since = new Date(now - RECALL_WINDOW_MS).toISOString();
 
-  const { data } = await service
+  let query = service
     .from("message_references")
-    .select("label, summary, created_at, source_message_id, project_messages!message_references_source_message_id_fkey(body, created_at)")
+    .select(
+      "label, summary, created_at, project_messages!message_references_source_message_id_fkey(body, created_at)",
+    )
     .eq("project_id", projectId)
-    .eq("message_id", messageId)
-    .order("confidence", { ascending: false })
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
     .limit(4);
+
+  if (runId) query = query.eq("run_id", runId);
+
+  const { data } = await query;
 
   return (data ?? []).map((row) => {
     const source = (Array.isArray(row.project_messages) ? row.project_messages[0] : row.project_messages) as
