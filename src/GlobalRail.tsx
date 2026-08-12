@@ -85,7 +85,11 @@ export function GlobalRail({ active, onNavigate, operator, approvalsCount = 0 }:
     <>
       <nav className="global-rail" aria-label="Primary">
         <div className="global-rail-brand">
-          <img src="/trust-tai-logo-white.png" alt="Trust Tai" />
+          <span className="global-rail-logo" aria-hidden="true">
+            <img src="/brand-mark.png" alt="" />
+          </span>
+          <span className="global-rail-wordmark">Trust Tai</span>
+          <span className="sr-only">Trust Tai Ops</span>
         </div>
 
         <ul className="global-rail-nav">{mainNav.map((entry) => item(entry.id, entry.label))}</ul>
