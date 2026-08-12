@@ -29,7 +29,8 @@ export function resolveOpsEnv(): OpsRuntimeEnv {
   const env = runtimeEnv();
   const explicitAdapter = env.VITE_OPS_REPOSITORY_ADAPTER;
   const mode = env.MODE ?? env.NODE_ENV;
-  const isProductionBuild = env.PROD === true || env.PROD === "true" || mode === "production";
+  const prodFlag = env.PROD as unknown;
+  const isProductionBuild = prodFlag === true || prodFlag === "true" || mode === "production";
 
   return {
     adapter: (env.VITE_OPS_REPOSITORY_ADAPTER as RepositoryAdapter | undefined) ?? "auto",
