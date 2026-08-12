@@ -6365,14 +6365,89 @@ p, li {
   font-size: 0.82rem;
 }
 
-.pw-pending-files li button {
+.pw-pending-files li[data-state="failed"] {
+  border-color: color-mix(in srgb, var(--danger, #b4342a) 45%, var(--line));
+  background: color-mix(in srgb, var(--danger, #b4342a) 6%, var(--panel));
+}
+
+.pw-pending-files li[data-state="uploading"],
+.pw-pending-files li[data-state="reading"] {
+  opacity: 0.75;
+}
+
+.pw-pending-thumb {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  background: var(--paper, var(--panel));
+}
+
+.pw-pending-thumb-glyph {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.pw-pending-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* Long filenames truncate rather than pushing the row wide. */
+.pw-pending-body .pw-evidence-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.pw-pending-remove {
+  flex: 0 0 auto;
   margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
   border: 0;
+  border-radius: 8px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
+}
+
+.pw-pending-remove:hover {
+  background: color-mix(in srgb, var(--ink, #01051b) 6%, transparent);
+  color: var(--ink, inherit);
+}
+
+/* Drag and drop: a restrained state change, never a full-screen overlay. */
+.pw-composer.is-drop-active {
+  outline: 1px dashed color-mix(in srgb, var(--accent, #2f6df6) 60%, var(--line));
+  outline-offset: -6px;
+  background: color-mix(in srgb, var(--accent, #2f6df6) 4%, transparent);
+}
+
+.pw-drop-hint {
+  margin: 0 0 var(--tt-space-2);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.composer-attach {
+  display: inline-grid;
+  place-items: center;
+}
+
+.pw-persist-error svg {
+  vertical-align: -2px;
+  margin-right: 6px;
 }
 
 .pw-evidence {
