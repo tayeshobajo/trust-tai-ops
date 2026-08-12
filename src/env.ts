@@ -26,7 +26,9 @@ export function resolveOpsEnv(): OpsRuntimeEnv {
 
   return {
     adapter: (env.VITE_OPS_REPOSITORY_ADAPTER as RepositoryAdapter | undefined) ?? "auto",
-    subdomain: env.VITE_OPS_SUBDOMAIN ?? "ops.trust-tai.com",
+    // Must match `organizations.subdomain` in the connected project, otherwise
+    // the tenant lookup finds nothing even for a correctly signed-in user.
+    subdomain: env.VITE_OPS_SUBDOMAIN ?? "ops.trusttai.com",
     // `VITE_OPS_*` is this app's own naming. `VITE_SUPABASE_*` is what the
     // hosting platform writes into `.env` when the Supabase project is
     // connected, so it is accepted as an equivalent public source. Both are
