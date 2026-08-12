@@ -88,7 +88,7 @@ export const sanitizeFilename = (raw: unknown): string => {
     .replace(/[\u0000-\u001f\u007f]/g, "")
     .replace(/\.{2,}/g, ".")
     .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^[.\-]+/, "")
+    .replace(/^[.-]+/, "")
     .replace(/-{2,}/g, "-")
     .slice(0, 120)
     .trim();
