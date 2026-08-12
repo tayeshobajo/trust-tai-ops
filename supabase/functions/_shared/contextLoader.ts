@@ -268,10 +268,10 @@ const RECALL_WINDOW_MS = 2 * 60 * 60 * 1000;
 /**
  * Conversation the person pointed back at.
  *
- * The browser tells us which message it just sent; it never tells us what that
- * message referred to. The references were written by the server at resolution
- * time, so this read is the project's own record replayed under a truthful
- * label — not a client claim about its own history.
+ * The browser tells us which task it is working in; it never tells us what was
+ * said in it. The references were written by the continuity boundary at
+ * resolution time, so this read is the project's own record replayed under a
+ * truthful label — not a client claim about its own history.
  */
 export const loadRetrievedConversation = async (
   projectId: string,
