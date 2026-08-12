@@ -38,6 +38,18 @@ export type ServerEvidence = {
   warnings: string[];
 };
 
+/**
+ * A moment from this project's own history, resolved server-side because the
+ * person referred back to it rather than restating it.
+ */
+export type RetrievedConversation = {
+  /** Anchor label when there was one, e.g. "Option B". */
+  label: string | null;
+  text: string;
+  /** Plain-English placement: "yesterday", "last week". */
+  when: string;
+};
+
 export type ReasonDigest = {
   stack: ReasonStack;
   taskType: string;
