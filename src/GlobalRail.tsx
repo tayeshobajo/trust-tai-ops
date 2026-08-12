@@ -88,7 +88,6 @@ export function GlobalRail({ active, onNavigate, operator, approvalsCount = 0 }:
           <span className="global-rail-logo" aria-hidden="true">
             <img src="/brand-mark.png" alt="" />
           </span>
-          <span className="global-rail-wordmark">Trust Tai</span>
           <span className="sr-only">Trust Tai Ops</span>
         </div>
 
