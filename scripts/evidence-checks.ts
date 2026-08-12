@@ -79,7 +79,9 @@ check(
   !sanitizeFilename("../../etc/passwd").includes("/") && !sanitizeFilename("../../etc/passwd").includes(".."),
 );
 check("backslash paths are reduced to a leaf name", sanitizeFilename("C:\\Windows\\evil.log") === "evil.log");
-check("control characters are removed", !/[\u0000-\u001f]/.test(sanitizeFilename("bad\u0000name.log")));
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u001f]/;
+check("control characters are removed", !CONTROL_CHARS.test(sanitizeFilename("bad\u0000name.log")));
 
 const path = storagePathFor(PROJECT_ID, EVIDENCE_ID, "../../escape.png");
 check("the storage path stays under the project folder", path.startsWith(`${PROJECT_ID}/${EVIDENCE_ID}/`));
