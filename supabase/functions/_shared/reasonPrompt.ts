@@ -186,6 +186,31 @@ export const evidencePromptLines = (items: ServerEvidence[]): string[] => {
 };
 
 export const userPrompt = (digest: ReasonDigest, attachments: ServerEvidence[] = []): string => {
+  return userPromptWithRecall(digest, attachments, []);
+};
+
+/**
+ * History the person pointed back at, loaded server-side. It is rendered under
+ * its own label so the model can never mistake "we said this once" for "this
+ * is true now".
+ */
+export const retrievedPromptLines = (items: RetrievedConversation[]): string[] => {
+  if (items.length === 0) return [];
+  const lines: string[] = [
+    "EARLIER IN THIS PROJECT (retrieved because the person referred back to it; a record of what was said, not proof it is still true):",
+  ];
+  for (const item of items) {
+    const label = item.label ? `${item.label} — ` : "";
+    lines.push(`- retrieved_conversation (${item.when}): ${label}${item.text}`);
+  }
+  return lines;
+};
+
+export const userPromptWithRecall = (
+  digest: ReasonDigest,
+  attachments: ServerEvidence[] = [],
+  retrieved: RetrievedConversation[] = [],
+): string => {
   const done = digest.evidence.map((item) => item.toolId);
   return [
     `This project runs on ${STACK_LABELS[digest.stack]}.`,
@@ -202,6 +227,7 @@ export const userPrompt = (digest: ReasonDigest, attachments: ServerEvidence[] =
       ? ["Findings so far:", ...digest.evidence.map((item) => `- tool_observation: ${item.toolId}: ${item.summary}`)]
       : []),
     ...evidencePromptLines(attachments),
+    ...retrievedPromptLines(retrieved),
     ...(digest.memory.length > 0 ? ["What we already know about this project:", ...digest.memory.map((m) => `- ${m}`)] : []),
     ...(digest.messages.length > 0
       ? [
