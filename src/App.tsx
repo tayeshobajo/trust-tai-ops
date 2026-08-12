@@ -45,6 +45,9 @@ import type {
 } from "./types";
 
 function App() {
+  const opsEnv = resolveOpsEnv();
+  const demoAllowed = isDemoModeAllowed(opsEnv);
+  const misconfiguredProduction = isMisconfiguredProduction(opsEnv);
   const seedWorkspace = createSeedWorkspace();
   const [workspace, setWorkspace] = useState<Organization>(seedWorkspace);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(seedWorkspace.projects[0]?.id ?? null);
@@ -55,6 +58,7 @@ function App() {
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(starterProjectDraft());
   const [saveMessage, setSaveMessage] = useState("");
   const [railOpen, setRailOpen] = useState(false);
+  const [fatalError, setFatalError] = useState<string | null>(null);
   const [workspaceSurface, setWorkspaceSurface] = useState<"conversation" | "access">("conversation");
   const [startInNewTask, setStartInNewTask] = useState(false);
   const [repositoryHealth, setRepositoryHealth] = useState<RepositoryHealth>({
@@ -103,8 +107,17 @@ function App() {
           return;
         }
 
-        setWorkspace(createSeedWorkspace());
-        setSaveMessage(error instanceof Error ? error.message : "Fell back to demo workspace.");
+        const detail = error instanceof Error ? error.message : "Workspace failed to load.";
+
+        if (demoAllowed) {
+          setWorkspace(createSeedWorkspace());
+          setSaveMessage(detail);
+          setIsReady(true);
+          return;
+        }
+
+        // Production never degrades into a usable demo workspace.
+        setFatalError(detail);
         setIsReady(true);
       }
     };
@@ -180,9 +193,9 @@ function App() {
       ]
     : [];
   const canCreateRun = authState.isAuthenticated && authState.role !== "viewer";
-  // Project creation follows the same disabled auth gate as the rest of the app;
-  // only an explicit viewer role blocks it.
-  const canCreateProject = authState.role !== "viewer";
+  // Project creation follows the same gate as the rest of the app: a real
+  // session in production, the demo operator only under an explicit demo build.
+  const canCreateProject = (authState.isAuthenticated || demoAllowed) && authState.role !== "viewer";
 
   // Fail closed. The gate is only relaxed by an explicit non-production demo
   // opt-in (`VITE_OPS_REPOSITORY_ADAPTER=demo`); production builds always
@@ -213,6 +226,38 @@ function App() {
             : "settings",
     );
   };
+
+  if (misconfiguredProduction) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="auth-brand">
+            <p className="eyebrow">Ops</p>
+            <h1>Configuration required</h1>
+            <p>
+              This production build has no Supabase configuration. Set the public Supabase URL and
+              publishable key for this deployment. Demo data is never served in production.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (fatalError) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="auth-brand">
+            <p className="eyebrow">Ops</p>
+            <h1>Workspace unavailable</h1>
+            <p>{fatalError}</p>
+            <p>Sign in again or check this deployment's Supabase configuration.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (authGateEnabled && repositoryHealth.adapter === "supabase" && !authState.isAuthenticated && authState.status !== "loading") {
     return (
