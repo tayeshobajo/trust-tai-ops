@@ -29,6 +29,19 @@ import { deriveMemoryFromRun } from "./memory";
 import { MeetingPlanReview } from "./MeetingPlanReview";
 import { decideProposedTask, ingestAndAnalyzeMeeting, meetingIntelligenceAvailable } from "./meetings";
 import type { MeetingAnalysisView, ProposedTask } from "./meetings";
+import {
+  ACCEPT_ATTRIBUTE,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  attachEvidenceToMessage,
+  evidenceIntakeAvailable,
+  evidenceReplyLines,
+  evidenceViewUrl,
+  formatBytes,
+  listProjectEvidence,
+  localRejectionFor,
+  uploadEvidence,
+} from "./evidence";
+import type { ProjectEvidence } from "./types";
 import { containsSecretMaterial } from "./agent-core/secretGuard";
 import { credentialIntakeAvailable, submitCredentialText } from "./agent-core/credentialIntake";
 
@@ -130,12 +143,20 @@ export function ProjectWorkspace({
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [transcriptTitle, setTranscriptTitle] = useState("");
   const [transcriptText, setTranscriptText] = useState("");
+  // Evidence a person attached to this conversation, with the agent's reading
+  // of it. Files are never held in the message body: they are separate,
+  // server-owned records pinned to the message they arrived with.
+  const [evidence, setEvidence] = useState<ProjectEvidence[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [meetingBusy, setMeetingBusy] = useState(false);
   const [meetingError, setMeetingError] = useState<string | null>(null);
   const [meetingAnalysis, setMeetingAnalysis] = useState<MeetingAnalysisView | null>(null);
   const [taskDecisions, setTaskDecisions] = useState<Record<string, "approved" | "rejected">>({});
   const [taskBusyId, setTaskBusyId] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
   const memoryRef = useRef<Set<string>>(new Set());
@@ -155,6 +176,22 @@ export function ProjectWorkspace({
     () => (activeRun ? buildThread(project, activeRun) : []),
     [project, activeRun],
   );
+
+  // Attachments for this project, loaded once alongside the conversation.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const stored = await listProjectEvidence(project.id);
+        if (alive) setEvidence(stored);
+      } catch {
+        if (alive) setEvidence([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [project.id]);
 
   // Stored conversation for this project. Loaded once per project.
   useEffect(() => {
@@ -687,40 +724,131 @@ export function ProjectWorkspace({
     }
   };
 
+  // --- Evidence -------------------------------------------------------------
+
+  const evidenceForMessage = (messageId: string) =>
+    evidence.filter((item) => item.messageId === messageId);
+
+  const queueFiles = (incoming: File[]) => {
+    if (incoming.length === 0) return;
+    const problems: string[] = [];
+    const accepted: File[] = [];
+
+    for (const file of incoming) {
+      if (pendingFiles.length + accepted.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
+        problems.push(`I can take up to ${MAX_ATTACHMENTS_PER_MESSAGE} files in one message.`);
+        break;
+      }
+      const rejection = localRejectionFor(file);
+      if (rejection) problems.push(rejection);
+      else accepted.push(file);
+    }
+
+    if (accepted.length > 0) setPendingFiles((current) => [...current, ...accepted]);
+    setAttachError(problems.length > 0 ? problems.join(" ") : null);
+  };
+
+  const openEvidence = async (item: ProjectEvidence) => {
+    const url = await evidenceViewUrl(project.id, item.id);
+    if (!url) {
+      setAttachError("That file isn't reachable right now.");
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  /**
+   * Files are uploaded, read and reported in one pass. The agent only ever
+   * says what the server actually returned: an unreadable file is stated as
+   * unread rather than described.
+   */
+  const sendAttachments = async (runId: string | null, messageId: string | null, files: File[]) => {
+    setUploading(true);
+    try {
+      const result = await uploadEvidence({ projectId: project.id, runId, files });
+
+      if (messageId && result.uploaded.length > 0) {
+        await attachEvidenceToMessage({
+          projectId: project.id,
+          messageId,
+          evidenceIds: result.uploaded.map((item) => item.evidenceId),
+        });
+      }
+
+      setEvidence(await listProjectEvidence(project.id));
+
+      const lines = [
+        ...evidenceReplyLines(result.uploaded),
+        ...result.rejected.map((item) => item.summary),
+      ];
+      if (lines.length > 0) {
+        await emit({
+          runId,
+          role: "agent",
+          kind: "message",
+          body: lines,
+          dedupeKey: `evidence-${messageId ?? runId ?? project.id}-${result.uploaded.map((item) => item.evidenceId).join("-") || "none"}`,
+        });
+      }
+    } catch {
+      setAttachError("I couldn't finish reading those files. Nothing was lost — try again.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const sendMessage = async () => {
     const value = composerValue.trim();
-    if (!value) return;
+    const attachments = pendingFiles;
+    if (!value && attachments.length === 0) return;
 
     // Credential-shaped text never becomes a stored message. It goes straight
     // to the authorized server intake, which parses, authorizes and seals it,
     // and returns a sanitized replacement for the conversation.
-    if (containsSecretMaterial(value)) {
+    if (value && containsSecretMaterial(value)) {
       await handleCredentialPaste(value);
       return;
     }
 
+    const attachmentNote =
+      attachments.length > 0
+        ? `Shared ${attachments.length} file${attachments.length === 1 ? "" : "s"}: ${attachments
+            .map((file) => file.name)
+            .join(", ")}`
+        : "";
+    const bodyLines = [value, attachmentNote].filter((line) => line.length > 0);
+
     if (!activeRun) {
       setBusy(true);
+      let createdId: string | null = null;
+      let savedId: string | null = null;
       try {
-        const next = await workspaceRepository.createRun(project.id, draftFromBrief(project, value));
+        const brief = value || `Review the ${attachments.length === 1 ? "file" : "files"} I've attached.`;
+        const next = await workspaceRepository.createRun(project.id, draftFromBrief(project, brief));
         onWorkspaceUpdate(next);
         const created = next.projects.find((item) => item.id === project.id)?.runs[0];
+        createdId = created?.id ?? null;
         // The brief becomes the first real message of the new task.
         const saved = await emit({
-          runId: created?.id ?? null,
+          runId: createdId,
           role: "user",
           kind: "message",
-          body: [value],
+          body: bodyLines.length > 0 ? bodyLines : [brief],
           dedupeKey: created ? `${created.id}-brief` : `project-brief-${Date.now()}`,
           sourceKey: created ? `${created.id}-brief` : null,
         });
-        setActiveRunId(created?.id ?? null);
-        if (saved) setComposerValue("");
+        setActiveRunId(createdId);
+        if (saved) {
+          savedId = saved.id;
+          setComposerValue("");
+          setPendingFiles([]);
+        }
       } catch {
         setPersistError("I couldn't start that task. Your message is still here — try again.");
       } finally {
         setBusy(false);
       }
+      if (savedId && attachments.length > 0) await sendAttachments(createdId, savedId, attachments);
       return;
     }
 
@@ -729,13 +857,20 @@ export function ProjectWorkspace({
       runId: activeRun.id,
       role: "user",
       kind: "message",
-      body: [value],
+      body: bodyLines,
       dedupeKey: `user-${activeRun.id}-${stamp}`,
     });
 
     if (!saved) return;
 
     setComposerValue("");
+    setPendingFiles([]);
+
+    if (attachments.length > 0) {
+      await sendAttachments(activeRun.id, saved.id, attachments);
+      return;
+    }
+
     await emit({
       runId: activeRun.id,
       role: "agent",
@@ -1181,6 +1316,21 @@ export function ProjectWorkspace({
                       </ul>
                     </div>
                   ) : null}
+                  {evidenceForMessage(message.key).length > 0 ? (
+                    <ul className="pw-evidence-list">
+                      {evidenceForMessage(message.key).map((item) => (
+                        <li key={item.id} className={`pw-evidence pw-evidence-${item.status}`}>
+                          <button type="button" className="pw-evidence-open" onClick={() => void openEvidence(item)}>
+                            <span className="pw-evidence-name">{item.filename}</span>
+                            <span className="pw-evidence-meta">
+                              {item.kind} · {formatBytes(item.sizeBytes)}
+                            </span>
+                          </button>
+                          {item.analysis ? <p className="pw-evidence-read">{item.analysis.summary}</p> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                   {activeRun && message.decision ? renderDecision(activeRun, message.decision) : null}
                   {message.role === "user" && message.createdAt ? (
                     <time className="pw-msg-time" dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time>
@@ -1273,7 +1423,58 @@ export function ProjectWorkspace({
               }
             }}
           />
+          {pendingFiles.length > 0 ? (
+            <ul className="pw-pending-files">
+              {pendingFiles.map((file, index) => (
+                <li key={`${file.name}-${index}`}>
+                  <span className="pw-evidence-name">{file.name}</span>
+                  <span className="pw-evidence-meta">{formatBytes(file.size)}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${file.name}`}
+                    onClick={() => setPendingFiles((current) => current.filter((_, at) => at !== index))}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {attachError ? (
+            <p className="pw-persist-error" role="status">
+              {attachError}
+              <button type="button" onClick={() => setAttachError(null)}>Dismiss</button>
+            </p>
+          ) : null}
+
           <div className="composer-row">
+            {evidenceIntakeAvailable() ? (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="sr-only"
+                  accept={ACCEPT_ATTRIBUTE}
+                  aria-label="Attach files for the agent to read"
+                  onChange={(event) => {
+                    queueFiles(Array.from(event.target.files ?? []));
+                    event.target.value = "";
+                  }}
+                />
+                <button
+                  className="composer-attach"
+                  type="button"
+                  aria-label="Attach a screenshot, recording, log or export"
+                  title="Attach a screenshot, recording, log or export"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  📎
+                </button>
+              </>
+            ) : null}
             {meetingIntelligenceAvailable() ? (
               <button
                 className="composer-attach"
@@ -1285,8 +1486,13 @@ export function ProjectWorkspace({
                 ＋
               </button>
             ) : null}
-            <button className="primary-button" type="button" disabled={!composerValue.trim() || busy} onClick={() => void sendMessage()}>
-              Send
+            <button
+              className="primary-button"
+              type="button"
+              disabled={(!composerValue.trim() && pendingFiles.length === 0) || busy || uploading}
+              onClick={() => void sendMessage()}
+            >
+              {uploading ? "Reading files…" : "Send"}
             </button>
           </div>
         </div>

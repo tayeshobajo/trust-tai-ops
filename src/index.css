@@ -6338,3 +6338,88 @@ p, li {
     gap: var(--tt-space-1);
   }
 }
+
+/* Conversation evidence -------------------------------------------------- */
+
+.pw-evidence-list,
+.pw-pending-files {
+  list-style: none;
+  margin: var(--tt-space-2) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--tt-space-2);
+}
+
+.pw-pending-files {
+  margin: 0 0 var(--tt-space-2);
+}
+
+.pw-pending-files li {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-2) var(--tt-space-3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 0.82rem;
+}
+
+.pw-pending-files li button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.pw-evidence {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.pw-evidence-open {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-2) var(--tt-space-3);
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.pw-evidence-open:hover .pw-evidence-name {
+  text-decoration: underline;
+}
+
+.pw-evidence-name {
+  font-weight: 560;
+  font-size: 0.84rem;
+  word-break: break-word;
+}
+
+.pw-evidence-meta {
+  font-size: 0.74rem;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.pw-evidence-read {
+  margin: 0;
+  padding: 0 var(--tt-space-3) var(--tt-space-2);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.pw-evidence-failed,
+.pw-evidence-unsupported {
+  border-color: var(--tt-warning);
+}

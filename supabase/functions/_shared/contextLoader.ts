@@ -79,7 +79,7 @@ export const loadProjectContext = async (
 ): Promise<ProjectContext> => {
   const service = serviceClient();
 
-  const [projectRow, environmentRow, memoryRows, runRows, messageRows, truth] = await Promise.all([
+  const [projectRow, environmentRow, memoryRows, runRows, messageRows, evidenceRows, truth] = await Promise.all([
     service.from("projects").select("name, primary_domain, status").eq("id", projectId).maybeSingle(),
     service
       .from("project_environments")
@@ -105,6 +105,14 @@ export const loadProjectContext = async (
       .eq("project_id", projectId)
       .order("created_at", { ascending: false })
       .limit(30),
+    // Attachments the human shared, newest first. Only the normalized analysis
+    // is read: the stored object itself never enters a prompt from here.
+    service
+      .from("project_evidence")
+      .select("safe_filename, evidence_kind, status, evidence_analyses(result, status)")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false })
+      .limit(12),
     capabilityTruth(secretStoreDeps(), projectId, EXECUTABLE_ACCESS_TYPES).catch(() => ({
       stored: [] as string[],
       verified: [] as string[],
@@ -163,6 +171,24 @@ export const loadProjectContext = async (
         role: String(row.role ?? "agent"),
         text: Array.isArray(row.body) ? row.body.join(" ") : String(row.body ?? ""),
       })),
+    evidence: (evidenceRows.data ?? []).map((row) => {
+      const analyses = Array.isArray(row.evidence_analyses) ? row.evidence_analyses : [];
+      const latest = (analyses[analyses.length - 1] ?? {}) as { result?: Record<string, unknown> };
+      const result = (latest.result ?? {}) as Record<string, unknown>;
+      const summary = typeof result.summary === "string" ? [result.summary] : [];
+      const observations = Array.isArray(result.observations)
+        ? result.observations.filter((item): item is string => typeof item === "string")
+        : [];
+      const signals = Array.isArray(result.technicalSignals)
+        ? result.technicalSignals.filter((item): item is string => typeof item === "string")
+        : [];
+      return {
+        filename: String(row.safe_filename ?? "attachment"),
+        kind: String(row.evidence_kind ?? "other"),
+        status: String(row.status ?? "stored"),
+        observations: [...summary, ...observations, ...signals].slice(0, 10),
+      };
+    }),
   };
 
   return buildProjectContext(input, focus);

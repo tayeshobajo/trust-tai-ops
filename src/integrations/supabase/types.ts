@@ -83,6 +83,57 @@ export type Database = {
           },
         ]
       }
+      evidence_analyses: {
+        Row: {
+          analyzer: string
+          created_at: string
+          evidence_id: string
+          id: string
+          model_id: string
+          project_id: string
+          result: Json
+          status: string
+          version: number
+        }
+        Insert: {
+          analyzer?: string
+          created_at?: string
+          evidence_id: string
+          id?: string
+          model_id?: string
+          project_id: string
+          result?: Json
+          status?: string
+          version?: number
+        }
+        Update: {
+          analyzer?: string
+          created_at?: string
+          evidence_id?: string
+          id?: string
+          model_id?: string
+          project_id?: string
+          result?: Json
+          status?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "evidence_analyses_evidence_id_fkey"
+            columns: ["evidence_id"]
+            isOneToOne: false
+            referencedRelation: "project_evidence"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "evidence_analyses_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       memory_candidates: {
         Row: {
           analysis_id: string
@@ -407,6 +458,91 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_evidence: {
+        Row: {
+          analysis_id: string | null
+          content_hash: string | null
+          created_at: string
+          evidence_kind: string
+          failure_reason: string | null
+          id: string
+          message_id: string | null
+          mime_type: string
+          original_filename: string
+          project_id: string
+          run_id: string | null
+          safe_filename: string
+          size_bytes: number
+          status: string
+          storage_bucket: string
+          storage_path: string
+          updated_at: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          analysis_id?: string | null
+          content_hash?: string | null
+          created_at?: string
+          evidence_kind?: string
+          failure_reason?: string | null
+          id?: string
+          message_id?: string | null
+          mime_type?: string
+          original_filename?: string
+          project_id: string
+          run_id?: string | null
+          safe_filename?: string
+          size_bytes?: number
+          status?: string
+          storage_bucket?: string
+          storage_path: string
+          updated_at?: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          analysis_id?: string | null
+          content_hash?: string | null
+          created_at?: string
+          evidence_kind?: string
+          failure_reason?: string | null
+          id?: string
+          message_id?: string | null
+          mime_type?: string
+          original_filename?: string
+          project_id?: string
+          run_id?: string | null
+          safe_filename?: string
+          size_bytes?: number
+          status?: string
+          storage_bucket?: string
+          storage_path?: string
+          updated_at?: string
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_evidence_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "project_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_evidence_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_evidence_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "runs"
             referencedColumns: ["id"]
           },
         ]
