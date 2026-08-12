@@ -470,6 +470,7 @@ export type Database = {
           evidence_kind: string
           failure_reason: string | null
           id: string
+          intake_key: string | null
           message_id: string | null
           mime_type: string
           original_filename: string
@@ -490,6 +491,7 @@ export type Database = {
           evidence_kind?: string
           failure_reason?: string | null
           id?: string
+          intake_key?: string | null
           message_id?: string | null
           mime_type?: string
           original_filename?: string
@@ -510,6 +512,7 @@ export type Database = {
           evidence_kind?: string
           failure_reason?: string | null
           id?: string
+          intake_key?: string | null
           message_id?: string | null
           mime_type?: string
           original_filename?: string

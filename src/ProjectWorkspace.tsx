@@ -31,16 +31,20 @@ import { decideProposedTask, ingestAndAnalyzeMeeting, meetingIntelligenceAvailab
 import type { MeetingAnalysisView, ProposedTask } from "./meetings";
 import {
   ACCEPT_ATTRIBUTE,
-  MAX_ATTACHMENTS_PER_MESSAGE,
   attachEvidenceToMessage,
+  dequeueEvidenceFile,
+  enqueueEvidenceFiles,
   evidenceIntakeAvailable,
   evidenceReplyLines,
   evidenceViewUrl,
+  filesFromDataTransfer,
   formatBytes,
+  imageFilesFromClipboard,
   listProjectEvidence,
-  localRejectionFor,
+  releaseQueuedFile,
   uploadEvidence,
 } from "./evidence";
+import type { QueuedFile, QueuedState } from "./evidence";
 import type { ProjectEvidence } from "./types";
 import { containsSecretMaterial } from "./agent-core/secretGuard";
 import { credentialIntakeAvailable, submitCredentialText } from "./agent-core/credentialIntake";
@@ -117,6 +121,26 @@ const agentStateTone = (run: Run | null) => {
   return "agent-state-working";
 };
 
+/** Inline marks rather than emoji: they inherit colour, size and weight. */
+const PaperclipIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8-8a3.4 3.4 0 0 1 4.8 4.8l-8 8a1.8 1.8 0 0 1-2.5-2.5l7.4-7.4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+    <path d="m6 6 12 12M18 6 6 18" strokeLinecap="round" />
+  </svg>
+);
+
+const WarningIcon = () => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <path d="M12 4.5 21 19.5H3z" strokeLinejoin="round" />
+    <path d="M12 10v4.2M12 17h.01" strokeLinecap="round" />
+  </svg>
+);
+
 export function ProjectWorkspace({
   project,
   canWrite,
@@ -147,7 +171,8 @@ export function ProjectWorkspace({
   // of it. Files are never held in the message body: they are separate,
   // server-owned records pinned to the message they arrived with.
   const [evidence, setEvidence] = useState<ProjectEvidence[]>([]);
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<QueuedFile[]>([]);
+  const [dropActive, setDropActive] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [meetingBusy, setMeetingBusy] = useState(false);
@@ -731,21 +756,29 @@ export function ProjectWorkspace({
 
   const queueFiles = (incoming: File[]) => {
     if (incoming.length === 0) return;
-    const problems: string[] = [];
-    const accepted: File[] = [];
+    setPendingFiles((current) => {
+      const { queue, rejected } = enqueueEvidenceFiles(current, incoming);
+      setAttachError(rejected.length > 0 ? [...new Set(rejected)].join(" ") : null);
+      return queue;
+    });
+  };
 
-    for (const file of incoming) {
-      if (pendingFiles.length + accepted.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
-        problems.push(`I can take up to ${MAX_ATTACHMENTS_PER_MESSAGE} files in one message.`);
-        break;
-      }
-      const rejection = localRejectionFor(file);
-      if (rejection) problems.push(rejection);
-      else accepted.push(file);
-    }
+  // Local previews are object URLs: they must be released, or the tab keeps
+  // every screenshot the person ever queued alive in memory.
+  const pendingRef = useRef<QueuedFile[]>([]);
+  pendingRef.current = pendingFiles;
+  useEffect(() => () => {
+    for (const entry of pendingRef.current) releaseQueuedFile(entry);
+  }, []);
 
-    if (accepted.length > 0) setPendingFiles((current) => [...current, ...accepted]);
-    setAttachError(problems.length > 0 ? problems.join(" ") : null);
+  const removeQueuedFile = (key: string) => {
+    setPendingFiles((current) => dequeueEvidenceFile(current, key));
+  };
+
+  const markQueued = (key: string, state: QueuedState, reason?: string) => {
+    setPendingFiles((current) =>
+      current.map((entry) => (entry.key === key ? { ...entry, state, reason: reason ?? null } : entry)),
+    );
   };
 
   const openEvidence = async (item: ProjectEvidence) => {
@@ -762,10 +795,17 @@ export function ProjectWorkspace({
    * says what the server actually returned: an unreadable file is stated as
    * unread rather than described.
    */
-  const sendAttachments = async (runId: string | null, messageId: string | null, files: File[]) => {
+  const sendAttachments = async (runId: string | null, messageId: string | null, files: QueuedFile[]) => {
     setUploading(true);
     try {
-      const result = await uploadEvidence({ projectId: project.id, runId, files });
+      const result = await uploadEvidence({
+        projectId: project.id,
+        runId,
+        // Bound at registration; `attach` below is only a compatibility net.
+        messageId,
+        files,
+        onProgress: markQueued,
+      });
 
       if (messageId && result.uploaded.length > 0) {
         await attachEvidenceToMessage({
@@ -774,6 +814,17 @@ export function ProjectWorkspace({
           evidenceIds: result.uploaded.map((item) => item.evidenceId),
         });
       }
+
+      // What succeeded leaves the composer; what failed stays, with its reason,
+      // so it can be retried rather than vanishing.
+      const failedKeys = new Set(
+        result.rejected.map((item) => item.clientKey).filter((key): key is string => Boolean(key)),
+      );
+      setPendingFiles((current) => {
+        const keep = current.filter((entry) => failedKeys.has(entry.key));
+        for (const entry of current) if (!failedKeys.has(entry.key)) releaseQueuedFile(entry);
+        return keep;
+      });
 
       setEvidence(await listProjectEvidence(project.id));
 
@@ -810,11 +861,11 @@ export function ProjectWorkspace({
       return;
     }
 
+    // Filenames are never persisted from the browser: the client's name for a
+    // file is unsanitized, and the attachment records are the source of truth.
     const attachmentNote =
       attachments.length > 0
-        ? `Shared ${attachments.length} file${attachments.length === 1 ? "" : "s"}: ${attachments
-            .map((file) => file.name)
-            .join(", ")}`
+        ? `Shared ${attachments.length} evidence file${attachments.length === 1 ? "" : "s"}.`
         : "";
     const bodyLines = [value, attachmentNote].filter((line) => line.length > 0);
 
@@ -841,7 +892,6 @@ export function ProjectWorkspace({
         if (saved) {
           savedId = saved.id;
           setComposerValue("");
-          setPendingFiles([]);
         }
       } catch {
         setPersistError("I couldn't start that task. Your message is still here — try again.");
@@ -864,7 +914,6 @@ export function ProjectWorkspace({
     if (!saved) return;
 
     setComposerValue("");
-    setPendingFiles([]);
 
     if (attachments.length > 0) {
       await sendAttachments(activeRun.id, saved.id, attachments);
@@ -1360,7 +1409,30 @@ export function ProjectWorkspace({
           <div ref={threadEndRef} />
         </div>
 
-        <div className="pw-composer">
+        <div
+          className={dropActive ? "pw-composer is-drop-active" : "pw-composer"}
+          onDragOver={(event) => {
+            if (!evidenceIntakeAvailable()) return;
+            if (!Array.from(event.dataTransfer?.types ?? []).includes("Files")) return;
+            event.preventDefault();
+            setDropActive(true);
+          }}
+          onDragLeave={(event) => {
+            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+            setDropActive(false);
+          }}
+          onDrop={(event) => {
+            if (!evidenceIntakeAvailable()) return;
+            event.preventDefault();
+            setDropActive(false);
+            queueFiles(filesFromDataTransfer(event.dataTransfer));
+          }}
+        >
+          {dropActive ? (
+            <p className="pw-drop-hint" role="status">
+              Drop files here and I'll read what I can.
+            </p>
+          ) : null}
           {transcriptOpen ? (
             <div className="transcript-intake">
               <label className="transcript-field">
@@ -1422,19 +1494,48 @@ export function ProjectWorkspace({
                 void sendMessage();
               }
             }}
+            onPaste={(event) => {
+              // Only intercept when the clipboard actually carries an image;
+              // ordinary text paste must behave exactly as it always did.
+              if (!evidenceIntakeAvailable()) return;
+              const images = imageFilesFromClipboard(event.clipboardData);
+              if (images.length === 0) return;
+              event.preventDefault();
+              queueFiles(images);
+            }}
           />
           {pendingFiles.length > 0 ? (
             <ul className="pw-pending-files">
-              {pendingFiles.map((file, index) => (
-                <li key={`${file.name}-${index}`}>
-                  <span className="pw-evidence-name">{file.name}</span>
-                  <span className="pw-evidence-meta">{formatBytes(file.size)}</span>
+              {pendingFiles.map((entry) => (
+                <li key={entry.key} data-state={entry.state}>
+                  {entry.previewUrl ? (
+                    <img className="pw-pending-thumb" src={entry.previewUrl} alt="" aria-hidden="true" />
+                  ) : (
+                    <span className="pw-pending-thumb pw-pending-thumb-glyph" aria-hidden="true">
+                      <PaperclipIcon />
+                    </span>
+                  )}
+                  <span className="pw-pending-body">
+                    <span className="pw-evidence-name" title={entry.file.name}>
+                      {entry.file.name}
+                    </span>
+                    <span className="pw-evidence-meta">
+                      {entry.state === "failed"
+                        ? entry.reason ?? "Didn't go through — try again."
+                        : entry.state === "uploading"
+                        ? "Uploading…"
+                        : entry.state === "reading"
+                        ? "Reading…"
+                        : formatBytes(entry.file.size)}
+                    </span>
+                  </span>
                   <button
+                    className="pw-pending-remove"
                     type="button"
-                    aria-label={`Remove ${file.name}`}
-                    onClick={() => setPendingFiles((current) => current.filter((_, at) => at !== index))}
+                    aria-label={`Remove ${entry.file.name}`}
+                    onClick={() => removeQueuedFile(entry.key)}
                   >
-                    ×
+                    <CloseIcon />
                   </button>
                 </li>
               ))}
@@ -1443,6 +1544,7 @@ export function ProjectWorkspace({
 
           {attachError ? (
             <p className="pw-persist-error" role="status">
+              <WarningIcon />
               {attachError}
               <button type="button" onClick={() => setAttachError(null)}>Dismiss</button>
             </p>
@@ -1471,7 +1573,7 @@ export function ProjectWorkspace({
                   disabled={uploading}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  📎
+                  <PaperclipIcon />
                 </button>
               </>
             ) : null}

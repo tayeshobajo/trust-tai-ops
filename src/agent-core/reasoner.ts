@@ -368,7 +368,7 @@ class ServerModelReasoner implements AgentReasoner {
 
   async plan(context: AgentContext): Promise<AgentPlan | null> {
     if (!this.available()) return null;
-    const payload = await executionGateway().reason(context.project.id, reasoningDigest(context));
+    const payload = await executionGateway().reason(context.project.id, reasoningDigest(context), context.run.id);
     if (!payload) return null;
     const plan = materializeServerPlan(payload, {
       runId: context.run.id,

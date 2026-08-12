@@ -10,7 +10,7 @@
 
 import { hasSupabasePublicConfig, resolveOpsEnv } from "./env";
 import { getSupabaseClient } from "./supabase";
-import type { EvidenceAnalysis, EvidenceKind, ProjectEvidence } from "./types";
+import type { EvidenceAnalysis, EvidenceKind, EvidenceProvenance, ProjectEvidence } from "./types";
 
 const BUCKET = "project-evidence";
 
@@ -20,9 +20,9 @@ const MB = 1024 * 1024;
 
 /** Mirrors the server policy so a person is told early, not after an upload. */
 const LOCAL_RULES: Array<{ extensions: string[]; kind: EvidenceKind; maxBytes: number }> = [
-  { extensions: ["png", "jpg", "jpeg", "webp"], kind: "image", maxBytes: 15 * MB },
-  { extensions: ["mp4", "webm", "mov"], kind: "video", maxBytes: 100 * MB },
-  { extensions: ["pdf"], kind: "pdf", maxBytes: 25 * MB },
+  { extensions: ["png", "jpg", "jpeg", "webp"], kind: "image", maxBytes: 10 * MB },
+  { extensions: ["mp4", "webm", "mov"], kind: "video", maxBytes: 25 * MB },
+  { extensions: ["pdf"], kind: "pdf", maxBytes: 15 * MB },
   { extensions: ["txt", "md"], kind: "text", maxBytes: 10 * MB },
   { extensions: ["log"], kind: "log", maxBytes: 10 * MB },
   { extensions: ["har"], kind: "har", maxBytes: 15 * MB },
@@ -58,6 +58,19 @@ export const formatBytes = (bytes: number): string => {
   return `${(bytes / MB).toFixed(1)} MB`;
 };
 
+/** Provenance survives client mapping: a reading must keep its source. */
+const asProvenance = (value: unknown): EvidenceProvenance | null => {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.evidenceId !== "string") return null;
+  return {
+    evidenceId: raw.evidenceId,
+    filename: typeof raw.filename === "string" ? raw.filename : "attachment",
+    messageId: typeof raw.messageId === "string" ? raw.messageId : null,
+    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : new Date().toISOString(),
+  };
+};
+
 const asAnalysis = (value: unknown): EvidenceAnalysis | null => {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
@@ -75,6 +88,7 @@ const asAnalysis = (value: unknown): EvidenceAnalysis | null => {
     confidence: raw.confidence === "high" || raw.confidence === "low" ? raw.confidence : "medium",
     warnings: list(raw.warnings),
     unsupportedReason: typeof raw.unsupportedReason === "string" ? raw.unsupportedReason : null,
+    provenance: asProvenance(raw.provenance),
   };
 };
 
@@ -88,7 +102,121 @@ export type UploadedEvidence = {
 
 export type EvidenceUploadResult = {
   uploaded: UploadedEvidence[];
-  rejected: Array<{ filename: string; summary: string }>;
+  rejected: Array<{ clientKey: string | null; filename: string; summary: string }>;
+};
+
+/** Per-file lifecycle in the composer. One global spinner tells nobody much. */
+export type QueuedState = "queued" | "uploading" | "reading" | "done" | "failed";
+
+export type QueuedFile = {
+  key: string;
+  intakeKey: string;
+  file: File;
+  /** Bounded local preview for images. Revoked when the entry is removed. */
+  previewUrl: string | null;
+  state: QueuedState;
+  reason: string | null;
+};
+
+let queueCounter = 0;
+
+const makeIntakeKey = (file: File): string =>
+  // Stable for the same bytes-shaped file in the same session, so a resend of
+  // the same queue does not reserve a second record.
+  `${file.name}|${file.size}|${file.lastModified}`.replace(/[^A-Za-z0-9._|-]/g, "-").slice(0, 100);
+
+/** Images get a local object URL; everything else stays a name and a size. */
+export const makeQueuedFile = (file: File): QueuedFile => ({
+  key: `q${(queueCounter += 1)}`,
+  intakeKey: makeIntakeKey(file),
+  file,
+  previewUrl:
+    localEvidenceKind(file.name) === "image" && typeof URL !== "undefined" && typeof URL.createObjectURL === "function"
+      ? URL.createObjectURL(file)
+      : null,
+  state: "queued",
+  reason: null,
+});
+
+export const releaseQueuedFile = (entry: QueuedFile): void => {
+  if (entry.previewUrl && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+    URL.revokeObjectURL(entry.previewUrl);
+  }
+};
+
+/**
+ * Adds files to the queue: rejects locally-impossible ones with a reason,
+ * drops exact repeats, and honours the per-message ceiling.
+ */
+export const enqueueEvidenceFiles = (
+  current: QueuedFile[],
+  incoming: File[],
+): { queue: QueuedFile[]; rejected: string[] } => {
+  const queue = [...current];
+  const rejected: string[] = [];
+  const seen = new Set(current.map((entry) => entry.intakeKey));
+
+  for (const file of incoming) {
+    if (queue.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
+      rejected.push(`I can take up to ${MAX_ATTACHMENTS_PER_MESSAGE} files in one message.`);
+      break;
+    }
+    const reason = localRejectionFor(file);
+    if (reason) {
+      rejected.push(reason);
+      continue;
+    }
+    const entry = makeQueuedFile(file);
+    if (seen.has(entry.intakeKey)) {
+      releaseQueuedFile(entry);
+      continue;
+    }
+    seen.add(entry.intakeKey);
+    queue.push(entry);
+  }
+
+  return { queue, rejected };
+};
+
+export const dequeueEvidenceFile = (current: QueuedFile[], key: string): QueuedFile[] => {
+  const entry = current.find((item) => item.key === key);
+  if (entry) releaseQueuedFile(entry);
+  return current.filter((item) => item.key !== key);
+};
+
+/** Files from a drop event, ignoring directories and non-file drags. */
+export const filesFromDataTransfer = (transfer: DataTransfer | null): File[] => {
+  if (!transfer) return [];
+  const items = Array.from(transfer.items ?? []);
+  if (items.length > 0) {
+    return items
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+  }
+  return Array.from(transfer.files ?? []);
+};
+
+/**
+ * Pasted screenshots only. When the clipboard also carries text, normal text
+ * paste must keep working, so an empty result here means "not our business".
+ */
+export const imageFilesFromClipboard = (transfer: DataTransfer | null): File[] => {
+  if (!transfer) return [];
+  return Array.from(transfer.items ?? [])
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .map((item, index) => {
+      const file = item.getAsFile();
+      if (!file) return null;
+      // A pasted screenshot arrives as `image.png` or with no name at all.
+      const named = file.name && file.name !== "image.png"
+        ? file
+        : new File([file], `pasted-screenshot-${Date.now()}-${index}.${file.type.split("/")[1] || "png"}`, {
+            type: file.type,
+          });
+      return named;
+    })
+    .filter((file): file is File => Boolean(file));
 };
 
 /**
@@ -99,29 +227,50 @@ export type EvidenceUploadResult = {
 export const uploadEvidence = async (input: {
   projectId: string;
   runId: string | null;
-  files: File[];
+  /** Bound at registration: the user message already exists before the upload. */
+  messageId?: string | null;
+  files: QueuedFile[];
+  /** Per-file progress, so the composer never shows one global spinner. */
+  onProgress?: (clientKey: string, state: QueuedState, reason?: string) => void;
 }): Promise<EvidenceUploadResult> => {
+  const report = (key: string, state: QueuedState, reason?: string) => input.onProgress?.(key, state, reason);
+
   if (!evidenceIntakeAvailable()) {
     return {
       uploaded: [],
-      rejected: input.files.map((file) => ({
-        filename: file.name,
+      rejected: input.files.map((queued) => ({
+        clientKey: queued.key,
+        filename: queued.file.name,
         summary: "I can't reach secure storage from here, so I haven't taken that file.",
       })),
     };
   }
 
   const client = getSupabaseClient();
-  const rejected: Array<{ filename: string; summary: string }> = [];
-  const byKey = new Map<string, File>();
-  const claims = input.files.map((file, index) => {
-    const clientKey = `f${index}`;
-    byKey.set(clientKey, file);
-    return { clientKey, filename: file.name, mimeType: file.type, sizeBytes: file.size };
+  const rejected: EvidenceUploadResult["rejected"] = [];
+  const byKey = new Map<string, QueuedFile>();
+  const claims = input.files.map((queued) => {
+    byKey.set(queued.key, queued);
+    report(queued.key, "uploading");
+    return {
+      clientKey: queued.key,
+      filename: queued.file.name,
+      mimeType: queued.file.type,
+      sizeBytes: queued.file.size,
+      // Stable across retries of the same queued file, so a double submit or a
+      // network retry converges on one record instead of two.
+      intakeKey: queued.intakeKey,
+    };
   });
 
   const registered = await client.functions.invoke("evidence-intake", {
-    body: { action: "register", projectId: input.projectId, runId: input.runId, files: claims },
+    body: {
+      action: "register",
+      projectId: input.projectId,
+      runId: input.runId,
+      messageId: input.messageId ?? null,
+      files: claims,
+    },
   });
 
   const payload = registered.data as
@@ -134,10 +283,12 @@ export const uploadEvidence = async (input: {
     | null;
 
   if (registered.error || !payload?.ok) {
+    for (const queued of input.files) report(queued.key, "failed");
     return {
       uploaded: [],
-      rejected: input.files.map((file) => ({
-        filename: file.name,
+      rejected: input.files.map((queued) => ({
+        clientKey: queued.key,
+        filename: queued.file.name,
         summary: typeof payload?.summary === "string"
           ? payload.summary
           : "I couldn't take those files just now, so nothing was stored.",
@@ -146,7 +297,10 @@ export const uploadEvidence = async (input: {
   }
 
   for (const item of payload.rejected ?? []) {
+    const key = String(item.clientKey ?? "");
+    if (key) report(key, "failed", String(item.summary ?? ""));
     rejected.push({
+      clientKey: key || null,
       filename: String(item.filename ?? "that file"),
       summary: String(item.summary ?? "I couldn't take that file."),
     });
@@ -156,27 +310,42 @@ export const uploadEvidence = async (input: {
 
   for (const item of payload.accepted ?? []) {
     const clientKey = String(item.clientKey ?? "");
-    const file = byKey.get(clientKey);
+    const queued = byKey.get(clientKey);
     const evidenceId = String(item.evidenceId ?? "");
     const path = String(item.path ?? "");
     const token = String(item.uploadToken ?? "");
-    if (!file || !evidenceId || !path || !token) continue;
+    if (!queued || !evidenceId || !path) continue;
+    const file = queued.file;
 
-    const sent = await client.storage.from(BUCKET).uploadToSignedUrl(path, token, file, {
-      contentType: String(item.mimeType ?? file.type ?? "application/octet-stream"),
-    });
-    if (sent.error) {
-      rejected.push({ filename: file.name, summary: `${file.name} didn't finish uploading, so I haven't read it.` });
-      continue;
+    // `alreadyStored` means a retry converged on a reservation whose bytes are
+    // already up: skip the upload and go straight to commit.
+    if (token) {
+      const sent = await client.storage.from(BUCKET).uploadToSignedUrl(path, token, file, {
+        contentType: String(item.mimeType ?? file.type ?? "application/octet-stream"),
+      });
+      if (sent.error) {
+        // Nothing may be left half-reserved behind a failed upload.
+        await abortEvidence(input.projectId, [evidenceId]);
+        report(clientKey, "failed", "That upload didn't finish.");
+        rejected.push({
+          clientKey,
+          filename: file.name,
+          summary: `${file.name} didn't finish uploading, so I haven't read it.`,
+        });
+        continue;
+      }
     }
 
+    report(clientKey, "reading");
     const committed = await client.functions.invoke("evidence-intake", {
-      body: { action: "commit", projectId: input.projectId, evidenceId },
+      body: { action: "commit", projectId: input.projectId, evidenceId, messageId: input.messageId ?? null },
     });
     const result = committed.data as { ok?: boolean; summary?: string; analysis?: unknown } | null;
 
     if (committed.error || !result?.ok) {
+      report(clientKey, "failed", typeof result?.summary === "string" ? result.summary : undefined);
       rejected.push({
+        clientKey,
         filename: file.name,
         summary: typeof result?.summary === "string"
           ? result.summary
@@ -185,6 +354,7 @@ export const uploadEvidence = async (input: {
       continue;
     }
 
+    report(clientKey, "done");
     uploaded.push({
       evidenceId,
       filename: String(item.filename ?? file.name),
@@ -195,6 +365,18 @@ export const uploadEvidence = async (input: {
   }
 
   return { uploaded, rejected };
+};
+
+/** Withdraws reservations whose upload never completed. Ready evidence is safe. */
+export const abortEvidence = async (projectId: string, evidenceIds: string[]): Promise<void> => {
+  if (!evidenceIntakeAvailable() || evidenceIds.length === 0) return;
+  try {
+    await getSupabaseClient().functions.invoke("evidence-intake", {
+      body: { action: "abort", projectId, evidenceIds },
+    });
+  } catch {
+    // Best effort: the server also prunes stale reservations on its own.
+  }
 };
 
 /** Binds already-stored evidence to the message it was sent with. */
@@ -272,7 +454,7 @@ export const evidenceReplyLines = (uploaded: UploadedEvidence[]): string[] => {
     lines.push(`${item.filename}: ${analysis.summary}`);
     for (const observation of analysis.observations.slice(0, 4)) lines.push(`• ${observation}`);
     for (const signal of analysis.technicalSignals.slice(0, 4)) lines.push(`• ${signal}`);
-    for (const warning of analysis.warnings) lines.push(`⚠ ${warning}`);
+    for (const warning of analysis.warnings) lines.push(`Worth flagging: ${warning}`);
   }
   return lines;
 };

@@ -10,6 +10,9 @@ import { serviceClient } from "./clients.ts";
 import { secretStoreDeps } from "./clients.ts";
 import { capabilityTruth } from "./secretStore.ts";
 import { buildProjectContext, type ContextInput, type ProjectContext } from "./projectContext.ts";
+import { displayFilename } from "./evidencePolicy.ts";
+import { redactEvidenceText } from "./evidenceAnalysis.ts";
+import type { ServerEvidence } from "./reasonPrompt.ts";
 
 /**
  * Must match the access types the product actually stores. A name that does not
@@ -202,4 +205,58 @@ export const loadMemoryIndex = async (projectId: string): Promise<Array<{ id: st
     .eq("project_id", projectId)
     .limit(200);
   return (data ?? []).map((row) => ({ id: String(row.id), title: String(row.title ?? "") }));
+};
+/**
+ * Attachments belonging to one run, read server-side.
+ *
+ * Ordinary run reasoning is run-scoped on purpose: injecting the newest twelve
+ * files from unrelated old tasks would let stale evidence steer a live one. The
+ * run is verified to belong to the authorized project before this is called.
+ * Only analyses that actually completed contribute observations.
+ */
+export const loadRunEvidence = async (projectId: string, runId: string): Promise<ServerEvidence[]> => {
+  const { data } = await serviceClient()
+    .from("project_evidence")
+    .select("safe_filename, evidence_kind, status, evidence_analyses(result, status, version)")
+    .eq("project_id", projectId)
+    .eq("run_id", runId)
+    .order("created_at", { ascending: true })
+    .limit(12);
+
+  return (data ?? []).map((row) => {
+    const analyses = (Array.isArray(row.evidence_analyses) ? row.evidence_analyses : []) as Array<{
+      result?: Record<string, unknown>;
+      status?: string;
+      version?: number;
+    }>;
+    const latest = analyses.slice().sort((a, b) => Number(a.version ?? 0) - Number(b.version ?? 0)).pop();
+    const result = (latest?.result ?? {}) as Record<string, unknown>;
+    const readable = String(latest?.status ?? "") === "complete" && String(result.status ?? "") === "complete";
+    const summary = typeof result.summary === "string" ? result.summary : "";
+
+    const strings = (value: unknown): string[] =>
+      Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+
+    return {
+      filename: displayFilename(String(row.safe_filename ?? "attachment")),
+      kind: String(row.evidence_kind ?? "other"),
+      readable,
+      stateSummary: readable
+        ? ""
+        : redactEvidenceText(summary || `I have this file but haven't been able to read it (${row.status}).`).slice(0, 240),
+      observations: readable
+        ? [summary, ...strings(result.observations), ...strings(result.technicalSignals)]
+            .filter(Boolean)
+            .map((item) => redactEvidenceText(item).slice(0, 300))
+            .slice(0, 10)
+        : [],
+      warnings: strings(result.warnings).map((item) => redactEvidenceText(item).slice(0, 200)).slice(0, 3),
+    };
+  });
+};
+
+/** The run must belong to the authorized project before its evidence is read. */
+export const runBelongsToProject = async (projectId: string, runId: string): Promise<boolean> => {
+  const { data } = await serviceClient().from("runs").select("project_id").eq("id", runId).maybeSingle();
+  return Boolean(data && String(data.project_id) === projectId);
 };

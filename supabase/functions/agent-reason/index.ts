@@ -13,11 +13,11 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { authorizeProject } from "../_shared/authz.ts";
 import { authzDeps, executionContextConfigured, serviceClient } from "../_shared/clients.ts";
-import { loadMemoryIndex, loadProjectContext } from "../_shared/contextLoader.ts";
+import { loadMemoryIndex, loadProjectContext, loadRunEvidence, runBelongsToProject } from "../_shared/contextLoader.ts";
 import { validateReasonPlan } from "../_shared/reasonCatalog.ts";
 import { readModelText, resolveReasonModel, type ReasonModel } from "../_shared/reasonModels.ts";
 import { SYSTEM_PROMPT, parseModelJson, sanitizeDigest, userPrompt } from "../_shared/reasonPrompt.ts";
-import type { ReasonDigest } from "../_shared/reasonPrompt.ts";
+import type { ReasonDigest, ServerEvidence } from "../_shared/reasonPrompt.ts";
 import { MEETING_PROMPT_VERSION, MEETING_SYSTEM_PROMPT, meetingUserPrompt } from "../_shared/meetingPrompt.ts";
 import { candidateKeyFor, taskKeyFor, validateMeetingAnalysis } from "../_shared/meetingSchema.ts";
 import { mergeMeetingAnalyses } from "../_shared/meetingMerge.ts";
@@ -86,8 +86,12 @@ const buildCall = (
   };
 };
 
-const planCall = (model: ReasonModel, apiKey: string, digest: ReasonDigest): ProviderCall =>
-  buildCall(model, apiKey, SYSTEM_PROMPT, userPrompt(digest), MAX_OUTPUT_TOKENS);
+const planCall = (
+  model: ReasonModel,
+  apiKey: string,
+  digest: ReasonDigest,
+  attachments: ServerEvidence[],
+): ProviderCall => buildCall(model, apiKey, SYSTEM_PROMPT, userPrompt(digest, attachments), MAX_OUTPUT_TOKENS);
 
 
 const AUTH_FAIL_SUMMARY: Record<string, string> = {
@@ -449,7 +453,19 @@ Deno.serve(async (req) => {
   }
 
   const digest = sanitizeDigest(body.digest);
-  const asked = await askModel(model, planCall(model, apiKey, digest), TIMEOUT_MS);
+
+  // First-class attachment evidence, loaded server-side and scoped to the run
+  // the browser says is active — after proving that run is this project's.
+  const runClaim = typeof body.runId === "string" ? body.runId : "";
+  let attachments: ServerEvidence[] = [];
+  if (runClaim) {
+    if (!(await runBelongsToProject(authz.project.projectId, runClaim))) {
+      return fail("not_found", "I can't find that task on this project.", false);
+    }
+    attachments = await loadRunEvidence(authz.project.projectId, runClaim).catch(() => []);
+  }
+
+  const asked = await askModel(model, planCall(model, apiKey, digest, attachments), TIMEOUT_MS);
   if (!asked.ok) return asked.response;
 
   const validated = validateReasonPlan(parseModelJson(asked.content), digest.capabilities);

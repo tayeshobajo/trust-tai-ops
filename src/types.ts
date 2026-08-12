@@ -385,6 +385,19 @@ export type EvidenceAnalysis = {
   confidence: "low" | "medium" | "high";
   warnings: string[];
   unsupportedReason: string | null;
+  /**
+   * Where this reading came from. Kept through client mapping so history and
+   * UI can say which file, on which message, at what time — rather than
+   * showing a floating claim with no source.
+   */
+  provenance: EvidenceProvenance | null;
+};
+
+export type EvidenceProvenance = {
+  evidenceId: string;
+  filename: string;
+  messageId: string | null;
+  createdAt: string;
 };
 
 export type ProjectEvidence = {

@@ -3,19 +3,27 @@
 // The browser never touches the storage bucket on its own terms: it asks for
 // permission here, uploads to a server-issued path with a short-lived token,
 // then asks the server to read what it uploaded. Every filename, MIME type and
-// byte count the browser claims is re-decided here.
+// byte count the browser claims is re-decided here, and at commit the bytes
+// that actually landed are validated before anything reads them.
+//
+// The decisions live in `_shared/evidenceIntake.ts` behind an injected store so
+// the release gate can drive the real flows. This file is the wiring.
 //
 // Nothing on this path executes anything against a customer system.
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { authorizeProject } from "../_shared/authz.ts";
 import { authzDeps, executionContextConfigured, serviceClient } from "../_shared/clients.ts";
+import { isUuid } from "../_shared/evidencePolicy.ts";
 import {
-  MAX_ATTACHMENTS_PER_MESSAGE,
-  decideEvidence,
-  isUuid,
-  storagePathFor,
-} from "../_shared/evidencePolicy.ts";
+  type Analyzer,
+  type EvidenceRow,
+  type IntakeStore,
+  abortEvidence,
+  attachEvidence,
+  commitEvidence,
+  registerEvidence,
+} from "../_shared/evidenceIntake.ts";
 import {
   analyzeMultimodalEvidence,
   analyzeTextualEvidence,
@@ -28,7 +36,6 @@ import {
 } from "../_shared/evidenceAnalysis.ts";
 
 const BUCKET = "project-evidence";
-const SIGNED_UPLOAD_SECONDS = 120;
 const SIGNED_READ_SECONDS = 300;
 
 const fail = (code: string, summary: string, retryable: boolean, status = 200) =>
@@ -96,16 +103,197 @@ const toBase64 = (bytes: Uint8Array): string => {
   return btoa(binary);
 };
 
-const sha256Hex = async (bytes: Uint8Array): Promise<string> => {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
-};
+// ---------------------------------------------------------------------------
+// Store — the only place this subsystem touches the database or the bucket.
+// ---------------------------------------------------------------------------
 
-const statusFor = (analysis: NormalizedEvidence): string => {
-  if (analysis.status === "complete") return "ready";
-  if (analysis.status === "unsupported") return "unsupported";
-  if (analysis.status === "unavailable") return "ready";
-  return "failed";
+type Service = ReturnType<typeof serviceClient>;
+
+const EVIDENCE_COLUMNS =
+  "id, project_id, run_id, message_id, safe_filename, original_filename, mime_type, evidence_kind, size_bytes, storage_path, status, content_hash, analysis_id, intake_key, created_at";
+
+const toRow = (record: Record<string, unknown>): EvidenceRow => ({
+  id: String(record.id),
+  projectId: String(record.project_id),
+  runId: (record.run_id as string | null) ?? null,
+  messageId: (record.message_id as string | null) ?? null,
+  safeFilename: String(record.safe_filename ?? "attachment"),
+  originalFilename: String(record.original_filename ?? "attachment"),
+  mimeType: String(record.mime_type ?? "application/octet-stream"),
+  kind: String(record.evidence_kind ?? "other") as EvidenceRow["kind"],
+  sizeBytes: Number(record.size_bytes ?? 0),
+  storagePath: String(record.storage_path ?? ""),
+  status: String(record.status ?? "uploading"),
+  contentHash: (record.content_hash as string | null) ?? null,
+  analysisId: (record.analysis_id as string | null) ?? null,
+  intakeKey: (record.intake_key as string | null) ?? null,
+  createdAt: String(record.created_at ?? new Date().toISOString()),
+});
+
+const makeStore = (service: Service, uploadedBy: string | null): IntakeStore => ({
+  runProject: async (runId) => {
+    const { data } = await service.from("runs").select("project_id").eq("id", runId).maybeSingle();
+    return data ? String(data.project_id) : null;
+  },
+  messageProject: async (messageId) => {
+    const { data } = await service
+      .from("project_messages")
+      .select("project_id, run_id")
+      .eq("id", messageId)
+      .maybeSingle();
+    return data ? { projectId: String(data.project_id), runId: (data.run_id as string | null) ?? null } : null;
+  },
+  findByIntakeKey: async (projectId, intakeKey) => {
+    const { data } = await service
+      .from("project_evidence")
+      .select(EVIDENCE_COLUMNS)
+      .eq("project_id", projectId)
+      .eq("intake_key", intakeKey)
+      .maybeSingle();
+    return data ? toRow(data as Record<string, unknown>) : null;
+  },
+  insertEvidence: async (row) => {
+    const { data, error } = await service
+      .from("project_evidence")
+      .insert({
+        id: row.id,
+        project_id: row.projectId,
+        run_id: row.runId,
+        message_id: row.messageId,
+        uploaded_by: uploadedBy,
+        original_filename: row.originalFilename,
+        safe_filename: row.safeFilename,
+        mime_type: row.mimeType,
+        size_bytes: row.sizeBytes,
+        storage_bucket: BUCKET,
+        storage_path: row.storagePath,
+        evidence_kind: row.kind,
+        status: row.status,
+        intake_key: row.intakeKey,
+      })
+      .select(EVIDENCE_COLUMNS)
+      .single();
+    if (error) {
+      console.error(`evidence insert failed: ${error.message}`);
+      return null;
+    }
+    return toRow(data as Record<string, unknown>);
+  },
+  getEvidence: async (projectId, evidenceId) => {
+    const { data } = await service
+      .from("project_evidence")
+      .select(EVIDENCE_COLUMNS)
+      .eq("id", evidenceId)
+      .eq("project_id", projectId)
+      .maybeSingle();
+    return data ? toRow(data as Record<string, unknown>) : null;
+  },
+  updateEvidence: async (evidenceId, patch) => {
+    const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (patch.status !== undefined) update.status = patch.status;
+    if (patch.messageId !== undefined) update.message_id = patch.messageId;
+    if (patch.runId !== undefined) update.run_id = patch.runId;
+    if (patch.contentHash !== undefined) update.content_hash = patch.contentHash;
+    if (patch.analysisId !== undefined) update.analysis_id = patch.analysisId;
+    if (patch.failureReason !== undefined) update.failure_reason = patch.failureReason;
+    await service.from("project_evidence").update(update).eq("id", evidenceId);
+  },
+  deleteEvidence: async (evidenceId) => {
+    await service.from("project_evidence").delete().eq("id", evidenceId);
+  },
+  createSignedUpload: async (path) => {
+    const signed = await service.storage.from(BUCKET).createSignedUploadUrl(path, { upsert: true });
+    if (signed.error || !signed.data) {
+      console.error(`evidence signed upload failed: ${signed.error?.message ?? "unknown"}`);
+      return null;
+    }
+    return { signedUrl: signed.data.signedUrl, token: signed.data.token };
+  },
+  download: async (path) => {
+    const result = await service.storage.from(BUCKET).download(path);
+    if (result.error || !result.data) return null;
+    return new Uint8Array(await result.data.arrayBuffer());
+  },
+  removeObject: async (path) => {
+    await service.storage.from(BUCKET).remove([path]);
+  },
+  latestAnalysis: async (evidenceId) => {
+    const { data } = await service
+      .from("evidence_analyses")
+      .select("id, status, result")
+      .eq("evidence_id", evidenceId)
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return data
+      ? { id: String(data.id), status: String(data.status), result: data.result as NormalizedEvidence }
+      : null;
+  },
+  insertAnalysis: async (input) => {
+    const { data, error } = await service
+      .from("evidence_analyses")
+      .insert({
+        project_id: input.projectId,
+        evidence_id: input.evidenceId,
+        version: 1,
+        analyzer: input.analyzer,
+        model_id: input.modelId,
+        status: input.status,
+        result: input.result,
+      })
+      .select("id, status, result")
+      .single();
+    if (error || !data) return null;
+    return { id: String(data.id), status: String(data.status), result: data.result as NormalizedEvidence };
+  },
+  staleUploading: async (projectId, olderThanIso) => {
+    const { data } = await service
+      .from("project_evidence")
+      .select(EVIDENCE_COLUMNS)
+      .eq("project_id", projectId)
+      .eq("status", "uploading")
+      .lt("created_at", olderThanIso)
+      .limit(25);
+    return (data ?? []).map((record) => toRow(record as Record<string, unknown>));
+  },
+  sha256Hex: async (bytes) => {
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+  },
+  newId: () => crypto.randomUUID(),
+  now: () => new Date(),
+});
+
+const analyzer: Analyzer = async ({ row, bytes }) => {
+  const provenance: EvidenceProvenance = {
+    evidenceId: row.id,
+    filename: row.safeFilename,
+    messageId: row.messageId,
+    createdAt: row.createdAt,
+  };
+
+  if (row.kind === "video") {
+    return { analysis: videoAnalysis(provenance, bytes.byteLength), analyzer: "metadata_only", modelId: "" };
+  }
+  if (row.kind === "image" || row.kind === "pdf") {
+    const caller = multimodalCaller();
+    const analysis = await analyzeMultimodalEvidence(row.kind, toBase64(bytes), row.mimeType, provenance, caller);
+    return { analysis, analyzer: "multimodal", modelId: caller ? VISION_MODEL : "" };
+  }
+  if (row.kind === "other") {
+    return { analysis: unsupportedAnalysis(row.kind, provenance), analyzer: "text_reader", modelId: "" };
+  }
+
+  let text = "";
+  try {
+    text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  } catch {
+    text = "";
+  }
+  const analysis: NormalizedEvidence = text.trim().length > 0
+    ? analyzeTextualEvidence(row.kind, text, provenance)
+    : unavailableAnalysis(provenance, "unreadable", "That file didn't read as text, so I haven't drawn anything from it.");
+  return { analysis, analyzer: "text_reader", modelId: "" };
 };
 
 Deno.serve(async (req) => {
@@ -134,223 +322,19 @@ Deno.serve(async (req) => {
 
   const service = serviceClient();
   const scopedProjectId = authz.project.projectId;
+  const store = makeStore(service, authz.caller.userId);
+  const ctx = { projectId: scopedProjectId, userId: authz.caller.userId };
 
-  // -------------------------------------------------------------------------
-  // register — decide the file, reserve a row, hand back a scoped upload URL
-  // -------------------------------------------------------------------------
-  if (action === "register") {
-    const files = Array.isArray(body.files) ? body.files : [];
-    if (files.length === 0) return fail("invalid_input", "No file was attached.", false);
-    if (files.length > MAX_ATTACHMENTS_PER_MESSAGE) {
-      return fail(
-        "too_many_attachments",
-        `I can take up to ${MAX_ATTACHMENTS_PER_MESSAGE} files in one message.`,
-        false,
-      );
-    }
+  if (action === "register" || action === "commit" || action === "abort" || action === "attach") {
+    const result = action === "register"
+      ? await registerEvidence(store, ctx, body)
+      : action === "commit"
+      ? await commitEvidence(store, ctx, body, analyzer)
+      : action === "abort"
+      ? await abortEvidence(store, ctx, body)
+      : await attachEvidence(store, ctx, body);
 
-    const runId = isUuid(body.runId) ? body.runId : null;
-    const accepted: Array<Record<string, unknown>> = [];
-    const rejected: Array<Record<string, unknown>> = [];
-
-    for (const raw of files) {
-      const claim = (raw ?? {}) as Record<string, unknown>;
-      const decision = decideEvidence({
-        filename: claim.filename,
-        mimeType: claim.mimeType,
-        sizeBytes: claim.sizeBytes,
-      });
-      if (!decision.ok) {
-        rejected.push({
-          clientKey: typeof claim.clientKey === "string" ? claim.clientKey : null,
-          filename: typeof claim.filename === "string" ? claim.filename.slice(0, 120) : "",
-          code: decision.code,
-          summary: decision.summary,
-        });
-        continue;
-      }
-
-      const evidenceId = crypto.randomUUID();
-      const storagePath = storagePathFor(scopedProjectId, evidenceId, decision.safeFilename);
-
-      const inserted = await service
-        .from("project_evidence")
-        .insert({
-          id: evidenceId,
-          project_id: scopedProjectId,
-          run_id: runId,
-          uploaded_by: authz.caller.userId,
-          original_filename: decision.originalFilename,
-          safe_filename: decision.safeFilename,
-          mime_type: decision.mimeType,
-          size_bytes: decision.sizeBytes,
-          storage_bucket: BUCKET,
-          storage_path: storagePath,
-          evidence_kind: decision.kind,
-          status: "uploading",
-        })
-        .select("id")
-        .single();
-
-      if (inserted.error) {
-        console.error(`evidence insert failed: ${inserted.error.message}`);
-        rejected.push({
-          clientKey: typeof claim.clientKey === "string" ? claim.clientKey : null,
-          filename: decision.safeFilename,
-          code: "storage_unavailable",
-          summary: "I couldn't reserve space for that file just now.",
-        });
-        continue;
-      }
-
-      const signed = await service.storage.from(BUCKET).createSignedUploadUrl(storagePath);
-      if (signed.error || !signed.data) {
-        console.error(`evidence signed upload failed: ${signed.error?.message ?? "unknown"}`);
-        await service.from("project_evidence").delete().eq("id", evidenceId);
-        rejected.push({
-          clientKey: typeof claim.clientKey === "string" ? claim.clientKey : null,
-          filename: decision.safeFilename,
-          code: "storage_unavailable",
-          summary: "Secure storage didn't answer, so I haven't taken that file.",
-        });
-        continue;
-      }
-
-      accepted.push({
-        clientKey: typeof claim.clientKey === "string" ? claim.clientKey : null,
-        evidenceId,
-        filename: decision.safeFilename,
-        mimeType: decision.mimeType,
-        kind: decision.kind,
-        sizeBytes: decision.sizeBytes,
-        uploadUrl: signed.data.signedUrl,
-        uploadToken: signed.data.token,
-        path: storagePath,
-        expiresInSeconds: SIGNED_UPLOAD_SECONDS,
-      });
-    }
-
-    return ok({ accepted, rejected });
-  }
-
-  // -------------------------------------------------------------------------
-  // commit — confirm the bytes landed, read them, store the analysis
-  // -------------------------------------------------------------------------
-  if (action === "commit") {
-    const evidenceId = typeof body.evidenceId === "string" ? body.evidenceId : "";
-    if (!isUuid(evidenceId)) return fail("invalid_input", "That attachment reference isn't valid.", false);
-
-    const row = await service
-      .from("project_evidence")
-      .select("id, project_id, storage_path, mime_type, evidence_kind, size_bytes, safe_filename, message_id, created_at, status")
-      .eq("id", evidenceId)
-      .eq("project_id", scopedProjectId)
-      .maybeSingle();
-
-    if (row.error || !row.data) return fail("not_found", "I can't find that attachment on this project.", false);
-
-    const messageId = isUuid(body.messageId) ? body.messageId : (row.data.message_id as string | null);
-    const kind = String(row.data.evidence_kind) as Parameters<typeof analyzeTextualEvidence>[0];
-    const provenance: EvidenceProvenance = {
-      evidenceId,
-      filename: String(row.data.safe_filename ?? "attachment"),
-      messageId: messageId ?? null,
-      createdAt: String(row.data.created_at ?? new Date().toISOString()),
-    };
-
-    await service
-      .from("project_evidence")
-      .update({ status: "analyzing", message_id: messageId, updated_at: new Date().toISOString() })
-      .eq("id", evidenceId);
-
-    const download = await service.storage.from(BUCKET).download(String(row.data.storage_path));
-    if (download.error || !download.data) {
-      await service
-        .from("project_evidence")
-        .update({ status: "failed", failure_reason: "upload_missing", updated_at: new Date().toISOString() })
-        .eq("id", evidenceId);
-      return fail("upload_missing", "That upload never finished, so there's nothing for me to read.", true);
-    }
-
-    const bytes = new Uint8Array(await download.data.arrayBuffer());
-    const contentHash = await sha256Hex(bytes);
-
-    let analysis: NormalizedEvidence;
-    let analyzer = "text_reader";
-    let modelId = "";
-
-    if (kind === "video") {
-      analysis = videoAnalysis(provenance, bytes.byteLength);
-      analyzer = "metadata_only";
-    } else if (kind === "image" || kind === "pdf") {
-      const caller = multimodalCaller();
-      analyzer = "multimodal";
-      modelId = caller ? VISION_MODEL : "";
-      analysis = await analyzeMultimodalEvidence(
-        kind,
-        toBase64(bytes),
-        String(row.data.mime_type),
-        provenance,
-        caller,
-      );
-    } else if (kind === "other") {
-      analysis = unsupportedAnalysis(kind, provenance);
-    } else {
-      let text = "";
-      try {
-        text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-      } catch {
-        text = "";
-      }
-      analysis = text.trim().length > 0
-        ? analyzeTextualEvidence(kind, text, provenance)
-        : unavailableAnalysis(provenance, "unreadable", "That file didn't read as text, so I haven't drawn anything from it.");
-    }
-
-    const stored = await service
-      .from("evidence_analyses")
-      .insert({
-        project_id: scopedProjectId,
-        evidence_id: evidenceId,
-        version: 1,
-        analyzer,
-        model_id: modelId,
-        status: analysis.status,
-        result: analysis,
-      })
-      .select("id")
-      .single();
-
-    await service
-      .from("project_evidence")
-      .update({
-        status: statusFor(analysis),
-        content_hash: contentHash,
-        analysis_id: stored.data?.id ?? null,
-        failure_reason: analysis.unsupportedReason,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", evidenceId);
-
-    return ok({ evidenceId, analysis, status: statusFor(analysis) });
-  }
-
-  // -------------------------------------------------------------------------
-  // attach — bind already-stored evidence to the message it was sent with
-  // -------------------------------------------------------------------------
-  if (action === "attach") {
-    const messageId = typeof body.messageId === "string" ? body.messageId : "";
-    const ids = Array.isArray(body.evidenceIds) ? body.evidenceIds.filter(isUuid) : [];
-    if (!isUuid(messageId) || ids.length === 0) return fail("invalid_input", "Nothing to attach.", false);
-
-    const { error } = await service
-      .from("project_evidence")
-      .update({ message_id: messageId, updated_at: new Date().toISOString() })
-      .in("id", ids)
-      .eq("project_id", scopedProjectId);
-
-    if (error) return fail("write_failed", "I stored the files but couldn't pin them to that message.", true);
-    return ok({ attached: ids.length });
+    return result.ok ? ok(result.payload) : fail(result.code, result.summary, result.retryable);
   }
 
   // -------------------------------------------------------------------------
@@ -360,17 +344,10 @@ Deno.serve(async (req) => {
     const evidenceId = typeof body.evidenceId === "string" ? body.evidenceId : "";
     if (!isUuid(evidenceId)) return fail("invalid_input", "That attachment reference isn't valid.", false);
 
-    const row = await service
-      .from("project_evidence")
-      .select("storage_path")
-      .eq("id", evidenceId)
-      .eq("project_id", scopedProjectId)
-      .maybeSingle();
-    if (!row.data) return fail("not_found", "I can't find that attachment on this project.", false);
+    const row = await store.getEvidence(scopedProjectId, evidenceId);
+    if (!row) return fail("not_found", "I can't find that attachment on this project.", false);
 
-    const signed = await service.storage
-      .from(BUCKET)
-      .createSignedUrl(String(row.data.storage_path), SIGNED_READ_SECONDS);
+    const signed = await service.storage.from(BUCKET).createSignedUrl(row.storagePath, SIGNED_READ_SECONDS);
     if (signed.error || !signed.data) return fail("storage_unavailable", "That file isn't reachable right now.", true);
 
     return ok({ url: signed.data.signedUrl, expiresInSeconds: SIGNED_READ_SECONDS });
