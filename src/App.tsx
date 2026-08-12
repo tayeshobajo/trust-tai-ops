@@ -184,9 +184,10 @@ function App() {
   // only an explicit viewer role blocks it.
   const canCreateProject = authState.role !== "viewer";
 
-  // Auth gate disabled — app loads directly into workspace
-  // Re-enable by setting this to: repositoryHealth.adapter === "supabase" && !authState.isAuthenticated && authState.status !== "loading"
-  const authGateEnabled = false;
+  // Fail closed. The gate is only relaxed by an explicit non-production demo
+  // opt-in (`VITE_OPS_REPOSITORY_ADAPTER=demo`); production builds always
+  // require a real authenticated session.
+  const authGateEnabled = isAuthGateRequired(opsEnv);
 
   const operatorLabel = authState.userEmail ?? "Operator";
   const approvalsCount = countPendingDecisions(workspace);
