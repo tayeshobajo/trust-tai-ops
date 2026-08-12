@@ -86,7 +86,7 @@ export const whenLabel = (createdAt: string, now: number): string => {
   if (days < 1) return "today";
   if (days < 2) return "yesterday";
   if (days < 8) return "last week";
-  if (days < 32) return "last month";
+  if (days < 60) return "last month";
   return "earlier in this project";
 };
 
@@ -204,6 +204,15 @@ export const resolveContinuity = async (
   }
 
   if (intent.terms.length === 0) {
+    if (intent.label) {
+      return {
+        status: "not_found",
+        intent,
+        references: [],
+        question: `I can't find where I offered ${intent.label} in this project, so I don't want to assume what it was. Could you tell me what it should cover?`,
+        charCount: 0,
+      };
+    }
     return {
       status: "not_found",
       intent,
