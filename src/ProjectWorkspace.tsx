@@ -121,6 +121,26 @@ const agentStateTone = (run: Run | null) => {
   return "agent-state-working";
 };
 
+/** Inline marks rather than emoji: they inherit colour, size and weight. */
+const PaperclipIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8-8a3.4 3.4 0 0 1 4.8 4.8l-8 8a1.8 1.8 0 0 1-2.5-2.5l7.4-7.4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+    <path d="m6 6 12 12M18 6 6 18" strokeLinecap="round" />
+  </svg>
+);
+
+const WarningIcon = () => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <path d="M12 4.5 21 19.5H3z" strokeLinejoin="round" />
+    <path d="M12 10v4.2M12 17h.01" strokeLinecap="round" />
+  </svg>
+);
+
 export function ProjectWorkspace({
   project,
   canWrite,
@@ -1381,7 +1401,30 @@ export function ProjectWorkspace({
           <div ref={threadEndRef} />
         </div>
 
-        <div className="pw-composer">
+        <div
+          className={dropActive ? "pw-composer is-drop-active" : "pw-composer"}
+          onDragOver={(event) => {
+            if (!evidenceIntakeAvailable()) return;
+            if (!Array.from(event.dataTransfer?.types ?? []).includes("Files")) return;
+            event.preventDefault();
+            setDropActive(true);
+          }}
+          onDragLeave={(event) => {
+            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+            setDropActive(false);
+          }}
+          onDrop={(event) => {
+            if (!evidenceIntakeAvailable()) return;
+            event.preventDefault();
+            setDropActive(false);
+            queueFiles(filesFromDataTransfer(event.dataTransfer));
+          }}
+        >
+          {dropActive ? (
+            <p className="pw-drop-hint" role="status">
+              Drop files here and I'll read what I can.
+            </p>
+          ) : null}
           {transcriptOpen ? (
             <div className="transcript-intake">
               <label className="transcript-field">
