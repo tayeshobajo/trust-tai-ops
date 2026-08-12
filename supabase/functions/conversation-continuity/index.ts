@@ -18,6 +18,7 @@ import { isUuid } from "../_shared/evidencePolicy.ts";
 import { extractAnchors } from "../_shared/continuity/anchors.ts";
 import {
   type AnchorRecord,
+  type AnchorQuery,
   type ContinuityStore,
   type MessageRecord,
   SEARCH_LIMIT,
@@ -26,6 +27,10 @@ import {
 } from "../_shared/continuity/retrieval.ts";
 
 const RECENT_MESSAGE_WINDOW = 400;
+/** How far back a one-off legacy backfill will read agent messages. */
+const BACKFILL_WINDOW = 500;
+const ANCHOR_COLUMNS =
+  "id, run_id, source_message_id, anchor_type, label, normalized_label, aliases, summary, created_at";
 
 const fail = (code: string, summary: string, retryable: boolean, status = 200) =>
   new Response(JSON.stringify({ ok: false, code, summary, retryable }), {
@@ -57,26 +62,100 @@ const runTitles = async (projectId: string): Promise<Map<string, string>> => {
  * The store the pure resolver runs against. Project scoping is applied here,
  * once, so no ranking path can reach another customer's conversation.
  */
+const toAnchor = (row: Record<string, unknown>, titles: Map<string, string>): AnchorRecord => ({
+  id: String(row.id),
+  runId: row.run_id ? String(row.run_id) : null,
+  sourceMessageId: String(row.source_message_id),
+  anchorType: String(row.anchor_type),
+  label: String(row.label ?? ""),
+  normalizedLabel: String(row.normalized_label ?? ""),
+  aliases: Array.isArray(row.aliases) ? row.aliases.map((alias) => String(alias)) : [],
+  summary: String(row.summary ?? ""),
+  createdAt: String(row.created_at),
+  runTitle: row.run_id ? titles.get(String(row.run_id)) ?? null : null,
+});
+
+/**
+ * Anchors matching what the person named, filtered in the database.
+ *
+ * Narrowing here rather than in memory is what makes a months-old choice
+ * survive a busy project: a recency window would quietly drop it and the agent
+ * would answer "I can't find that" about something it really did offer.
+ */
+const queryAnchors = async (projectId: string, query: AnchorQuery, titles: Map<string, string>) => {
+  let request = serviceClient().from("conversation_anchors").select(ANCHOR_COLUMNS).eq("project_id", projectId);
+  if (query.normalizedLabel) request = request.eq("normalized_label", query.normalizedLabel);
+  else if (query.alias) request = request.contains("aliases", [query.alias]);
+  const { data } = await request.order("created_at", { ascending: false }).limit(200);
+  return (data ?? []).map((row) => toAnchor(row as Record<string, unknown>, titles));
+};
+
+/**
+ * Conversations that predate anchoring still contain real, structured offers.
+ * Rather than refuse to remember them forever, historical *agent* messages are
+ * re-read through the same conservative parser the live path uses, and only an
+ * unmistakable labelled option list mints anything. User text is never a
+ * source: nobody may author the choice the agent is later held to.
+ *
+ * Runs only when a named lookup found nothing, and is idempotent.
+ */
+const backfillLegacyAnchors = async (projectId: string): Promise<number> => {
+  const service = serviceClient();
+  const { data } = await service
+    .from("project_messages")
+    .select("id, run_id, role, body, created_at")
+    .eq("project_id", projectId)
+    .in("role", ["agent", "system"])
+    .order("created_at", { ascending: false })
+    .limit(BACKFILL_WINDOW);
+
+  const rows = (data ?? []) as MessageRow[];
+  if (rows.length === 0) return 0;
+
+  const { data: existing } = await service
+    .from("conversation_anchors")
+    .select("source_message_id")
+    .eq("project_id", projectId)
+    .in("source_message_id", rows.map((row) => String(row.id)));
+  const indexed = new Set((existing ?? []).map((row) => String(row.source_message_id)));
+
+  const inserts = rows
+    .filter((row) => !indexed.has(String(row.id)))
+    .flatMap((row) =>
+      extractAnchors({
+        id: String(row.id),
+        runId: row.run_id ? String(row.run_id) : null,
+        role: String(row.role),
+        body: Array.isArray(row.body) ? row.body.map((line) => String(line)) : [String(row.body ?? "")],
+        createdAt: String(row.created_at),
+      }).map((draft) => ({
+        project_id: projectId,
+        run_id: row.run_id,
+        source_message_id: row.id,
+        anchor_type: draft.anchorType,
+        label: draft.label,
+        normalized_label: draft.normalizedLabel,
+        aliases: draft.aliases,
+        summary: draft.summary,
+        ordinal: draft.ordinal,
+      })),
+    );
+
+  if (inserts.length === 0) return 0;
+  await service
+    .from("conversation_anchors")
+    .upsert(inserts, { onConflict: "source_message_id,normalized_label", ignoreDuplicates: true });
+  return inserts.length;
+};
+
 const continuityStore = (titles: Map<string, string>): ContinuityStore => ({
-  listAnchors: async (projectId) => {
-    const { data } = await serviceClient()
-      .from("conversation_anchors")
-      .select("id, run_id, source_message_id, anchor_type, label, normalized_label, aliases, summary, created_at")
-      .eq("project_id", projectId)
-      .order("created_at", { ascending: false })
-      .limit(200);
-    return (data ?? []).map((row): AnchorRecord => ({
-      id: String(row.id),
-      runId: row.run_id ? String(row.run_id) : null,
-      sourceMessageId: String(row.source_message_id),
-      anchorType: String(row.anchor_type),
-      label: String(row.label ?? ""),
-      normalizedLabel: String(row.normalized_label ?? ""),
-      aliases: Array.isArray(row.aliases) ? row.aliases.map((alias) => String(alias)) : [],
-      summary: String(row.summary ?? ""),
-      createdAt: String(row.created_at),
-      runTitle: row.run_id ? titles.get(String(row.run_id)) ?? null : null,
-    }));
+  listAnchors: async (projectId, query) => {
+    const named = Boolean(query.normalizedLabel || query.alias);
+    const first = await queryAnchors(projectId, query, titles);
+    if (first.length > 0 || !named) return first;
+    // Nothing named found: the project may simply predate anchoring.
+    const minted = await backfillLegacyAnchors(projectId).catch(() => 0);
+    return minted > 0 ? await queryAnchors(projectId, query, titles) : first;
   },
   searchMessages: async (projectId, terms, limit) => {
     if (terms.length === 0) return [];
