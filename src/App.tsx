@@ -127,6 +127,8 @@ function App() {
     return () => {
       cancelled = true;
     };
+    // `demoAllowed` is derived from build-time env and never changes at runtime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedProject = getProjectById(workspace, selectedProjectId);
