@@ -724,40 +724,131 @@ export function ProjectWorkspace({
     }
   };
 
+  // --- Evidence -------------------------------------------------------------
+
+  const evidenceForMessage = (messageId: string) =>
+    evidence.filter((item) => item.messageId === messageId);
+
+  const queueFiles = (incoming: File[]) => {
+    if (incoming.length === 0) return;
+    const problems: string[] = [];
+    const accepted: File[] = [];
+
+    for (const file of incoming) {
+      if (pendingFiles.length + accepted.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
+        problems.push(`I can take up to ${MAX_ATTACHMENTS_PER_MESSAGE} files in one message.`);
+        break;
+      }
+      const rejection = localRejectionFor(file);
+      if (rejection) problems.push(rejection);
+      else accepted.push(file);
+    }
+
+    if (accepted.length > 0) setPendingFiles((current) => [...current, ...accepted]);
+    setAttachError(problems.length > 0 ? problems.join(" ") : null);
+  };
+
+  const openEvidence = async (item: ProjectEvidence) => {
+    const url = await evidenceViewUrl(project.id, item.id);
+    if (!url) {
+      setAttachError("That file isn't reachable right now.");
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  /**
+   * Files are uploaded, read and reported in one pass. The agent only ever
+   * says what the server actually returned: an unreadable file is stated as
+   * unread rather than described.
+   */
+  const sendAttachments = async (runId: string | null, messageId: string | null, files: File[]) => {
+    setUploading(true);
+    try {
+      const result = await uploadEvidence({ projectId: project.id, runId, files });
+
+      if (messageId && result.uploaded.length > 0) {
+        await attachEvidenceToMessage({
+          projectId: project.id,
+          messageId,
+          evidenceIds: result.uploaded.map((item) => item.evidenceId),
+        });
+      }
+
+      setEvidence(await listProjectEvidence(project.id));
+
+      const lines = [
+        ...evidenceReplyLines(result.uploaded),
+        ...result.rejected.map((item) => item.summary),
+      ];
+      if (lines.length > 0) {
+        await emit({
+          runId,
+          role: "agent",
+          kind: "message",
+          body: lines,
+          dedupeKey: `evidence-${messageId ?? runId ?? project.id}-${result.uploaded.map((item) => item.evidenceId).join("-") || "none"}`,
+        });
+      }
+    } catch {
+      setAttachError("I couldn't finish reading those files. Nothing was lost — try again.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const sendMessage = async () => {
     const value = composerValue.trim();
-    if (!value) return;
+    const attachments = pendingFiles;
+    if (!value && attachments.length === 0) return;
 
     // Credential-shaped text never becomes a stored message. It goes straight
     // to the authorized server intake, which parses, authorizes and seals it,
     // and returns a sanitized replacement for the conversation.
-    if (containsSecretMaterial(value)) {
+    if (value && containsSecretMaterial(value)) {
       await handleCredentialPaste(value);
       return;
     }
 
+    const attachmentNote =
+      attachments.length > 0
+        ? `Shared ${attachments.length} file${attachments.length === 1 ? "" : "s"}: ${attachments
+            .map((file) => file.name)
+            .join(", ")}`
+        : "";
+    const bodyLines = [value, attachmentNote].filter((line) => line.length > 0);
+
     if (!activeRun) {
       setBusy(true);
+      let createdId: string | null = null;
+      let savedId: string | null = null;
       try {
-        const next = await workspaceRepository.createRun(project.id, draftFromBrief(project, value));
+        const brief = value || `Review the ${attachments.length === 1 ? "file" : "files"} I've attached.`;
+        const next = await workspaceRepository.createRun(project.id, draftFromBrief(project, brief));
         onWorkspaceUpdate(next);
         const created = next.projects.find((item) => item.id === project.id)?.runs[0];
+        createdId = created?.id ?? null;
         // The brief becomes the first real message of the new task.
         const saved = await emit({
-          runId: created?.id ?? null,
+          runId: createdId,
           role: "user",
           kind: "message",
-          body: [value],
+          body: bodyLines.length > 0 ? bodyLines : [brief],
           dedupeKey: created ? `${created.id}-brief` : `project-brief-${Date.now()}`,
           sourceKey: created ? `${created.id}-brief` : null,
         });
-        setActiveRunId(created?.id ?? null);
-        if (saved) setComposerValue("");
+        setActiveRunId(createdId);
+        if (saved) {
+          savedId = saved.id;
+          setComposerValue("");
+          setPendingFiles([]);
+        }
       } catch {
         setPersistError("I couldn't start that task. Your message is still here — try again.");
       } finally {
         setBusy(false);
       }
+      if (savedId && attachments.length > 0) await sendAttachments(createdId, savedId, attachments);
       return;
     }
 
@@ -766,13 +857,20 @@ export function ProjectWorkspace({
       runId: activeRun.id,
       role: "user",
       kind: "message",
-      body: [value],
+      body: bodyLines,
       dedupeKey: `user-${activeRun.id}-${stamp}`,
     });
 
     if (!saved) return;
 
     setComposerValue("");
+    setPendingFiles([]);
+
+    if (attachments.length > 0) {
+      await sendAttachments(activeRun.id, saved.id, attachments);
+      return;
+    }
+
     await emit({
       runId: activeRun.id,
       role: "agent",
