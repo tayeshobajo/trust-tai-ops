@@ -47,6 +47,11 @@ export function SettingsPage({ workspace, authState, repositoryHealth, onSignOut
             <dd>{authState.userEmail ?? "Local operator"}{authState.role ? ` · ${authState.role.replace(/_/g, " ")}` : ""}</dd>
           </div>
         </dl>
+        {onSignOut ? (
+          <button type="button" className="secondary-button" onClick={onSignOut}>
+            Sign out
+          </button>
+        ) : null}
         <p className="set-note">Workspace naming is read-only in this version.</p>
       </section>
 
