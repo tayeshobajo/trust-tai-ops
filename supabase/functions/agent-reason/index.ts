@@ -13,10 +13,22 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { authorizeProject } from "../_shared/authz.ts";
 import { authzDeps, executionContextConfigured, serviceClient } from "../_shared/clients.ts";
-import { loadMemoryIndex, loadProjectContext, loadRunEvidence, runBelongsToProject } from "../_shared/contextLoader.ts";
+import {
+  loadMemoryIndex,
+  loadProjectContext,
+  loadRetrievedConversation,
+  loadRunEvidence,
+  runBelongsToProject,
+} from "../_shared/contextLoader.ts";
 import { validateReasonPlan } from "../_shared/reasonCatalog.ts";
 import { readModelText, resolveReasonModel, type ReasonModel } from "../_shared/reasonModels.ts";
-import { SYSTEM_PROMPT, parseModelJson, sanitizeDigest, userPrompt } from "../_shared/reasonPrompt.ts";
+import {
+  SYSTEM_PROMPT,
+  parseModelJson,
+  sanitizeDigest,
+  userPromptWithRecall,
+  type RetrievedConversation,
+} from "../_shared/reasonPrompt.ts";
 import type { ReasonDigest, ServerEvidence } from "../_shared/reasonPrompt.ts";
 import { MEETING_PROMPT_VERSION, MEETING_SYSTEM_PROMPT, meetingUserPrompt } from "../_shared/meetingPrompt.ts";
 import { candidateKeyFor, taskKeyFor, validateMeetingAnalysis } from "../_shared/meetingSchema.ts";
@@ -91,7 +103,9 @@ const planCall = (
   apiKey: string,
   digest: ReasonDigest,
   attachments: ServerEvidence[],
-): ProviderCall => buildCall(model, apiKey, SYSTEM_PROMPT, userPrompt(digest, attachments), MAX_OUTPUT_TOKENS);
+  retrieved: RetrievedConversation[] = [],
+): ProviderCall =>
+  buildCall(model, apiKey, SYSTEM_PROMPT, userPromptWithRecall(digest, attachments, retrieved), MAX_OUTPUT_TOKENS);
 
 
 const AUTH_FAIL_SUMMARY: Record<string, string> = {
@@ -465,7 +479,13 @@ Deno.serve(async (req) => {
     attachments = await loadRunEvidence(authz.project.projectId, runClaim).catch(() => []);
   }
 
-  const asked = await askModel(model, planCall(model, apiKey, digest, attachments), TIMEOUT_MS);
+  // Long-term recall: what this turn's message was proven to refer back to.
+  const messageClaim = typeof body.messageId === "string" ? body.messageId : "";
+  const retrieved = messageClaim
+    ? await loadRetrievedConversation(authz.project.projectId, messageClaim).catch(() => [])
+    : [];
+
+  const asked = await askModel(model, planCall(model, apiKey, digest, attachments, retrieved), TIMEOUT_MS);
   if (!asked.ok) return asked.response;
 
   const validated = validateReasonPlan(parseModelJson(asked.content), digest.capabilities);
