@@ -1473,16 +1473,8 @@ export type Database = {
     Functions: {
       auth_email: { Args: never; Returns: string }
       auth_role: { Args: never; Returns: string }
-      can_access_project: { Args: { _project_id: string }; Returns: boolean }
-      can_access_project_ref: {
-        Args: { _project_ref: string }
-        Returns: boolean
-      }
       can_approve_ops: { Args: never; Returns: boolean }
-      can_reach_project: { Args: { _project_id: string }; Returns: boolean }
       can_write_ops: { Args: never; Returns: boolean }
-      current_member_organization: { Args: never; Returns: string }
-      current_organization_id: { Args: never; Returns: string }
       meeting_approve_proposal: {
         Args: {
           _actor: string
