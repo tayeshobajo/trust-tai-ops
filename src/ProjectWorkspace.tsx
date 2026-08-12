@@ -378,6 +378,9 @@ export function ProjectWorkspace({
       const saved = await workspaceRepository.addProjectMessage(project.id, input);
       setMessages((current) => (current.some((item) => item.id === saved.id) ? current : sortMessages([...current, saved])));
       setPersistError(null);
+      // A labelled choice becomes referenceable the moment it is said, so
+      // "option B" still means something months later.
+      if (saved.role === "agent" && continuityAvailable()) void indexConversationAnchors(project.id, saved.id);
       return saved;
     } catch {
       if (key) emitRef.current.delete(key);
