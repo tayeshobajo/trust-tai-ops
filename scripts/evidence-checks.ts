@@ -185,7 +185,7 @@ check(
 const observations = toAgentObservations(hostileAnalysis);
 check(
   "hostile text reaches the agent only as labelled evidence",
-  observations.every((line) => /^(provided_evidence|observed_fact|warning):/.test(line)),
+  observations.every((line) => /^(provided_evidence|evidence_observation|warning):/.test(line)),
 );
 
 const context = buildProjectContext({
