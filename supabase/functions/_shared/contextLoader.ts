@@ -12,7 +12,8 @@ import { capabilityTruth } from "./secretStore.ts";
 import { buildProjectContext, type ContextInput, type ProjectContext } from "./projectContext.ts";
 import { displayFilename } from "./evidencePolicy.ts";
 import { redactEvidenceText } from "./evidenceAnalysis.ts";
-import type { ServerEvidence } from "./reasonPrompt.ts";
+import type { RetrievedConversation, ServerEvidence } from "./reasonPrompt.ts";
+import { whenLabel } from "./continuity/retrieval.ts";
 
 /**
  * Must match the access types the product actually stores. A name that does not
@@ -259,4 +260,51 @@ export const loadRunEvidence = async (projectId: string, runId: string): Promise
 export const runBelongsToProject = async (projectId: string, runId: string): Promise<boolean> => {
   const { data } = await serviceClient().from("runs").select("project_id").eq("id", runId).maybeSingle();
   return Boolean(data && String(data.project_id) === projectId);
+};
+
+/** A resolution older than this belongs to a different conversation. */
+const RECALL_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Conversation the person pointed back at.
+ *
+ * The browser tells us which task it is working in; it never tells us what was
+ * said in it. The references were written by the continuity boundary at
+ * resolution time, so this read is the project's own record replayed under a
+ * truthful label — not a client claim about its own history.
+ */
+export const loadRetrievedConversation = async (
+  projectId: string,
+  runId: string | null,
+  now = Date.now(),
+): Promise<RetrievedConversation[]> => {
+  const service = serviceClient();
+  const since = new Date(now - RECALL_WINDOW_MS).toISOString();
+
+  let query = service
+    .from("message_references")
+    .select(
+      "label, summary, created_at, project_messages!message_references_source_message_id_fkey(body, created_at)",
+    )
+    .eq("project_id", projectId)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(4);
+
+  if (runId) query = query.eq("run_id", runId);
+
+  const { data } = await query;
+
+  return (data ?? []).map((row) => {
+    const source = (Array.isArray(row.project_messages) ? row.project_messages[0] : row.project_messages) as
+      | { body?: unknown; created_at?: string }
+      | null;
+    const body = Array.isArray(source?.body) ? source?.body.join(" ") : "";
+    const at = String(source?.created_at ?? row.created_at ?? new Date(now).toISOString());
+    return {
+      label: row.label ? String(row.label) : null,
+      text: redactEvidenceText(String(row.summary || body || "")).slice(0, 400),
+      when: whenLabel(at, now),
+    };
+  });
 };

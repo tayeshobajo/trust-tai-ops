@@ -83,6 +83,70 @@ export type Database = {
           },
         ]
       }
+      conversation_anchors: {
+        Row: {
+          aliases: string[]
+          anchor_type: string
+          created_at: string
+          id: string
+          label: string
+          normalized_label: string
+          ordinal: number
+          project_id: string
+          run_id: string | null
+          source_message_id: string
+          summary: string
+        }
+        Insert: {
+          aliases?: string[]
+          anchor_type: string
+          created_at?: string
+          id?: string
+          label: string
+          normalized_label: string
+          ordinal?: number
+          project_id: string
+          run_id?: string | null
+          source_message_id: string
+          summary?: string
+        }
+        Update: {
+          aliases?: string[]
+          anchor_type?: string
+          created_at?: string
+          id?: string
+          label?: string
+          normalized_label?: string
+          ordinal?: number
+          project_id?: string
+          run_id?: string | null
+          source_message_id?: string
+          summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_anchors_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_anchors_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_anchors_source_message_id_fkey"
+            columns: ["source_message_id"]
+            isOneToOne: false
+            referencedRelation: "project_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       evidence_analyses: {
         Row: {
           analyzer: string
@@ -203,6 +267,94 @@ export type Database = {
             columns: ["source_id"]
             isOneToOne: false
             referencedRelation: "project_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      message_references: {
+        Row: {
+          anchor_id: string | null
+          confidence: number
+          created_at: string
+          id: string
+          label: string
+          message_id: string
+          project_id: string
+          resolution_method: string
+          run_id: string | null
+          source_message_id: string
+          source_run_id: string | null
+          summary: string
+        }
+        Insert: {
+          anchor_id?: string | null
+          confidence?: number
+          created_at?: string
+          id?: string
+          label?: string
+          message_id: string
+          project_id: string
+          resolution_method: string
+          run_id?: string | null
+          source_message_id: string
+          source_run_id?: string | null
+          summary?: string
+        }
+        Update: {
+          anchor_id?: string | null
+          confidence?: number
+          created_at?: string
+          id?: string
+          label?: string
+          message_id?: string
+          project_id?: string
+          resolution_method?: string
+          run_id?: string | null
+          source_message_id?: string
+          source_run_id?: string | null
+          summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_references_anchor_id_fkey"
+            columns: ["anchor_id"]
+            isOneToOne: false
+            referencedRelation: "conversation_anchors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_references_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "project_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_references_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_references_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_references_source_message_id_fkey"
+            columns: ["source_message_id"]
+            isOneToOne: false
+            referencedRelation: "project_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_references_source_run_id_fkey"
+            columns: ["source_run_id"]
+            isOneToOne: false
+            referencedRelation: "runs"
             referencedColumns: ["id"]
           },
         ]

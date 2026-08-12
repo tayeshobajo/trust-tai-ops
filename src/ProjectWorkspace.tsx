@@ -48,6 +48,13 @@ import type { QueuedFile, QueuedState } from "./evidence";
 import type { ProjectEvidence } from "./types";
 import { containsSecretMaterial } from "./agent-core/secretGuard";
 import { credentialIntakeAvailable, submitCredentialText } from "./agent-core/credentialIntake";
+import {
+  continuityAvailable,
+  indexConversationAnchors,
+  provenanceLine,
+  referenceIntent,
+  resolveReference,
+} from "./continuity";
 
 // Long conversations render in a trailing window and grow on request, so a
 // task with hundreds of messages opens as fast as a fresh one.
@@ -371,6 +378,9 @@ export function ProjectWorkspace({
       const saved = await workspaceRepository.addProjectMessage(project.id, input);
       setMessages((current) => (current.some((item) => item.id === saved.id) ? current : sortMessages([...current, saved])));
       setPersistError(null);
+      // A labelled choice becomes referenceable the moment it is said, so
+      // "option B" still means something months later.
+      if (saved.role === "agent" && continuityAvailable()) void indexConversationAnchors(project.id, saved.id);
       return saved;
     } catch {
       if (key) emitRef.current.delete(key);
@@ -848,6 +858,79 @@ export function ProjectWorkspace({
     }
   };
 
+  /**
+   * A backward reference is resolved server-side before it is treated as an
+   * instruction. Returns true when this path owns the turn.
+   */
+  const handleBackwardReference = async (value: string): Promise<boolean> => {
+    setBusy(true);
+    try {
+      const stamp = Date.now();
+      const saved = await emit({
+        runId: activeRun?.id ?? null,
+        role: "user",
+        kind: "message",
+        body: [value],
+        dedupeKey: `user-${activeRun?.id ?? "project"}-${stamp}`,
+      });
+      if (!saved) return true;
+      setComposerValue("");
+
+      const outcome = await resolveReference(project.id, saved.id);
+
+      // No history layer available, or nothing to resolve: let the normal turn
+      // continue rather than stalling a person behind an outage.
+      if (outcome.status === "unavailable" || outcome.status === "not_needed") {
+        await emit({
+          runId: activeRun?.id ?? null,
+          role: "agent",
+          kind: "message",
+          body: ["Noted. I've added that to the task context and I'll factor it into what I do next."],
+          dedupeKey: `ack-${activeRun?.id ?? "project"}-${stamp}`,
+        });
+        return true;
+      }
+
+      if (outcome.status === "ambiguous" || outcome.status === "not_found") {
+        await emit({
+          runId: activeRun?.id ?? null,
+          role: "agent",
+          kind: "decision_request",
+          body: (outcome.question ?? "Which earlier piece of work do you mean?").split("\n"),
+          dedupeKey: `recall-question-${saved.id}`,
+        });
+        return true;
+      }
+
+      const line = provenanceLine(outcome.references);
+      const body = [line ?? "I've found what you're referring to.", "I'll carry on from there."];
+
+      if (!activeRun) {
+        const brief = outcome.references[0]?.summary ?? value;
+        const next = await workspaceRepository.createRun(project.id, draftFromBrief(project, brief));
+        onWorkspaceUpdate(next);
+        const created = next.projects.find((item) => item.id === project.id)?.runs[0];
+        setActiveRunId(created?.id ?? null);
+        await emit({
+          runId: created?.id ?? null,
+          role: "agent",
+          kind: "message",
+          body,
+          dedupeKey: `recall-${saved.id}`,
+        });
+        return true;
+      }
+
+      await emit({ runId: activeRun.id, role: "agent", kind: "message", body, dedupeKey: `recall-${saved.id}` });
+      return true;
+    } catch {
+      setPersistError("I couldn't check what that referred back to. Try again, or tell me in your own words.");
+      return true;
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const sendMessage = async () => {
     const value = composerValue.trim();
     const attachments = pendingFiles;
@@ -859,6 +942,14 @@ export function ProjectWorkspace({
     if (value && containsSecretMaterial(value)) {
       await handleCredentialPaste(value);
       return;
+    }
+
+    // A message that points backwards ("option B", "same as yesterday") is not
+    // a new instruction. It is resolved against stored history first, and if it
+    // cannot be resolved the agent asks rather than assumes.
+    if (value && attachments.length === 0 && continuityAvailable() && referenceIntent(value).needsRecall) {
+      const handled = await handleBackwardReference(value);
+      if (handled) return;
     }
 
     // Filenames are never persisted from the browser: the client's name for a

@@ -21,7 +21,8 @@
     "check:migrations": "node --experimental-strip-types --no-warnings scripts/migration-checks.ts",
     "check:stacks": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/stack-checks.ts",
     "check:chat-secrets": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/chat-secret-checks.ts",
-    "check:evidence": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/evidence-checks.ts"
+    "check:evidence": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/evidence-checks.ts",
+    "check:continuity": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/continuity-checks.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.0",
