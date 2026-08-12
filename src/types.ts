@@ -366,3 +366,37 @@ export type AuthState = {
   status: "loading" | "ready" | "error";
   message: string;
 };
+
+// ---------------------------------------------------------------------------
+// Conversation evidence
+// ---------------------------------------------------------------------------
+
+export type EvidenceKind = "image" | "video" | "pdf" | "text" | "log" | "har" | "json" | "csv" | "other";
+
+export type EvidenceStatus = "uploading" | "stored" | "analyzing" | "ready" | "failed" | "unsupported";
+
+/** The bounded, redacted reading of one attachment. Never raw file content. */
+export type EvidenceAnalysis = {
+  status: "complete" | "unavailable" | "unsupported" | "failed";
+  summary: string;
+  observations: string[];
+  extractedTextExcerpt: string;
+  technicalSignals: string[];
+  confidence: "low" | "medium" | "high";
+  warnings: string[];
+  unsupportedReason: string | null;
+};
+
+export type ProjectEvidence = {
+  id: string;
+  projectId: string;
+  messageId: string | null;
+  runId: string | null;
+  filename: string;
+  mimeType: string;
+  kind: EvidenceKind;
+  sizeBytes: number;
+  status: EvidenceStatus;
+  analysis: EvidenceAnalysis | null;
+  createdAt: string;
+};
