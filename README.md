@@ -1,6 +1,6 @@
 # Ops Trust Tai
 
-`ops.trust-tai.com` is the TrustTai command center for WordPress engineering work.
+`ops.trusttai.com` is the TrustTai command center for WordPress engineering work.
 
 This Phase 1 scaffold proves the product shape before backend wiring:
 

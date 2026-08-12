@@ -2,7 +2,7 @@
 
 ## Product Thesis
 
-`ops.trust-tai.com` is a multi-project technical agent for WordPress.
+`ops.trusttai.com` is a multi-project technical agent for WordPress.
 
 It is not a control panel and not a run console.
 The application layer stays radically simple:
