@@ -27,9 +27,16 @@ export function resolveOpsEnv(): OpsRuntimeEnv {
   return {
     adapter: (env.VITE_OPS_REPOSITORY_ADAPTER as RepositoryAdapter | undefined) ?? "auto",
     subdomain: env.VITE_OPS_SUBDOMAIN ?? "ops.trust-tai.com",
-    supabaseUrl: env.VITE_OPS_SUPABASE_URL,
+    // `VITE_OPS_*` is this app's own naming. `VITE_SUPABASE_*` is what the
+    // hosting platform writes into `.env` when the Supabase project is
+    // connected, so it is accepted as an equivalent public source. Both are
+    // browser-safe values by definition; no server secret is read here.
+    supabaseUrl: env.VITE_OPS_SUPABASE_URL ?? env.VITE_SUPABASE_URL,
     supabasePublicKey:
-      env.VITE_OPS_SUPABASE_PUBLISHABLE_KEY ?? env.VITE_OPS_SUPABASE_ANON_KEY,
+      env.VITE_OPS_SUPABASE_PUBLISHABLE_KEY ??
+      env.VITE_OPS_SUPABASE_ANON_KEY ??
+      env.VITE_SUPABASE_PUBLISHABLE_KEY ??
+      env.VITE_SUPABASE_ANON_KEY,
     supabaseSchema: env.VITE_OPS_SUPABASE_SCHEMA ?? "public",
   };
 }
