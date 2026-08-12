@@ -73,7 +73,7 @@ type LabelHit = { label: string; letter: string; start: number; end: number };
  */
 const findLabelHits = (text: string): LabelHit[] => {
   const explicit: LabelHit[] = [];
-  for (const match of text.matchAll(/\boption\s+([A-Da-d])\b/g)) {
+  for (const match of text.matchAll(/\boption\s+([A-Da-d])\b/gi)) {
     const letter = match[1].toUpperCase();
     explicit.push({
       label: `Option ${letter}`,
@@ -85,7 +85,9 @@ const findLabelHits = (text: string): LabelHit[] => {
   if (new Set(explicit.map((hit) => hit.letter)).size >= 2) return explicit;
 
   const bracketed: LabelHit[] = [];
-  for (const match of text.matchAll(/(?:^|\n|\.\s)\s*([A-D])\)\s+/g)) {
+  // Bodies arrive whitespace-collapsed, so a list item is recognised by what
+  // precedes it rather than by a line break.
+  for (const match of text.matchAll(/(?:^|[\s.;])([A-D])\)\s+/g)) {
     const letter = match[1].toUpperCase();
     const start = (match.index ?? 0) + match[0].indexOf(letter);
     bracketed.push({ label: `Option ${letter}`, letter, start, end: start + match[0].trimEnd().length });
