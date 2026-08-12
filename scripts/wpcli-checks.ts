@@ -1,3 +1,5 @@
+import "./hermetic-env.ts";
+
 /**
  * Executable validation for the SSH + read-only WP-CLI boundary.
  *
