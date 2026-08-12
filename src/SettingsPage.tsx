@@ -13,7 +13,7 @@ type Props = {
   onSignOut?: () => void;
 };
 
-export function SettingsPage({ workspace, authState, repositoryHealth }: Props) {
+export function SettingsPage({ workspace, authState, repositoryHealth, onSignOut }: Props) {
   const [modelId, setModelId] = useState(readReasonModelId);
   const selected = REASON_MODEL_OPTIONS.find((option) => option.id === modelId);
 
