@@ -182,7 +182,8 @@ indexMessage({
 const ambiguous = await ask("option B");
 check("two different Option Bs are never guessed between", ambiguous.status === "ambiguous");
 check("the clarification names both candidates", (ambiguous.question ?? "").includes("product feed") && (ambiguous.question ?? "").includes("queued sender"));
-check("the clarification places each in time", (ambiguous.question ?? "").includes("last month") && (ambiguous.question ?? "").includes("today"));
+check("the clarification places each in time", (ambiguous.question ?? "").includes("last month") && (ambiguous.question ?? "").includes("last week"));
+check("the clarification names the task each came from", (ambiguous.question ?? "").includes("Checkout timeouts"));
 check("an ambiguous turn writes no confident provenance", ambiguous.references.every((r) => r.confidence < 0.5));
 
 // Caps.
@@ -191,7 +192,11 @@ const promptLines = retrievedPromptLines(
   recalled.references.map((reference) => ({ label: reference.label, text: reference.summary, when: "last month" })),
 );
 check("retrieved context stays inside the character budget", promptLines.join("\n").length <= RETRIEVAL_BUDGET);
-check("retrieved context is labelled as a record of what was said", promptLines.every((line) => line.includes("retrieved_conversation")));
+check(
+  "retrieved context is framed as a record of what was said, not as fact",
+  promptLines[0].includes("a record of what was said, not proof it is still true"),
+);
+check("each retrieved item is tagged as conversation, not as evidence", promptLines.slice(1).every((line) => line.startsWith("- retrieved_conversation")));
 
 // Legacy: a project that predates anchoring, backfilled from agent text only.
 const legacyAnchors: Anchor[] = [];
