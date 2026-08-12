@@ -858,9 +858,81 @@ export function ProjectWorkspace({
     }
   };
 
+  /**
+   * A backward reference is resolved server-side before it is treated as an
+   * instruction. Returns true when this path owns the turn.
+   */
+  const handleBackwardReference = async (value: string): Promise<boolean> => {
+    setBusy(true);
+    try {
+      const stamp = Date.now();
+      const saved = await emit({
+        runId: activeRun?.id ?? null,
+        role: "user",
+        kind: "message",
+        body: [value],
+        dedupeKey: `user-${activeRun?.id ?? "project"}-${stamp}`,
+      });
+      if (!saved) return true;
+      setComposerValue("");
+
+      const outcome = await resolveReference(project.id, saved.id);
+
+      // No history layer available, or nothing to resolve: let the normal turn
+      // continue rather than stalling a person behind an outage.
+      if (outcome.status === "unavailable" || outcome.status === "not_needed") {
+        await emit({
+          runId: activeRun?.id ?? null,
+          role: "agent",
+          kind: "message",
+          body: ["Noted. I've added that to the task context and I'll factor it into what I do next."],
+          dedupeKey: `ack-${activeRun?.id ?? "project"}-${stamp}`,
+        });
+        return true;
+      }
+
+      if (outcome.status === "ambiguous" || outcome.status === "not_found") {
+        await emit({
+          runId: activeRun?.id ?? null,
+          role: "agent",
+          kind: "decision_request",
+          body: (outcome.question ?? "Which earlier piece of work do you mean?").split("\n"),
+          dedupeKey: `recall-question-${saved.id}`,
+        });
+        return true;
+      }
+
+      const line = provenanceLine(outcome.references);
+      const body = [line ?? "I've found what you're referring to.", "I'll carry on from there."];
+
+      if (!activeRun) {
+        const brief = outcome.references[0]?.summary ?? value;
+        const next = await workspaceRepository.createRun(project.id, draftFromBrief(project, brief));
+        onWorkspaceUpdate(next);
+        const created = next.projects.find((item) => item.id === project.id)?.runs[0];
+        setActiveRunId(created?.id ?? null);
+        await emit({
+          runId: created?.id ?? null,
+          role: "agent",
+          kind: "message",
+          body,
+          dedupeKey: `recall-${saved.id}`,
+        });
+        return true;
+      }
+
+      await emit({ runId: activeRun.id, role: "agent", kind: "message", body, dedupeKey: `recall-${saved.id}` });
+      return true;
+    } catch {
+      setPersistError("I couldn't check what that referred back to. Try again, or tell me in your own words.");
+      return true;
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const sendMessage = async () => {
     const value = composerValue.trim();
-
     const attachments = pendingFiles;
     if (!value && attachments.length === 0) return;
 
