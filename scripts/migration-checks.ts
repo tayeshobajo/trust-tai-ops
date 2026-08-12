@@ -1,3 +1,5 @@
+import "./hermetic-env.ts";
+
 /**
  * Static validation for the SQL migration set.
  *

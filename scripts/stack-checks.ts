@@ -1,3 +1,5 @@
+import "./hermetic-env.ts";
+
 /**
  * Multi-stack release closure checks.
  *

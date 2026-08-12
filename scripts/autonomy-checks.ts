@@ -1,3 +1,5 @@
+import "./hermetic-env.ts";
+
 /**
  * Executable validation for the bounded autonomous investigation loop.
  *

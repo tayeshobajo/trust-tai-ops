@@ -1,3 +1,5 @@
+import "./hermetic-env.ts";
+
 /**
  * Canonical long-term recall acceptance test.
  *

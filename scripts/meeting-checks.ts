@@ -1,3 +1,5 @@
+import "./hermetic-env.ts";
+
 /**
  * Executable validation for meeting intelligence.
  *
