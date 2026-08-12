@@ -37,7 +37,7 @@ export const createSeedWorkspace = (): Organization => ({
   // The workspace holds projects on several stacks, so the product-level
   // descriptor stays stack-neutral. Project descriptors come from `stacks.ts`.
   descriptor: "Engineering command center",
-  subdomain: "ops.trust-tai.com",
+  subdomain: "ops.trusttai.com",
   projects: [
     {
       id: "epaypolicy",

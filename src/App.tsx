@@ -29,6 +29,7 @@ import {
   taskTypeToTitle,
 } from "./lib";
 import { workspaceRepository } from "./repository";
+import { isAuthGateRequired, isDemoModeAllowed, isMisconfiguredProduction, resolveOpsEnv } from "./env";
 import { createSeedWorkspace } from "./seed";
 import type {
   AuthState,
@@ -44,6 +45,9 @@ import type {
 } from "./types";
 
 function App() {
+  const opsEnv = resolveOpsEnv();
+  const demoAllowed = isDemoModeAllowed(opsEnv);
+  const misconfiguredProduction = isMisconfiguredProduction(opsEnv);
   const seedWorkspace = createSeedWorkspace();
   const [workspace, setWorkspace] = useState<Organization>(seedWorkspace);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(seedWorkspace.projects[0]?.id ?? null);
@@ -54,6 +58,7 @@ function App() {
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(starterProjectDraft());
   const [saveMessage, setSaveMessage] = useState("");
   const [railOpen, setRailOpen] = useState(false);
+  const [fatalError, setFatalError] = useState<string | null>(null);
   const [workspaceSurface, setWorkspaceSurface] = useState<"conversation" | "access">("conversation");
   const [startInNewTask, setStartInNewTask] = useState(false);
   const [repositoryHealth, setRepositoryHealth] = useState<RepositoryHealth>({
@@ -102,8 +107,17 @@ function App() {
           return;
         }
 
-        setWorkspace(createSeedWorkspace());
-        setSaveMessage(error instanceof Error ? error.message : "Fell back to demo workspace.");
+        const detail = error instanceof Error ? error.message : "Workspace failed to load.";
+
+        if (demoAllowed) {
+          setWorkspace(createSeedWorkspace());
+          setSaveMessage(detail);
+          setIsReady(true);
+          return;
+        }
+
+        // Production never degrades into a usable demo workspace.
+        setFatalError(detail);
         setIsReady(true);
       }
     };
@@ -113,6 +127,8 @@ function App() {
     return () => {
       cancelled = true;
     };
+    // `demoAllowed` is derived from build-time env and never changes at runtime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedProject = getProjectById(workspace, selectedProjectId);
@@ -179,13 +195,14 @@ function App() {
       ]
     : [];
   const canCreateRun = authState.isAuthenticated && authState.role !== "viewer";
-  // Project creation follows the same disabled auth gate as the rest of the app;
-  // only an explicit viewer role blocks it.
-  const canCreateProject = authState.role !== "viewer";
+  // Project creation follows the same gate as the rest of the app: a real
+  // session in production, the demo operator only under an explicit demo build.
+  const canCreateProject = (authState.isAuthenticated || demoAllowed) && authState.role !== "viewer";
 
-  // Auth gate disabled — app loads directly into workspace
-  // Re-enable by setting this to: repositoryHealth.adapter === "supabase" && !authState.isAuthenticated && authState.status !== "loading"
-  const authGateEnabled = false;
+  // Fail closed. The gate is only relaxed by an explicit non-production demo
+  // opt-in (`VITE_OPS_REPOSITORY_ADAPTER=demo`); production builds always
+  // require a real authenticated session.
+  const authGateEnabled = isAuthGateRequired(opsEnv);
 
   const operatorLabel = authState.userEmail ?? "Operator";
   const approvalsCount = countPendingDecisions(workspace);
@@ -212,19 +229,59 @@ function App() {
     );
   };
 
-  if (authGateEnabled && repositoryHealth.adapter === "supabase" && !authState.isAuthenticated && authState.status !== "loading") {
+  if (misconfiguredProduction) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="auth-brand">
+            <p className="eyebrow">Ops</p>
+            <h1>Configuration required</h1>
+            <p>
+              This production build has no Supabase configuration. Set the public Supabase URL and
+              publishable key for this deployment. Demo data is never served in production.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // A signed-out visitor is the ordinary case, not a failure: the workspace
+  // load failing with no session means "sign in", so the gate is checked
+  // before any error surface.
+  if (authGateEnabled && !authState.isAuthenticated && authState.status !== "loading") {
     return (
       <AuthScreen
         onAuthed={async () => {
           const auth = await loadAuthState();
           setAuthState(auth);
+          setFatalError(null);
           try {
             const stored = await workspaceRepository.loadWorkspace();
             setWorkspace(stored);
             setSelectedProjectId(stored.projects[0]?.id ?? null);
-          } catch { /* stay on seed */ }
+          } catch (error) {
+            setFatalError(error instanceof Error ? error.message : "Workspace failed to load.");
+          }
         }}
       />
+    );
+  }
+
+  // Signed in, but the workspace could not be read: say so plainly rather than
+  // rendering an empty command center that looks like "no projects yet".
+  if (fatalError) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="auth-brand">
+            <p className="eyebrow">Ops</p>
+            <h1>Workspace unavailable</h1>
+            <p>{fatalError}</p>
+            <p>Check this deployment's Supabase configuration, then reload.</p>
+          </div>
+        </div>
+      </div>
     );
   }
 
