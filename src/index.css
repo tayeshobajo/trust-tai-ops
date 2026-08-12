@@ -6359,9 +6359,9 @@ p, li {
   align-items: center;
   gap: var(--tt-space-2);
   padding: var(--tt-space-2) var(--tt-space-3);
-  border: 1px solid var(--tt-line);
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--tt-surface);
+  background: var(--panel);
   font-size: 0.82rem;
 }
 
@@ -6369,16 +6369,16 @@ p, li {
   margin-left: auto;
   border: 0;
   background: transparent;
-  color: var(--tt-ink-soft);
+  color: var(--muted);
   cursor: pointer;
   font-size: 1rem;
   line-height: 1;
 }
 
 .pw-evidence {
-  border: 1px solid var(--tt-line);
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--tt-surface);
+  background: var(--panel);
   overflow: hidden;
 }
 
@@ -6408,7 +6408,7 @@ p, li {
 
 .pw-evidence-meta {
   font-size: 0.74rem;
-  color: var(--tt-ink-soft);
+  color: var(--muted);
   letter-spacing: 0.02em;
 }
 
@@ -6416,10 +6416,10 @@ p, li {
   margin: 0;
   padding: 0 var(--tt-space-3) var(--tt-space-2);
   font-size: 0.8rem;
-  color: var(--tt-ink-soft);
+  color: var(--muted);
 }
 
 .pw-evidence-failed,
 .pw-evidence-unsupported {
-  border-color: color-mix(in srgb, var(--tt-line) 60%, #b4762b 40%);
+  border-color: var(--tt-warning);
 }
