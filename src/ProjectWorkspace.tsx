@@ -763,6 +763,14 @@ export function ProjectWorkspace({
     });
   };
 
+  // Local previews are object URLs: they must be released, or the tab keeps
+  // every screenshot the person ever queued alive in memory.
+  const pendingRef = useRef<QueuedFile[]>([]);
+  pendingRef.current = pendingFiles;
+  useEffect(() => () => {
+    for (const entry of pendingRef.current) releaseQueuedFile(entry);
+  }, []);
+
   const removeQueuedFile = (key: string) => {
     setPendingFiles((current) => dequeueEvidenceFile(current, key));
   };
