@@ -12,7 +12,8 @@ import { capabilityTruth } from "./secretStore.ts";
 import { buildProjectContext, type ContextInput, type ProjectContext } from "./projectContext.ts";
 import { displayFilename } from "./evidencePolicy.ts";
 import { redactEvidenceText } from "./evidenceAnalysis.ts";
-import type { ServerEvidence } from "./reasonPrompt.ts";
+import type { RetrievedConversation, ServerEvidence } from "./reasonPrompt.ts";
+import { whenLabel } from "./continuity/retrieval.ts";
 
 /**
  * Must match the access types the product actually stores. A name that does not
