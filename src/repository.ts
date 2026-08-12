@@ -1,5 +1,5 @@
 import type { PostgrestError } from "@supabase/supabase-js";
-import { hasSupabasePublicConfig, resolveOpsEnv } from "./env";
+import { hasSupabasePublicConfig, isDemoModeAllowed, resolveOpsEnv } from "./env";
 import { createProjectFromDraft, createRunFromDraft, getActiveRun, getProjectById, injectProjectIntoWorkspace } from "./lib";
 import { advanceRunState } from "./operations";
 import { createSeedWorkspace } from "./seed";
