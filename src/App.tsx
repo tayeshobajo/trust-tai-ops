@@ -29,6 +29,7 @@ import {
   taskTypeToTitle,
 } from "./lib";
 import { workspaceRepository } from "./repository";
+import { isAuthGateRequired, isDemoModeAllowed, isMisconfiguredProduction, resolveOpsEnv } from "./env";
 import { createSeedWorkspace } from "./seed";
 import type {
   AuthState,
