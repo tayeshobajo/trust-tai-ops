@@ -328,7 +328,7 @@ function App() {
           onSignOut={async () => {
             await signOutIfSupported();
             setAuthState({
-              adapter: opsEnv.adapter,
+              adapter: authState.adapter,
               isAuthenticated: false,
               userEmail: null,
               userId: null,
