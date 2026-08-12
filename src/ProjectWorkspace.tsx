@@ -48,6 +48,13 @@ import type { QueuedFile, QueuedState } from "./evidence";
 import type { ProjectEvidence } from "./types";
 import { containsSecretMaterial } from "./agent-core/secretGuard";
 import { credentialIntakeAvailable, submitCredentialText } from "./agent-core/credentialIntake";
+import {
+  continuityAvailable,
+  indexConversationAnchors,
+  provenanceLine,
+  referenceIntent,
+  resolveReference,
+} from "./continuity";
 
 // Long conversations render in a trailing window and grow on request, so a
 // task with hundreds of messages opens as fast as a fresh one.
