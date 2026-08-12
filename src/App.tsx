@@ -246,32 +246,23 @@ function App() {
     );
   }
 
-  if (fatalError) {
-    return (
-      <div className="auth-screen">
-        <div className="auth-card">
-          <div className="auth-brand">
-            <p className="eyebrow">Ops</p>
-            <h1>Workspace unavailable</h1>
-            <p>{fatalError}</p>
-            <p>Sign in again or check this deployment's Supabase configuration.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (authGateEnabled && repositoryHealth.adapter === "supabase" && !authState.isAuthenticated && authState.status !== "loading") {
+  // A signed-out visitor is the ordinary case, not a failure: the workspace
+  // load failing with no session means "sign in", so the gate is checked
+  // before any error surface.
+  if (authGateEnabled && !authState.isAuthenticated && authState.status !== "loading") {
     return (
       <AuthScreen
         onAuthed={async () => {
           const auth = await loadAuthState();
           setAuthState(auth);
+          setFatalError(null);
           try {
             const stored = await workspaceRepository.loadWorkspace();
             setWorkspace(stored);
             setSelectedProjectId(stored.projects[0]?.id ?? null);
-          } catch { /* stay on seed */ }
+          } catch (error) {
+            setFatalError(error instanceof Error ? error.message : "Workspace failed to load.");
+          }
         }}
       />
     );
