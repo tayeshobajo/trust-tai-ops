@@ -860,6 +860,7 @@ export function ProjectWorkspace({
 
   const sendMessage = async () => {
     const value = composerValue.trim();
+
     const attachments = pendingFiles;
     if (!value && attachments.length === 0) return;
 
