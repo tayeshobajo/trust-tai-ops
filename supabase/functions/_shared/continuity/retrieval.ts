@@ -13,8 +13,10 @@
  * Pure TypeScript: no Deno globals, no npm specifiers.
  */
 
-import { normalizeLabel } from "./anchors.ts";
+import { ORDINAL_WORDS, normalizeLabel } from "./anchors.ts";
 import { referenceIntent, type ReferenceIntent } from "./reference.ts";
+
+const ORDINAL_LOOKUP: readonly string[] = ORDINAL_WORDS;
 
 export type AnchorRecord = {
   id: string;
