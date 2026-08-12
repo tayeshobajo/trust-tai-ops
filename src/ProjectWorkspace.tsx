@@ -1443,19 +1443,48 @@ export function ProjectWorkspace({
                 void sendMessage();
               }
             }}
+            onPaste={(event) => {
+              // Only intercept when the clipboard actually carries an image;
+              // ordinary text paste must behave exactly as it always did.
+              if (!evidenceIntakeAvailable()) return;
+              const images = imageFilesFromClipboard(event.clipboardData);
+              if (images.length === 0) return;
+              event.preventDefault();
+              queueFiles(images);
+            }}
           />
           {pendingFiles.length > 0 ? (
             <ul className="pw-pending-files">
-              {pendingFiles.map((file, index) => (
-                <li key={`${file.name}-${index}`}>
-                  <span className="pw-evidence-name">{file.name}</span>
-                  <span className="pw-evidence-meta">{formatBytes(file.size)}</span>
+              {pendingFiles.map((entry) => (
+                <li key={entry.key} data-state={entry.state}>
+                  {entry.previewUrl ? (
+                    <img className="pw-pending-thumb" src={entry.previewUrl} alt="" aria-hidden="true" />
+                  ) : (
+                    <span className="pw-pending-thumb pw-pending-thumb-glyph" aria-hidden="true">
+                      <PaperclipIcon />
+                    </span>
+                  )}
+                  <span className="pw-pending-body">
+                    <span className="pw-evidence-name" title={entry.file.name}>
+                      {entry.file.name}
+                    </span>
+                    <span className="pw-evidence-meta">
+                      {entry.state === "failed"
+                        ? entry.reason ?? "Didn't go through — try again."
+                        : entry.state === "uploading"
+                        ? "Uploading…"
+                        : entry.state === "reading"
+                        ? "Reading…"
+                        : formatBytes(entry.file.size)}
+                    </span>
+                  </span>
                   <button
+                    className="pw-pending-remove"
                     type="button"
-                    aria-label={`Remove ${file.name}`}
-                    onClick={() => setPendingFiles((current) => current.filter((_, at) => at !== index))}
+                    aria-label={`Remove ${entry.file.name}`}
+                    onClick={() => removeQueuedFile(entry.key)}
                   >
-                    ×
+                    <CloseIcon />
                   </button>
                 </li>
               ))}
@@ -1464,6 +1493,7 @@ export function ProjectWorkspace({
 
           {attachError ? (
             <p className="pw-persist-error" role="status">
+              <WarningIcon />
               {attachError}
               <button type="button" onClick={() => setAttachError(null)}>Dismiss</button>
             </p>
@@ -1492,7 +1522,7 @@ export function ProjectWorkspace({
                   disabled={uploading}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  📎
+                  <PaperclipIcon />
                 </button>
               </>
             ) : null}
