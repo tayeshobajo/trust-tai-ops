@@ -1662,21 +1662,22 @@ function summarizeSupabaseError(error: PostgrestError): string {
 function createWorkspaceRepository(): WorkspaceRepository {
   const env = resolveOpsEnv();
 
-  if (env.adapter === "demo") {
+  // Local (demo) persistence is only ever reachable through an explicit,
+  // non-production demo opt-in. Without it, a missing Supabase config is a
+  // configuration error the app must surface — never quietly-fake data.
+  if (isDemoModeAllowed(env)) {
     return new LocalWorkspaceRepository();
   }
 
-  if (env.adapter === "supabase") {
-    if (!hasSupabasePublicConfig(env)) {
-      return new LocalWorkspaceRepository();
+  if (!hasSupabasePublicConfig(env)) {
+    if (env.isProductionBuild) {
+      return new SupabaseWorkspaceRepository();
     }
 
-    return new SupabaseWorkspaceRepository();
+    return new LocalWorkspaceRepository();
   }
 
-  return hasSupabasePublicConfig(env)
-    ? new SupabaseWorkspaceRepository()
-    : new LocalWorkspaceRepository();
+  return new SupabaseWorkspaceRepository();
 }
 
 export const workspaceRepository: WorkspaceRepository = createWorkspaceRepository();
