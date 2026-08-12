@@ -29,6 +29,19 @@ import { deriveMemoryFromRun } from "./memory";
 import { MeetingPlanReview } from "./MeetingPlanReview";
 import { decideProposedTask, ingestAndAnalyzeMeeting, meetingIntelligenceAvailable } from "./meetings";
 import type { MeetingAnalysisView, ProposedTask } from "./meetings";
+import {
+  ACCEPT_ATTRIBUTE,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  attachEvidenceToMessage,
+  evidenceIntakeAvailable,
+  evidenceReplyLines,
+  evidenceViewUrl,
+  formatBytes,
+  listProjectEvidence,
+  localRejectionFor,
+  uploadEvidence,
+} from "./evidence";
+import type { ProjectEvidence } from "./types";
 import { containsSecretMaterial } from "./agent-core/secretGuard";
 import { credentialIntakeAvailable, submitCredentialText } from "./agent-core/credentialIntake";
 
@@ -130,12 +143,20 @@ export function ProjectWorkspace({
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [transcriptTitle, setTranscriptTitle] = useState("");
   const [transcriptText, setTranscriptText] = useState("");
+  // Evidence a person attached to this conversation, with the agent's reading
+  // of it. Files are never held in the message body: they are separate,
+  // server-owned records pinned to the message they arrived with.
+  const [evidence, setEvidence] = useState<ProjectEvidence[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [meetingBusy, setMeetingBusy] = useState(false);
   const [meetingError, setMeetingError] = useState<string | null>(null);
   const [meetingAnalysis, setMeetingAnalysis] = useState<MeetingAnalysisView | null>(null);
   const [taskDecisions, setTaskDecisions] = useState<Record<string, "approved" | "rejected">>({});
   const [taskBusyId, setTaskBusyId] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
   const memoryRef = useRef<Set<string>>(new Set());
@@ -155,6 +176,22 @@ export function ProjectWorkspace({
     () => (activeRun ? buildThread(project, activeRun) : []),
     [project, activeRun],
   );
+
+  // Attachments for this project, loaded once alongside the conversation.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const stored = await listProjectEvidence(project.id);
+        if (alive) setEvidence(stored);
+      } catch {
+        if (alive) setEvidence([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [project.id]);
 
   // Stored conversation for this project. Loaded once per project.
   useEffect(() => {
