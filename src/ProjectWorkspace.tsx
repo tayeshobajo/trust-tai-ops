@@ -871,6 +871,14 @@ export function ProjectWorkspace({
       return;
     }
 
+    // A message that points backwards ("option B", "same as yesterday") is not
+    // a new instruction. It is resolved against stored history first, and if it
+    // cannot be resolved the agent asks rather than assumes.
+    if (value && attachments.length === 0 && continuityAvailable() && referenceIntent(value).needsRecall) {
+      const handled = await handleBackwardReference(value);
+      if (handled) return;
+    }
+
     // Filenames are never persisted from the browser: the client's name for a
     // file is unsanitized, and the attachment records are the source of truth.
     const attachmentNote =
