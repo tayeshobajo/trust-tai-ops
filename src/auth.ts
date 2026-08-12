@@ -1,4 +1,4 @@
-import { resolveOpsEnv } from "./env";
+import { isQaAutoLoginEnabled, resolveOpsEnv } from "./env";
 import { getSupabaseClient } from "./supabase";
 import type { AuthState, UserRole } from "./types";
 
@@ -93,4 +93,32 @@ export async function signOutIfSupported(): Promise<void> {
 
   const client = getSupabaseClient();
   await client.auth.signOut();
+}
+
+/**
+ * Signs the shared QA account in when QA mode is enabled and no session exists.
+ * No-op otherwise, so normal sign-in behaviour is untouched.
+ */
+export async function ensureQaSession(): Promise<void> {
+  const env = resolveOpsEnv();
+
+  if (env.adapter === "demo" || !isQaAutoLoginEnabled(env)) {
+    return;
+  }
+
+  try {
+    const client = getSupabaseClient();
+    const { data } = await client.auth.getSession();
+
+    if (data.session) {
+      return;
+    }
+
+    await client.auth.signInWithPassword({
+      email: env.qaEmail as string,
+      password: env.qaPassword as string,
+    });
+  } catch {
+    // Fall through to the normal sign-in screen.
+  }
 }
