@@ -12,6 +12,10 @@ export type OpsRuntimeEnv = {
   isProductionBuild: boolean;
   /** The adapter value literally present in env, before defaulting to "auto". */
   explicitAdapter?: string;
+  /** Temporary QA mode: sign a shared QA account in automatically, no login screen. */
+  qaAutoLogin: boolean;
+  qaEmail?: string;
+  qaPassword?: string;
 };
 
 function runtimeEnv(): RuntimeEnv {
@@ -50,7 +54,19 @@ export function resolveOpsEnv(): OpsRuntimeEnv {
     supabaseSchema: env.VITE_OPS_SUPABASE_SCHEMA ?? "public",
     isProductionBuild,
     explicitAdapter,
+    qaAutoLogin: env.VITE_OPS_QA_AUTOLOGIN === "true",
+    qaEmail: env.VITE_OPS_QA_EMAIL,
+    qaPassword: env.VITE_OPS_QA_PASSWORD,
   };
+}
+
+/**
+ * Temporary QA affordance while the team validates the agents. Data still moves
+ * through a real Supabase session and RLS — the app just signs the shared QA
+ * account in for the tester instead of showing a sign-in screen.
+ */
+export function isQaAutoLoginEnabled(env: OpsRuntimeEnv = resolveOpsEnv()): boolean {
+  return env.qaAutoLogin && Boolean(env.qaEmail && env.qaPassword);
 }
 
 export function hasSupabasePublicConfig(env: OpsRuntimeEnv): boolean {
