@@ -25,14 +25,17 @@ type TypeRule = { extensions: string[]; mimes: string[]; kind: EvidenceKind; max
 
 const MB = 1024 * 1024;
 
+// Honest limits. Commit downloads the whole object into edge-function memory
+// and base64-encodes media before a model can read it, so the ceiling is what
+// that runtime can actually carry — not an aspirational number.
 const RULES: TypeRule[] = [
-  { extensions: ["png"], mimes: ["image/png"], kind: "image", maxBytes: 15 * MB, canonicalMime: "image/png" },
-  { extensions: ["jpg", "jpeg"], mimes: ["image/jpeg"], kind: "image", maxBytes: 15 * MB, canonicalMime: "image/jpeg" },
-  { extensions: ["webp"], mimes: ["image/webp"], kind: "image", maxBytes: 15 * MB, canonicalMime: "image/webp" },
-  { extensions: ["mp4"], mimes: ["video/mp4"], kind: "video", maxBytes: 100 * MB, canonicalMime: "video/mp4" },
-  { extensions: ["webm"], mimes: ["video/webm"], kind: "video", maxBytes: 100 * MB, canonicalMime: "video/webm" },
-  { extensions: ["mov"], mimes: ["video/quicktime"], kind: "video", maxBytes: 100 * MB, canonicalMime: "video/quicktime" },
-  { extensions: ["pdf"], mimes: ["application/pdf"], kind: "pdf", maxBytes: 25 * MB, canonicalMime: "application/pdf" },
+  { extensions: ["png"], mimes: ["image/png"], kind: "image", maxBytes: 10 * MB, canonicalMime: "image/png" },
+  { extensions: ["jpg", "jpeg"], mimes: ["image/jpeg"], kind: "image", maxBytes: 10 * MB, canonicalMime: "image/jpeg" },
+  { extensions: ["webp"], mimes: ["image/webp"], kind: "image", maxBytes: 10 * MB, canonicalMime: "image/webp" },
+  { extensions: ["mp4"], mimes: ["video/mp4"], kind: "video", maxBytes: 25 * MB, canonicalMime: "video/mp4" },
+  { extensions: ["webm"], mimes: ["video/webm"], kind: "video", maxBytes: 25 * MB, canonicalMime: "video/webm" },
+  { extensions: ["mov"], mimes: ["video/quicktime"], kind: "video", maxBytes: 25 * MB, canonicalMime: "video/quicktime" },
+  { extensions: ["pdf"], mimes: ["application/pdf"], kind: "pdf", maxBytes: 15 * MB, canonicalMime: "application/pdf" },
   { extensions: ["txt", "md"], mimes: ["text/plain", "text/markdown"], kind: "text", maxBytes: 10 * MB, canonicalMime: "text/plain" },
   { extensions: ["log"], mimes: ["text/plain"], kind: "log", maxBytes: 10 * MB, canonicalMime: "text/plain" },
   { extensions: ["har"], mimes: ["application/json", "application/har+json"], kind: "har", maxBytes: 15 * MB, canonicalMime: "application/json" },
@@ -45,9 +48,9 @@ export const SUPPORTED_EXTENSIONS = RULES.flatMap((rule) => rule.extensions);
 /** Human-readable limits, so the interface can state the truth it enforces. */
 export const EVIDENCE_LIMITS = {
   maxAttachments: MAX_ATTACHMENTS_PER_MESSAGE,
-  image: 15 * MB,
-  video: 100 * MB,
-  pdf: 25 * MB,
+  image: 10 * MB,
+  video: 25 * MB,
+  pdf: 15 * MB,
   text: 10 * MB,
   log: 10 * MB,
   har: 15 * MB,
@@ -55,6 +58,16 @@ export const EVIDENCE_LIMITS = {
   csv: 15 * MB,
   other: 0,
 } as const;
+
+/** The server-enforced ceiling for a kind. Byte validation re-checks it. */
+export const maxBytesFor = (kind: EvidenceKind): number =>
+  RULES.find((rule) => rule.kind === kind)?.maxBytes ?? 0;
+
+/** Every MIME type the bucket is allowed to hold. Defence in depth. */
+export const ALLOWED_MIME_TYPES: string[] = [...new Set(RULES.flatMap((rule) => [rule.canonicalMime, ...rule.mimes]))];
+
+/** The largest object the bucket should ever accept, whatever the kind. */
+export const MAX_EVIDENCE_BYTES = RULES.reduce((max, rule) => Math.max(max, rule.maxBytes), 0);
 
 const extensionOf = (filename: string): string => {
   const match = filename.toLowerCase().match(/\.([a-z0-9]+)$/);
@@ -173,3 +186,16 @@ export const TEXTUAL_KINDS: EvidenceKind[] = ["text", "log", "har", "json", "csv
 
 /** Kinds that need a multimodal model to be understood at all. */
 export const MULTIMODAL_KINDS: EvidenceKind[] = ["image", "pdf"];
+
+/**
+ * A filename is shown to people and, in reduced form, to a model. People name
+ * files `prod-db-password.txt`. The stored original stays as service-only
+ * provenance; this is what is allowed to be displayed or prompted.
+ */
+const FILENAME_SECRET = /(password|passwd|pwd|secret|token|api[-_]?key|apikey|auth[-_]?key|private[-_]?key|credential|creds)([^.]*)/gi;
+
+export const displayFilename = (safeFilename: string): string => {
+  const base = sanitizeFilename(safeFilename);
+  const redacted = base.replace(FILENAME_SECRET, (_match, label: string) => `${label}-redacted`);
+  return redacted.length > 0 ? redacted : "attachment";
+};
