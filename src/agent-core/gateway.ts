@@ -43,7 +43,7 @@ export interface ExecutionGateway {
    * Asks the server-side reasoner what should happen next. Returns null
    * whenever reasoning is unavailable, refused, or unsafe — never a guess.
    */
-  reason(projectId: string, digest: Record<string, unknown>): Promise<unknown | null>;
+  reason(projectId: string, digest: Record<string, unknown>, runId?: string | null): Promise<unknown | null>;
   /**
    * Server truth about which private capabilities this project can actually
    * use, split into stored and verified. Client-side access state is only ever
@@ -107,12 +107,14 @@ class SupabaseFunctionGateway implements ExecutionGateway {
     }
   }
 
-  async reason(projectId: string, digest: Record<string, unknown>): Promise<unknown | null> {
+  async reason(projectId: string, digest: Record<string, unknown>, runId?: string | null): Promise<unknown | null> {
     if (!this.available()) return null;
     try {
       const client = getSupabaseClient();
       const { data, error } = await client.functions.invoke("agent-reason", {
-        body: { projectId, digest, model: readReasonModelId() },
+        // The run id is a claim; the server proves it belongs to this project
+        // before it loads a single attachment against it.
+        body: { projectId, digest, runId: runId ?? null, model: readReasonModelId() },
       });
       if (error) return null;
       const payload = data as { ok?: boolean; plan?: unknown } | null;
