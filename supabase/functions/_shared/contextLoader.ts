@@ -261,3 +261,41 @@ export const runBelongsToProject = async (projectId: string, runId: string): Pro
   const { data } = await serviceClient().from("runs").select("project_id").eq("id", runId).maybeSingle();
   return Boolean(data && String(data.project_id) === projectId);
 };
+
+/**
+ * Conversation the person pointed back at.
+ *
+ * The browser tells us which message it just sent; it never tells us what that
+ * message referred to. The references were written by the server at resolution
+ * time, so this read is the project's own record replayed under a truthful
+ * label — not a client claim about its own history.
+ */
+export const loadRetrievedConversation = async (
+  projectId: string,
+  messageId: string | null,
+  now = Date.now(),
+): Promise<RetrievedConversation[]> => {
+  if (!messageId) return [];
+  const service = serviceClient();
+
+  const { data } = await service
+    .from("message_references")
+    .select("label, summary, created_at, source_message_id, project_messages!message_references_source_message_id_fkey(body, created_at)")
+    .eq("project_id", projectId)
+    .eq("message_id", messageId)
+    .order("confidence", { ascending: false })
+    .limit(4);
+
+  return (data ?? []).map((row) => {
+    const source = (Array.isArray(row.project_messages) ? row.project_messages[0] : row.project_messages) as
+      | { body?: unknown; created_at?: string }
+      | null;
+    const body = Array.isArray(source?.body) ? source?.body.join(" ") : "";
+    const at = String(source?.created_at ?? row.created_at ?? new Date(now).toISOString());
+    return {
+      label: row.label ? String(row.label) : null,
+      text: redactEvidenceText(String(row.summary || body || "")).slice(0, 400),
+      when: whenLabel(at, now),
+    };
+  });
+};
