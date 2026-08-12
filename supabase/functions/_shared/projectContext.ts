@@ -158,7 +158,7 @@ export const buildProjectContext = (input: ContextInput, focus = ""): ProjectCon
   const evidence = fill(
     (input.evidence ?? []).flatMap((item) => [
       `Attachment "${clean(item.filename, 80)}" (${clean(item.kind, 20)}, ${clean(item.status, 20)})`,
-      ...item.observations.map((line) => `  observed in that file: ${line}`),
+      ...item.observations.map((line) => `observed in that file: ${line}`),
     ]),
     CONTEXT_BUDGET.evidence,
   );

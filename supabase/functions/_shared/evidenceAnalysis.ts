@@ -43,7 +43,7 @@ export type NormalizedEvidence = {
 
 const bound = (values: string[], max: number): string[] =>
   values
-    .map((value) => redactSecrets(String(value)).replace(/\s+/g, " ").trim())
+    .map((value) => redactEvidenceText(String(value)).replace(/\s+/g, " ").trim())
     .filter((value) => value.length > 0)
     .slice(0, max);
 
@@ -51,8 +51,16 @@ const bound = (values: string[], max: number): string[] =>
  * Text lifted out of an attachment is quoted, redacted and bounded. It is
  * never merged into an instruction position.
  */
+// Config-style assignments (DB_PASSWORD=..., WP_AUTH_KEY: ...) are common in
+// logs and exports and don't carry the word boundary the shared redactor keys
+// on, so evidence redacts them itself before anything is stored or quoted.
+const ENV_SECRET = /^([A-Za-z][A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api_?key|auth_?key|private_?key)[A-Za-z0-9_.-]*)\s*[:=]\s*\S.*$/gim;
+
+export const redactEvidenceText = (text: string): string =>
+  redactSecrets(text).replace(ENV_SECRET, (_match, label: string) => `${label}=[redacted]`);
+
 export const safeExcerpt = (text: string, max = MAX_EXCERPT_CHARS): string => {
-  const redacted = redactSecrets(text)
+  const redacted = redactEvidenceText(text)
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " ");
   return redacted.length > max ? `${redacted.slice(0, max)}\n… (truncated)` : redacted;
@@ -352,7 +360,7 @@ export const parseMultimodalAnswer = (
     return null;
   }
 
-  const summary = typeof parsed.summary === "string" ? redactSecrets(parsed.summary).trim() : "";
+  const summary = typeof parsed.summary === "string" ? redactEvidenceText(parsed.summary).trim() : "";
   if (!summary) return null;
   const excerpt = typeof parsed.extractedTextExcerpt === "string" ? safeExcerpt(parsed.extractedTextExcerpt, 1200) : "";
   const confidence =
