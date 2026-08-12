@@ -114,10 +114,18 @@ export async function ensureQaSession(): Promise<void> {
       return;
     }
 
-    await client.auth.signInWithPassword({
-      email: env.qaEmail as string,
-      password: env.qaPassword as string,
-    });
+    const email = env.qaEmail as string;
+    const password = env.qaPassword as string;
+
+    const first = await client.auth.signInWithPassword({ email, password });
+
+    if (!first.error) {
+      return;
+    }
+
+    // Bootstrap the shared QA account server-side (create + confirm) and retry once.
+    await client.functions.invoke("qa-session", { body: { email, password } });
+    await client.auth.signInWithPassword({ email, password });
   } catch {
     // Fall through to the normal sign-in screen.
   }
