@@ -13,8 +13,10 @@
  * Pure TypeScript: no Deno globals, no npm specifiers.
  */
 
-import { normalizeLabel } from "./anchors.ts";
+import { ORDINAL_WORDS, normalizeLabel } from "./anchors.ts";
 import { referenceIntent, type ReferenceIntent } from "./reference.ts";
+
+const ORDINAL_LOOKUP: readonly string[] = ORDINAL_WORDS;
 
 export type AnchorRecord = {
   id: string;
@@ -38,8 +40,16 @@ export type MessageRecord = {
   runTitle?: string | null;
 };
 
+/**
+ * What the caller is looking for, so the store can narrow the read in the
+ * database instead of hoping the right anchor is inside a recent window. A
+ * months-old "Option B" must still be findable in a project with thousands of
+ * newer messages.
+ */
+export type AnchorQuery = { normalizedLabel: string | null; alias: string | null };
+
 export type ContinuityStore = {
-  listAnchors: (projectId: string) => Promise<AnchorRecord[]>;
+  listAnchors: (projectId: string, query: AnchorQuery) => Promise<AnchorRecord[]>;
   searchMessages: (projectId: string, terms: string[], limit: number) => Promise<MessageRecord[]>;
 };
 
@@ -158,19 +168,19 @@ export const resolveContinuity = async (
     return { status: "not_needed", intent, references: [], question: null, charCount: 0 };
   }
 
-  const anchors = await store.listAnchors(input.projectId);
+  const wantedLabel = intent.label ? normalizeLabel(intent.label) : null;
+  const wantedAlias = intent.ordinal >= 0 ? `${ORDINAL_LOOKUP[intent.ordinal] ?? ""} option` : null;
+  const anchors = await store.listAnchors(input.projectId, { normalizedLabel: wantedLabel, alias: wantedAlias });
   const options = anchors.filter((anchor) => anchor.anchorType === "option");
 
   let candidates: AnchorRecord[] = [];
   let method: ResolutionMethod = "none";
 
-  if (intent.label) {
-    const wanted = normalizeLabel(intent.label);
-    candidates = options.filter((anchor) => anchor.normalizedLabel === wanted);
+  if (wantedLabel) {
+    candidates = options.filter((anchor) => anchor.normalizedLabel === wantedLabel);
     method = "anchor_exact";
-  } else if (intent.ordinal >= 0) {
-    const wanted = new Set([`${["first", "second", "third", "fourth", "fifth"][intent.ordinal]} option`]);
-    candidates = options.filter((anchor) => anchor.aliases.some((alias) => wanted.has(alias)));
+  } else if (wantedAlias) {
+    candidates = options.filter((anchor) => anchor.aliases.includes(wantedAlias));
     method = "anchor_alias";
   }
 

@@ -25,6 +25,11 @@ create table if not exists public.conversation_anchors (
   created_at timestamptz not null default now()
 );
 
+-- Writes are server-owned. A browser that could author an anchor could
+-- manufacture a "you offered this earlier" the agent would then act on, so the
+-- write privilege is removed outright rather than left to RLS alone.
+revoke all on public.conversation_anchors from anon;
+revoke all on public.conversation_anchors from authenticated;
 grant select on public.conversation_anchors to authenticated;
 grant all on public.conversation_anchors to service_role;
 
@@ -35,6 +40,12 @@ create unique index if not exists conversation_anchors_unique_idx
   on public.conversation_anchors (source_message_id, normalized_label);
 create index if not exists conversation_anchors_project_idx
   on public.conversation_anchors (project_id, created_at desc);
+-- A named recall ("Option B") is looked up by name, so an old choice survives
+-- a project with a large amount of newer history.
+create index if not exists conversation_anchors_label_idx
+  on public.conversation_anchors (project_id, normalized_label);
+create index if not exists conversation_anchors_aliases_idx
+  on public.conversation_anchors using gin (aliases);
 
 do $$
 begin
@@ -75,6 +86,8 @@ create table if not exists public.message_references (
   created_at timestamptz not null default now()
 );
 
+revoke all on public.message_references from anon;
+revoke all on public.message_references from authenticated;
 grant select on public.message_references to authenticated;
 grant all on public.message_references to service_role;
 
@@ -112,5 +125,8 @@ $$;
 -- Lexical recall runs over a bounded, project-scoped window of recent messages.
 create index if not exists project_messages_project_recent_idx
   on public.project_messages (project_id, created_at desc);
+-- Bounds the one-off legacy backfill scan over historical agent messages.
+create index if not exists project_messages_role_recent_idx
+  on public.project_messages (project_id, role, created_at desc);
 
 commit;
