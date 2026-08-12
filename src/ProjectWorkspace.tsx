@@ -31,16 +31,20 @@ import { decideProposedTask, ingestAndAnalyzeMeeting, meetingIntelligenceAvailab
 import type { MeetingAnalysisView, ProposedTask } from "./meetings";
 import {
   ACCEPT_ATTRIBUTE,
-  MAX_ATTACHMENTS_PER_MESSAGE,
   attachEvidenceToMessage,
+  dequeueEvidenceFile,
+  enqueueEvidenceFiles,
   evidenceIntakeAvailable,
   evidenceReplyLines,
   evidenceViewUrl,
+  filesFromDataTransfer,
   formatBytes,
+  imageFilesFromClipboard,
   listProjectEvidence,
-  localRejectionFor,
+  releaseQueuedFile,
   uploadEvidence,
 } from "./evidence";
+import type { QueuedFile, QueuedState } from "./evidence";
 import type { ProjectEvidence } from "./types";
 import { containsSecretMaterial } from "./agent-core/secretGuard";
 import { credentialIntakeAvailable, submitCredentialText } from "./agent-core/credentialIntake";
@@ -147,7 +151,8 @@ export function ProjectWorkspace({
   // of it. Files are never held in the message body: they are separate,
   // server-owned records pinned to the message they arrived with.
   const [evidence, setEvidence] = useState<ProjectEvidence[]>([]);
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<QueuedFile[]>([]);
+  const [dropActive, setDropActive] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [meetingBusy, setMeetingBusy] = useState(false);
@@ -731,21 +736,21 @@ export function ProjectWorkspace({
 
   const queueFiles = (incoming: File[]) => {
     if (incoming.length === 0) return;
-    const problems: string[] = [];
-    const accepted: File[] = [];
+    setPendingFiles((current) => {
+      const { queue, rejected } = enqueueEvidenceFiles(current, incoming);
+      setAttachError(rejected.length > 0 ? [...new Set(rejected)].join(" ") : null);
+      return queue;
+    });
+  };
 
-    for (const file of incoming) {
-      if (pendingFiles.length + accepted.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
-        problems.push(`I can take up to ${MAX_ATTACHMENTS_PER_MESSAGE} files in one message.`);
-        break;
-      }
-      const rejection = localRejectionFor(file);
-      if (rejection) problems.push(rejection);
-      else accepted.push(file);
-    }
+  const removeQueuedFile = (key: string) => {
+    setPendingFiles((current) => dequeueEvidenceFile(current, key));
+  };
 
-    if (accepted.length > 0) setPendingFiles((current) => [...current, ...accepted]);
-    setAttachError(problems.length > 0 ? problems.join(" ") : null);
+  const markQueued = (key: string, state: QueuedState, reason?: string) => {
+    setPendingFiles((current) =>
+      current.map((entry) => (entry.key === key ? { ...entry, state, reason: reason ?? null } : entry)),
+    );
   };
 
   const openEvidence = async (item: ProjectEvidence) => {
@@ -762,10 +767,17 @@ export function ProjectWorkspace({
    * says what the server actually returned: an unreadable file is stated as
    * unread rather than described.
    */
-  const sendAttachments = async (runId: string | null, messageId: string | null, files: File[]) => {
+  const sendAttachments = async (runId: string | null, messageId: string | null, files: QueuedFile[]) => {
     setUploading(true);
     try {
-      const result = await uploadEvidence({ projectId: project.id, runId, files });
+      const result = await uploadEvidence({
+        projectId: project.id,
+        runId,
+        // Bound at registration; `attach` below is only a compatibility net.
+        messageId,
+        files,
+        onProgress: markQueued,
+      });
 
       if (messageId && result.uploaded.length > 0) {
         await attachEvidenceToMessage({
@@ -774,6 +786,17 @@ export function ProjectWorkspace({
           evidenceIds: result.uploaded.map((item) => item.evidenceId),
         });
       }
+
+      // What succeeded leaves the composer; what failed stays, with its reason,
+      // so it can be retried rather than vanishing.
+      const failedKeys = new Set(
+        result.rejected.map((item) => item.clientKey).filter((key): key is string => Boolean(key)),
+      );
+      setPendingFiles((current) => {
+        const keep = current.filter((entry) => failedKeys.has(entry.key));
+        for (const entry of current) if (!failedKeys.has(entry.key)) releaseQueuedFile(entry);
+        return keep;
+      });
 
       setEvidence(await listProjectEvidence(project.id));
 
@@ -810,11 +833,11 @@ export function ProjectWorkspace({
       return;
     }
 
+    // Filenames are never persisted from the browser: the client's name for a
+    // file is unsanitized, and the attachment records are the source of truth.
     const attachmentNote =
       attachments.length > 0
-        ? `Shared ${attachments.length} file${attachments.length === 1 ? "" : "s"}: ${attachments
-            .map((file) => file.name)
-            .join(", ")}`
+        ? `Shared ${attachments.length} evidence file${attachments.length === 1 ? "" : "s"}.`
         : "";
     const bodyLines = [value, attachmentNote].filter((line) => line.length > 0);
 
@@ -841,7 +864,6 @@ export function ProjectWorkspace({
         if (saved) {
           savedId = saved.id;
           setComposerValue("");
-          setPendingFiles([]);
         }
       } catch {
         setPersistError("I couldn't start that task. Your message is still here — try again.");
@@ -864,7 +886,6 @@ export function ProjectWorkspace({
     if (!saved) return;
 
     setComposerValue("");
-    setPendingFiles([]);
 
     if (attachments.length > 0) {
       await sendAttachments(activeRun.id, saved.id, attachments);
