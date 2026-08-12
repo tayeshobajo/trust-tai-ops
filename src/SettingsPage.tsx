@@ -10,6 +10,7 @@ type Props = {
   workspace: Organization;
   authState: AuthState;
   repositoryHealth: RepositoryHealth;
+  onSignOut?: () => void;
 };
 
 export function SettingsPage({ workspace, authState, repositoryHealth }: Props) {
