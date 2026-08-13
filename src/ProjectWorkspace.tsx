@@ -178,6 +178,9 @@ export function ProjectWorkspace({
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [persistError, setPersistError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Keep the typing indicator visible for a short beat after the agent starts
+  // working so the cue doesn't flicker on fast replies.
+  const [typingUntil, setTypingUntil] = useState(0);
   const [mobilePane, setMobilePane] = useState<"tasks" | "chat" | "context">("chat");
   const [surface, setSurface] = useState<"conversation" | "tasks" | "access" | "memory" | "activity">(initialSurface);
   const [accessFocus, setAccessFocus] = useState<AccessType[]>([]);
