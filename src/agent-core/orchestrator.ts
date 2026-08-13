@@ -258,12 +258,6 @@ const buildCloseout = (
   return lines;
 };
 
-type UnusedActionOutcome =
-  | { kind: "evidence"; evidence: AgentEvidence[] }
-  | { kind: "blocked"; requires: "access" | "backup" | "approval" | "backend"; reason: string }
-  | { kind: "failed"; code: ToolFailureCode; retryable: boolean }
-  | { kind: "in_flight" };
-
 /** Executes one action, reusing a completed invocation when replayed. */
 const executeAction = async (
   input: OrchestratorInput,
