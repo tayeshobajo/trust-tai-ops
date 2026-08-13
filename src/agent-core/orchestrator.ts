@@ -342,6 +342,21 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
   let context = await buildAgentContext(input);
   const reasoner = input.reasoner ?? selectReasoner();
 
+  // The living plan. Loaded once, revised throughout, saved once.
+  let workingPlan: RunPlan = emptyPlan(
+    input.project.id,
+    input.run.id,
+    input.run.taskSummary || input.run.title,
+  );
+  try {
+    const stored = await workspaceRepository.loadRunPlan(input.project.id, input.run.id);
+    if (stored) workingPlan = stored;
+  } catch {
+    // A missing plan is not a reason to refuse to work.
+  }
+  workingPlan = setGoal(workingPlan, input.run.taskSummary || input.run.title);
+  const planAtStart = workingPlan.revision;
+
   const learned: AgentEvidence[] = [];
   const spoke: string[] = [];
   const attempted = new Map<string, number>();
@@ -367,6 +382,10 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
       stopReason = learned.length > 0 ? "sufficient_evidence" : "safe_stop";
       break;
     }
+
+    // What the reasoner intends becomes visible before it happens.
+    workingPlan = addHypotheses(workingPlan, plan.qaPlan ?? []);
+    workingPlan = reconcileSteps(workingPlan, plan.actions);
 
     if (plan.decision.intent === "request_access") {
       const requested = plan.decision.requestedAccess ?? [];
