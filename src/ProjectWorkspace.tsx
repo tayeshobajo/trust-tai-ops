@@ -178,6 +178,8 @@ export function ProjectWorkspace({
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [persistError, setPersistError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The agent's own background step must never lock the person's composer.
+  const [agentBusy, setAgentBusy] = useState(false);
   // Keep the typing indicator visible for a short beat after the agent starts
   // working so the cue doesn't flicker on fast replies.
   const [typingUntil, setTypingUntil] = useState(0);
@@ -221,6 +223,11 @@ export function ProjectWorkspace({
       setTypingUntil(Date.now() + 1200);
     }
   }, [busy]);
+  useEffect(() => {
+    if (agentBusy) {
+      setTypingUntil(Date.now() + 1200);
+    }
+  }, [agentBusy]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
@@ -531,7 +538,7 @@ export function ProjectWorkspace({
   // The agent moves itself through every lawful step that needs no human
   // judgment. The executor owns what it says and how that is persisted.
   useEffect(() => {
-    if (!canWrite || busy || !activeRun) return;
+    if (!canWrite || busy || agentBusy || !activeRun) return;
 
     const run = activeRun;
     const identity = agentStepIdentity(project, run);
@@ -541,24 +548,28 @@ export function ProjectWorkspace({
       void (async () => {
         if (attemptedRef.current.has(identity)) return;
         attemptedRef.current.add(identity);
-        setBusy(true);
+        setAgentBusy(true);
         try {
-          await executeAgentStep({
-            project,
-            run,
-            emit,
-            onWorkspaceUpdate,
-            recentMessages: messages.filter((message) => message.runId === run.id),
-            memory: project.memoryEntries,
-          });
+          // A stalled server step must not strand the conversation.
+          await Promise.race([
+            executeAgentStep({
+              project,
+              run,
+              emit,
+              onWorkspaceUpdate,
+              recentMessages: messages.filter((message) => message.runId === run.id),
+              memory: project.memoryEntries,
+            }),
+            new Promise((resolve) => window.setTimeout(resolve, 45000)),
+          ]);
         } finally {
-          setBusy(false);
+          setAgentBusy(false);
         }
       })();
     }, 900);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, activeRun, canWrite, busy]);
+  }, [project, activeRun, canWrite, busy, agentBusy]);
 
   const startNewTask = () => {
     setActiveRunId(null);
@@ -1518,7 +1529,7 @@ export function ProjectWorkspace({
             );
           })}
 
-          {(busy || Date.now() < typingUntil) && !uploading ? <TypingIndicator /> : null}
+          {(busy || agentBusy || Date.now() < typingUntil) && !uploading ? <TypingIndicator /> : null}
 
           {persistError ? (
             <p className="pw-persist-error" role="status">
