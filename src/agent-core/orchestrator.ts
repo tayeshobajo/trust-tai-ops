@@ -23,6 +23,17 @@ import { getTool } from "./registry";
 import { executionGateway } from "./gateway";
 import { safeSummary } from "./safety";
 import { selectReasoner, type AgentReasoner } from "./reasoner";
+import { escalate, routeIsExhausted, classifyFailure } from "./failure";
+import {
+  addHypotheses,
+  applyEvidence,
+  emptyPlan,
+  markStep,
+  reconcileSteps,
+  setGoal,
+  stepKeyFor,
+  type RunPlan,
+} from "./plan";
 import {
   MAX_ACTION_RETRIES,
   MAX_AGENT_ITERATIONS,
