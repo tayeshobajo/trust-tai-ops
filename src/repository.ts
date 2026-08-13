@@ -31,10 +31,12 @@ import type {
   ProjectDraft,
 } from "./types";
 import type { ExecutionEvent, NewExecutionEvent } from "./agent-core/types";
+import type { RunPlan } from "./agent-core/plan";
 
 const STORAGE_KEY = "ops-trust-tai.workspace";
 const MESSAGE_STORAGE_KEY = "ops-trust-tai.messages";
 const EXECUTION_STORAGE_KEY = "ops-trust-tai.execution-events";
+const RUN_PLAN_STORAGE_KEY = "ops-trust-tai.run-plans";
 
 type OrganizationRow = {
   id: string;
