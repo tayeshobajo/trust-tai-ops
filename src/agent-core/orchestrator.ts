@@ -450,9 +450,12 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
     const attempts = attempted.get(action.invocationKey) ?? 0;
     attempted.set(action.invocationKey, attempts + 1);
 
+    workingPlan = markStep(workingPlan, stepKeyFor(action), "active");
+
     const outcome = await executeAction(input, context, action);
 
     if (outcome.kind === "blocked") {
+      workingPlan = markStep(workingPlan, stepKeyFor(action), "blocked", outcome.reason);
       if (outcome.requires === "access") {
         awaiting = "access";
         stopReason = "needs_access";
@@ -471,29 +474,61 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
     }
 
     if (outcome.kind === "failed") {
-      // A retryable failure earns one more attempt; anything else becomes a
-      // remembered dead end so the next iteration chooses differently.
-      if (outcome.retryable && attempts < MAX_ACTION_RETRIES) {
+      // The failure is classified, and the class decides what happens next.
+      // The same error is never retried blindly.
+      const history = [
+        ...(context.failedObservations ?? []),
+        { toolId: action.toolId, code: outcome.code },
+      ];
+      context = { ...context, failedObservations: history };
+
+      const ladder = escalate(outcome.code, attempts + 1);
+      const exhausted = routeIsExhausted(history, classifyFailure(outcome.code));
+
+      if (ladder.action === "retry" && !exhausted && attempts < MAX_ACTION_RETRIES) {
         attempted.delete(action.invocationKey);
         attempted.set(`${action.invocationKey}:retried`, 1);
+        if (ladder.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, ladder.delayMs));
+        continue;
       }
-      context = {
-        ...context,
-        failedObservations: [...(context.failedObservations ?? []), { toolId: action.toolId, code: outcome.code }],
-      };
+
+      workingPlan = markStep(workingPlan, stepKeyFor(action), "blocked", outcome.summaryNote);
+
+      if (ladder.action === "ask_human") {
+        awaiting = ladder.need;
+        stopReason = ladder.need === "access" ? "needs_access" : "approval_required";
+        break;
+      }
+
+      if (ladder.action === "stop" || exhausted) {
+        stopReason =
+          outcome.code === "tool_unavailable" || outcome.code === "not_implemented"
+            ? "tool_unavailable"
+            : "safe_stop";
+        break;
+      }
+
+      // alternate_route: remember the dead end and let the next iteration
+      // choose differently, under the usual no-progress ceiling.
       stallCount += 1;
       if (stallCount >= MAX_ITERATIONS_WITHOUT_PROGRESS) {
-        stopReason = outcome.code === "tool_unavailable" || outcome.code === "not_implemented"
-          ? "tool_unavailable"
-          : "safe_stop";
+        stopReason = "safe_stop";
         break;
       }
       continue;
     }
 
     stallCount = 0;
+    workingPlan = markStep(
+      workingPlan,
+      stepKeyFor(action),
+      "done",
+      outcome.evidence[0]?.summary ?? "",
+      outcome.evidence[0]?.id ?? null,
+    );
     for (const item of outcome.evidence) {
       learned.push(item);
+      workingPlan = applyEvidence(workingPlan, item);
       const lines = describe(item);
       spoke.push(...lines);
       await say(input, item.id, lines);
