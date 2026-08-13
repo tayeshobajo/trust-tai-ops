@@ -1572,10 +1572,11 @@ export function ProjectWorkspace({
             </div>
           ) : null}
 
+          <div className="composer-shell">
           <textarea
             ref={composerRef}
             className="composer-input"
-            rows={2}
+            rows={1}
             value={composerValue}
             placeholder="Describe the issue, task, or outcome you want help with..."
             aria-label="Message the Engineering Agent"
@@ -1688,6 +1689,7 @@ export function ProjectWorkspace({
             >
               {uploading ? "Reading files…" : "Send"}
             </button>
+          </div>
           </div>
         </div>
       </main>
