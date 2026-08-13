@@ -6498,3 +6498,70 @@ p, li {
 .pw-evidence-unsupported {
   border-color: var(--tt-warning);
 }
+
+/* --- Composer: a single modern input surface -------------------------------
+   The textarea, attachments and controls read as one field rather than three
+   stacked boxes, and the field grows with what is being written. */
+.composer-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-3) var(--tt-space-3) var(--tt-space-2);
+  border: 1px solid var(--tt-rule);
+  border-radius: 18px;
+  background: var(--tt-white);
+  box-shadow: 0 1px 2px rgba(1, 5, 27, 0.04);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.composer-shell:focus-within {
+  border-color: color-mix(in srgb, var(--tt-royal) 55%, var(--tt-rule));
+  box-shadow: 0 0 0 3px rgba(29, 84, 193, 0.1);
+}
+
+.composer-shell .composer-input {
+  border: 0;
+  background: transparent;
+  resize: none;
+  overflow-y: hidden;
+  min-height: 26px;
+  max-height: 40vh;
+  padding: var(--tt-space-1) var(--tt-space-2);
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.composer-shell .composer-input:focus {
+  outline: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.composer-shell .composer-row {
+  gap: var(--tt-space-2);
+}
+
+.composer-shell .composer-attach {
+  width: 34px;
+  min-height: 34px;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--tt-ink) 4%, transparent);
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.composer-shell .composer-attach:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--tt-ink) 8%, transparent);
+  color: var(--tt-ink);
+}
+
+.composer-shell .composer-row .primary-button {
+  border-radius: var(--tt-radius-pill);
+  padding: 8px 20px;
+  min-height: 34px;
+}
+
+.composer-shell .composer-row .primary-button:disabled {
+  opacity: 0.45;
+}
+
+.pw-composer .composer-shell { width: 100%; }

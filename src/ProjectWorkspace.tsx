@@ -189,6 +189,17 @@ export function ProjectWorkspace({
   const [taskDecisions, setTaskDecisions] = useState<Record<string, "approved" | "rejected">>({});
   const [taskBusyId, setTaskBusyId] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // The composer grows with what is being written, up to a calm ceiling, then
+  // scrolls. It never leaves an oversized empty box behind after sending.
+  useEffect(() => {
+    const node = composerRef.current;
+    if (!node) return;
+    node.style.height = "auto";
+    const max = Math.round(window.innerHeight * 0.4);
+    node.style.height = `${Math.min(node.scrollHeight, max)}px`;
+    node.style.overflowY = node.scrollHeight > max ? "auto" : "hidden";
+  }, [composerValue]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
@@ -1572,10 +1583,11 @@ export function ProjectWorkspace({
             </div>
           ) : null}
 
+          <div className="composer-shell">
           <textarea
             ref={composerRef}
             className="composer-input"
-            rows={2}
+            rows={1}
             value={composerValue}
             placeholder="Describe the issue, task, or outcome you want help with..."
             aria-label="Message the Engineering Agent"
@@ -1688,6 +1700,7 @@ export function ProjectWorkspace({
             >
               {uploading ? "Reading files…" : "Send"}
             </button>
+          </div>
           </div>
         </div>
       </main>
