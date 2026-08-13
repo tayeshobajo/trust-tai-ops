@@ -4,6 +4,7 @@ import type { ProjectDraft } from "./types";
 export function CreateProjectPage({
   canCreateProject,
   draft,
+  isCreating = false,
   onBack,
   onCreateProject,
   onDraftChange,
@@ -11,12 +12,14 @@ export function CreateProjectPage({
 }: {
   canCreateProject: boolean;
   draft: ProjectDraft;
+  isCreating?: boolean;
   onBack: () => void;
   onCreateProject: () => void;
   onDraftChange: Dispatch<SetStateAction<ProjectDraft>>;
   saveMessage: string;
 }) {
-  const canSubmit = canCreateProject && draft.name.trim().length > 0 && draft.websiteUrl.trim().length > 0;
+  const canSubmit =
+    canCreateProject && !isCreating && draft.name.trim().length > 0 && draft.websiteUrl.trim().length > 0;
 
   return (
     <div className="create-page">
@@ -74,7 +77,7 @@ export function CreateProjectPage({
 
           <div className="create-actions">
             <button className="primary-button" type="submit" disabled={!canSubmit}>
-              Create project
+              {isCreating ? "Creating…" : "Create project"}
             </button>
             <button className="ghost-button" type="button" onClick={onBack}>
               Cancel

@@ -181,8 +181,12 @@ function App() {
   };
 
   const handleCreateProject = async () => {
+    // One project per intent. Without this guard a repeated click (or a
+    // key-repeat on the submit button) inserts the same project many times.
+    if (creatingProject) return;
     const wantedName = (projectDraft.name || projectDraft.clientName).trim().toLowerCase();
 
+    setCreatingProject(true);
     try {
       const nextWorkspace = await workspaceRepository.createProject(projectDraft);
       // Projects come back ordered by name, so find the one we just created
@@ -201,6 +205,8 @@ function App() {
       setSaveMessage(
         `Could not create the project: ${error instanceof Error ? error.message : "unknown error"}`,
       );
+    } finally {
+      setCreatingProject(false);
     }
   };
 
@@ -376,6 +382,7 @@ function App() {
     ) : workspaceView === "create_project" ? (
       <CreateProjectPage
         canCreateProject={canCreateProject}
+        isCreating={creatingProject}
         draft={projectDraft}
         onBack={() => {
           setSaveMessage("");
