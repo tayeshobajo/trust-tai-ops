@@ -215,6 +215,12 @@ export function ProjectWorkspace({
     node.style.height = `${Math.min(node.scrollHeight, max)}px`;
     node.style.overflowY = node.scrollHeight > max ? "auto" : "hidden";
   }, [composerValue]);
+
+  useEffect(() => {
+    if (busy) {
+      setTypingUntil(Date.now() + 1200);
+    }
+  }, [busy]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
