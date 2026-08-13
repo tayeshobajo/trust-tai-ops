@@ -1509,6 +1509,57 @@ export type Database = {
           },
         ]
       }
+      run_plans: {
+        Row: {
+          created_at: string
+          goal: string
+          hypotheses: Json
+          id: string
+          project_id: string
+          revision: number
+          run_id: string
+          steps: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          goal?: string
+          hypotheses?: Json
+          id?: string
+          project_id: string
+          revision?: number
+          run_id: string
+          steps?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          goal?: string
+          hypotheses?: Json
+          id?: string
+          project_id?: string
+          revision?: number
+          run_id?: string
+          steps?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "run_plans_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "run_plans_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: true
+            referencedRelation: "runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       run_recommendations: {
         Row: {
           category: string
