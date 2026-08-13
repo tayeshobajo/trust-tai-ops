@@ -48,9 +48,12 @@ function App() {
   const opsEnv = resolveOpsEnv();
   const demoAllowed = isDemoModeAllowed(opsEnv);
   const misconfiguredProduction = isMisconfiguredProduction(opsEnv);
+  // The first paint must never show demo content: start empty and only fill in
+  // once the real workspace has been read.
   const seedWorkspace = createSeedWorkspace();
-  const [workspace, setWorkspace] = useState<Organization>(seedWorkspace);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(seedWorkspace.projects[0]?.id ?? null);
+  const emptyWorkspace: Organization = { ...seedWorkspace, projects: [] };
+  const [workspace, setWorkspace] = useState<Organization>(emptyWorkspace);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("active_run");
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("home");
   const [isReady, setIsReady] = useState(false);
@@ -293,6 +296,21 @@ function App() {
             <h1>Workspace unavailable</h1>
             <p>{fatalError}</p>
             <p>Check this deployment's Supabase configuration, then reload.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Hold the first paint until the real workspace has been read, so nothing
+  // stale or placeholder flashes on load.
+  if (!isReady) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="auth-brand">
+            <p className="eyebrow">Ops</p>
+            <h1>Loading workspace</h1>
           </div>
         </div>
       </div>
