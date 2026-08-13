@@ -48,9 +48,12 @@ function App() {
   const opsEnv = resolveOpsEnv();
   const demoAllowed = isDemoModeAllowed(opsEnv);
   const misconfiguredProduction = isMisconfiguredProduction(opsEnv);
+  // The first paint must never show demo content: start empty and only fill in
+  // once the real workspace has been read.
   const seedWorkspace = createSeedWorkspace();
-  const [workspace, setWorkspace] = useState<Organization>(seedWorkspace);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(seedWorkspace.projects[0]?.id ?? null);
+  const emptyWorkspace: Organization = { ...seedWorkspace, projects: [] };
+  const [workspace, setWorkspace] = useState<Organization>(emptyWorkspace);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("active_run");
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("home");
   const [isReady, setIsReady] = useState(false);
