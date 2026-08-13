@@ -874,9 +874,12 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     }
 
     const newRun = createRunFromDraft(draft, project);
+    // Postgres ids are uuid columns; the client-side factories use readable
+    // slug ids, so mint real uuids at the database boundary.
+    const runId = crypto.randomUUID();
 
     const { error: runError } = await client.from("runs").insert([{
-      id: newRun.id,
+      id: runId,
       project_id: projectId,
       environment_id: newRun.environmentId,
       title: newRun.title,
@@ -901,23 +904,23 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
 
     await Promise.all([
       insertRows(client.from("run_phases").insert(newRun.phases.map((phase) => ({
-        id: phase.id,
-        run_id: newRun.id,
+        id: crypto.randomUUID(),
+        run_id: runId,
         state: phase.state,
         label: phase.label,
         summary: phase.summary,
         status: phase.status,
       })) as never)),
       insertRows(client.from("run_actions").insert(newRun.actions.map((action) => ({
-        id: action.id,
-        run_id: newRun.id,
+        id: crypto.randomUUID(),
+        run_id: runId,
         actor: action.actor,
         summary: action.summary,
         outcome: action.outcome,
       })) as never)),
       insertRows(client.from("run_artifacts").insert(newRun.artifacts.map((artifact) => ({
-        id: artifact.id,
-        run_id: newRun.id,
+        id: crypto.randomUUID(),
+        run_id: runId,
         artifact_type: artifact.type,
         title: artifact.title,
         summary: artifact.summary,
@@ -929,7 +932,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       .from("qa_reports")
       .insert([{
         id: qaReportId,
-        run_id: newRun.id,
+        run_id: runId,
         verdict: newRun.qaReport.verdict,
         summary: newRun.qaReport.summary,
         unresolved_risks: newRun.qaReport.unresolvedRisks,
@@ -940,7 +943,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     }
 
     await insertRows(client.from("qa_results").insert(newRun.qaReport.results.map((result) => ({
-      id: result.id,
+      id: crypto.randomUUID(),
       qa_report_id: qaReportId,
       name: result.name,
       result: result.result,
