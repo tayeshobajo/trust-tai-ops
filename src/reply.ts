@@ -9,8 +9,7 @@
 
 import type { Project, Run } from "./types";
 import { accessTypeLabels } from "./stacks";
-import { workingNarration } from "./agent";
-import { autoAdvanceTarget } from "./agent";
+import { autoAdvanceTarget, workingNarration } from "./agent";
 
 const ACCESS_WORDS =
   /\b(access|credential|login|log in|password|sftp|ftp|ssh|wp[- ]?admin|wordpress admin|hosting|database|cpanel)\b/i;
