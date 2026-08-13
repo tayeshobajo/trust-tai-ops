@@ -579,6 +579,23 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
     spoke.push(...lines);
   }
 
+  // The plan is persisted once per turn, and only when it actually moved.
+  if (workingPlan.revision !== planAtStart) {
+    try {
+      await workspaceRepository.saveRunPlan(workingPlan);
+    } catch {
+      // A plan that failed to save is rebuilt next turn from the audit trail.
+    }
+  }
+
+  // Nothing ends silently. When the agent stops because it has what it needs,
+  // it names what was verified, what it recommends, and what is left to you.
+  if (stopReason === "sufficient_evidence") {
+    const closeout = buildCloseout(workingPlan, learned, awaiting);
+    await say(input, `closeout-${input.run.id}-${workingPlan.revision}`, closeout);
+    spoke.push(...closeout);
+  }
+
   return {
     learned,
     acted: learned.length > 0 || spoke.length > 0,
