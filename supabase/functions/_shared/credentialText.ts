@@ -182,15 +182,73 @@ const FIELD_RULES: Array<{ re: RegExp; field: Field; section?: Section }> = [
   { re: /^(?:admin|wp[ _-]?admin|wp[ _-]?admin[ _-]?url|admin[ _-]?url|admin[ _-]?login|dashboard)$/i, field: "adminUrl", section: "wordpress" },
   { re: /^(?:url|site|site[ _-]?url|website|domain|wordpress[ _-]?url)$/i, field: "siteUrl", section: "wordpress" },
   { re: /^(?:app(?:lication)?[ _-]?password)$/i, field: "appPassword", section: "wordpress" },
-  { re: /^(?:email|e-?mail|login|user[ _-]?email)$/i, field: "identity", section: "wordpress" },
-  { re: /^(?:host|hostname|server|ip|ip[ _-]?address)$/i, field: "host" },
-  { re: /^(?:port)$/i, field: "port" },
+  { re: /^(?:admin[ _-]?)?(?:email|e-?mail|login|user[ _-]?email)$/i, field: "identity", section: "wordpress" },
+  { re: /^(?:host|hostname|host[ _-]?name|server|address|host[ _-]?address|server[ _-]?address|ip|ip[ _-]?address)$/i, field: "host" },
+  { re: /^(?:port|port[ _-]?number)$/i, field: "port" },
   { re: /^(?:protocol)$/i, field: "protocol" },
   { re: /^(?:private[ _-]?key|key)$/i, field: "privateKey" },
   { re: /^(?:passphrase|key[ _-]?passphrase)$/i, field: "passphrase" },
   { re: /^(?:user|username|user[ _-]?name|account)$/i, field: "username" },
   { re: /^(?:password|passwd|pwd|pass)$/i, field: "password" },
 ];
+
+// ---------------------------------------------------------------------------
+// Inline label expansion
+// ---------------------------------------------------------------------------
+//
+// People paste credentials as one run-on line:
+//   "SFTP Address: host Port Number: 2222 Username: bob Password: hunter2"
+// The parser is line-based, so a second label on the same line would be
+// swallowed into the previous value. Every recognised label after the first
+// one starts its own line before parsing begins.
+
+const INLINE_LABEL = new RegExp(
+  "(?:\\b(?:s?ftp|ssh|wordpress|wp)[ _-]?)?" +
+    "\\b(?:" +
+    "app(?:lication)?[ _-]?password|password|passwd|pwd|pass" +
+    "|passphrase|private[ _-]?key" +
+    "|host(?:[ _-]?name)?|server(?:[ _-]?address)?|address|ip(?:[ _-]?address)?" +
+    "|port(?:[ _-]?number)?|protocol" +
+    "|user(?:[ _-]?name)?|username|account" +
+    "|admin(?:[ _-]?(?:url|login|email))?|e-?mail|email|login" +
+    "|site(?:[ _-]?url)?|website|domain|url" +
+    ")\\s*[:=]",
+  "gi",
+);
+
+const splitInlineLabels = (line: string): string[] => {
+  const starts: number[] = [];
+  INLINE_LABEL.lastIndex = 0;
+  for (let match = INLINE_LABEL.exec(line); match; match = INLINE_LABEL.exec(line)) {
+    starts.push(match.index);
+  }
+  if (starts.length < 2) return [line];
+
+  const segments: string[] = [];
+  for (let i = 0; i < starts.length; i += 1) {
+    const from = i === 0 ? 0 : starts[i];
+    const to = i + 1 < starts.length ? starts[i + 1] : line.length;
+    const piece = line.slice(from, to).trim();
+    if (piece) segments.push(piece);
+  }
+  return segments;
+};
+
+/** Run-on credential lines become one labelled field per line. PEM blocks are left alone. */
+export const expandInlineLabels = (input: string): string => {
+  const out: string[] = [];
+  let inPem = false;
+  for (const line of input.split(/\r?\n/)) {
+    if (PEM_OPENING.test(line)) inPem = true;
+    if (inPem) {
+      out.push(line);
+      if (/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(line)) inPem = false;
+      continue;
+    }
+    out.push(...splitInlineLabels(line));
+  }
+  return out.join("\n");
+};
 
 type LabelHit = { field: Field; value: string; section: Section | null };
 
@@ -235,7 +293,8 @@ const emptyFileSection = () => ({
 
 type FileSection = ReturnType<typeof emptyFileSection>;
 
-export const parseCredentialText = (input: string): ParsedIntake => {
+export const parseCredentialText = (rawInput: string): ParsedIntake => {
+  const input = expandInlineLabels(rawInput);
   const rawLines = input.split(/\r?\n/);
   const lines = rawLines.map(normalizeLine);
 
