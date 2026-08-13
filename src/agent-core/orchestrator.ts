@@ -219,6 +219,51 @@ export type ActionOutcome =
   | { kind: "failed"; code: ToolFailureCode; retryable: boolean }
   | { kind: "in_flight" };
 
+/**
+ * The close-out. Three parts, always the same three, so a person never has to
+ * guess what is finished and what is still theirs to decide.
+ */
+const buildCloseout = (
+  plan: RunPlan,
+  learned: AgentEvidence[],
+  awaiting: AgentTurnResult["awaiting"],
+): string[] => {
+  const verified = plan.steps.filter((step) => step.status === "done");
+  const blocked = plan.steps.filter((step) => step.status === "blocked");
+  const open = plan.hypotheses.filter((item) => item.status === "open");
+
+  const lines: string[] = [];
+
+  lines.push(
+    verified.length > 0
+      ? `Here's where this landed. Verified: ${verified.map((step) => step.label.replace(/\.$/, "")).join("; ")}.`
+      : "Here's where this landed. I wasn't able to verify anything conclusively yet.",
+  );
+
+  if (blocked.length > 0) {
+    lines.push(
+      `Still recommended but not done: ${blocked
+        .map((step) => `${step.label.replace(/\.$/, "")}${step.note ? ` — ${step.note}` : ""}`)
+        .join("; ")}.`,
+    );
+  } else if (open.length > 0) {
+    lines.push(`Still open: ${open.map((item) => item.text.replace(/\.$/, "")).join("; ")}.`);
+  }
+
+  if (awaiting === "access") lines.push("What I need from you: the access above, and I'll carry on.");
+  else if (awaiting === "backup") lines.push("What I need from you: confirmation of a safe restore point.");
+  else if (awaiting === "approval") lines.push("What I need from you: a go-ahead on the change I proposed.");
+  else if (learned.length > 0) lines.push("Nothing is blocked on you. Tell me which of these you want me to act on.");
+
+  return lines;
+};
+
+type UnusedActionOutcome =
+  | { kind: "evidence"; evidence: AgentEvidence[] }
+  | { kind: "blocked"; requires: "access" | "backup" | "approval" | "backend"; reason: string }
+  | { kind: "failed"; code: ToolFailureCode; retryable: boolean }
+  | { kind: "in_flight" };
+
 /** Executes one action, reusing a completed invocation when replayed. */
 const executeAction = async (
   input: OrchestratorInput,
