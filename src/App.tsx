@@ -302,6 +302,21 @@ function App() {
     );
   }
 
+  // Hold the first paint until the real workspace has been read, so nothing
+  // stale or placeholder flashes on load.
+  if (!isReady) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="auth-brand">
+            <p className="eyebrow">Ops</p>
+            <h1>Loading workspace</h1>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     workspaceView === "home" ? (
       <ProjectsCommandCenter
