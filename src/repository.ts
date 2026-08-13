@@ -261,6 +261,9 @@ export interface WorkspaceRepository {
   findExecutionEvent(projectId: string, invocationKey: string): Promise<ExecutionEvent | null>;
   /** Upserts on the deterministic invocation key. */
   saveExecutionEvent(projectId: string, event: NewExecutionEvent): Promise<ExecutionEvent>;
+  /** The agent's living working plan for a run. Null until the agent writes one. */
+  loadRunPlan(projectId: string, runId: string): Promise<RunPlan | null>;
+  saveRunPlan(plan: RunPlan): Promise<RunPlan>;
 }
 
 class LocalWorkspaceRepository implements WorkspaceRepository {
