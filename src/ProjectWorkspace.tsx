@@ -1504,6 +1504,8 @@ export function ProjectWorkspace({
             );
           })}
 
+          {busy && !uploading ? <TypingIndicator /> : null}
+
           {persistError ? (
             <p className="pw-persist-error" role="status">
               {persistError}
