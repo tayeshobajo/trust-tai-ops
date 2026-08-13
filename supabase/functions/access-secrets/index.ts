@@ -110,19 +110,25 @@ Deno.serve(async (req) => {
     const passphrase = typeof body.passphrase === "string" ? body.passphrase : "";
     if (passphrase.length > 512) return fail("invalid_input", "That key passphrase is too long.");
 
-    const storedSsh = await storeCredential(secretStoreDeps(), {
-      projectId: authz.project.projectId,
-      accessType,
-      provider: "ssh_private_key",
-      username: user.username,
-      secret: JSON.stringify({ privateKey: key.key, passphrase: passphrase || undefined }),
-      config: {
-        host: destination.host,
-        port: destination.port,
-        wpRoot: root.path,
-        wpBinary: binary.binary,
-      },
-    });
+    let storedSsh: Awaited<ReturnType<typeof storeCredential>>;
+    try {
+      storedSsh = await storeCredential(secretStoreDeps(), {
+        projectId: authz.project.projectId,
+        accessType,
+        provider: "ssh_private_key",
+        username: user.username,
+        secret: JSON.stringify({ privateKey: key.key, passphrase: passphrase || undefined }),
+        config: {
+          host: destination.host,
+          port: destination.port,
+          wpRoot: root.path,
+          wpBinary: binary.binary,
+        },
+      });
+    } catch {
+      // A storage failure must answer in the contract's shape, never as a 500.
+      return fail("secret_store_unavailable", "I couldn't store that access just now, so nothing was saved.");
+    }
 
     if (!storedSsh.ok) {
       return fail(storedSsh.code, "The secure credential store isn't configured, so I did not store anything.");
@@ -189,14 +195,19 @@ Deno.serve(async (req) => {
     return fail(authz.code, summaries[authz.code]);
   }
 
-  const stored = await storeCredential(secretStoreDeps(), {
-    projectId: authz.project.projectId,
-    accessType,
-    provider: "wordpress_application_password",
-    username,
-    // Application Passwords are shown with spaces; WordPress accepts either.
-    secret: secret.replace(/\s+/g, ""),
-  });
+  let stored: Awaited<ReturnType<typeof storeCredential>>;
+  try {
+    stored = await storeCredential(secretStoreDeps(), {
+      projectId: authz.project.projectId,
+      accessType,
+      provider: "wordpress_application_password",
+      username,
+      // Application Passwords are shown with spaces; WordPress accepts either.
+      secret: secret.replace(/\s+/g, ""),
+    });
+  } catch {
+    return fail("secret_store_unavailable", "I couldn't store that access just now, so nothing was saved.");
+  }
 
   if (!stored.ok) {
     return fail(stored.code, "The secure credential store isn't configured, so I did not store anything.");
