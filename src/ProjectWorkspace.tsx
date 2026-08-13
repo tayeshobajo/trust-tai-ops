@@ -243,11 +243,33 @@ export function ProjectWorkspace({
 
   const activeRun = runs.find((run) => run.id === activeRunId) ?? null;
   const signal = activeRun ? signalForRun(activeRun) : null;
+  const [runPlan, setRunPlan] = useState<RunPlan | null>(null);
 
   const thread = useMemo<ThreadMessage[]>(
     () => (activeRun ? buildThread(project, activeRun) : []),
     [project, activeRun],
   );
+
+  // The agent's living plan for the current task. Re-read whenever the
+  // conversation moves, because that is when the agent revises it.
+  useEffect(() => {
+    if (!activeRunId) {
+      setRunPlan(null);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const stored = await workspaceRepository.loadRunPlan(project.id, activeRunId);
+        if (alive) setRunPlan(stored);
+      } catch {
+        if (alive) setRunPlan(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [project.id, activeRunId, messages.length]);
 
   // Attachments for this project, loaded once alongside the conversation.
   useEffect(() => {
