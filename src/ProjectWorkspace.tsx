@@ -1026,31 +1026,36 @@ export function ProjectWorkspace({
       return;
     }
 
+    setBusy(true);
     const stamp = Date.now();
-    const saved = await emit({
-      runId: activeRun.id,
-      role: "user",
-      kind: "message",
-      body: bodyLines,
-      dedupeKey: `user-${activeRun.id}-${stamp}`,
-    });
+    try {
+      const saved = await emit({
+        runId: activeRun.id,
+        role: "user",
+        kind: "message",
+        body: bodyLines,
+        dedupeKey: `user-${activeRun.id}-${stamp}`,
+      });
 
-    if (!saved) return;
+      if (!saved) return;
 
-    setComposerValue("");
+      setComposerValue("");
 
-    if (attachments.length > 0) {
-      await sendAttachments(activeRun.id, saved.id, attachments);
-      return;
+      if (attachments.length > 0) {
+        await sendAttachments(activeRun.id, saved.id, attachments);
+        return;
+      }
+
+      await emit({
+        runId: activeRun.id,
+        role: "agent",
+        kind: "message",
+        body: composeReply(project, activeRun, value),
+        dedupeKey: `ack-${activeRun.id}-${stamp}`,
+      });
+    } finally {
+      setBusy(false);
     }
-
-    await emit({
-      runId: activeRun.id,
-      role: "agent",
-      kind: "message",
-      body: composeReply(project, activeRun, value),
-      dedupeKey: `ack-${activeRun.id}-${stamp}`,
-    });
   };
 
   const renderDecision = (run: Run, kind: DecisionKind) => {
