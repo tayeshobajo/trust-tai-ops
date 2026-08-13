@@ -88,7 +88,9 @@ export const storeCredential = async (
     algorithm: sealed.algorithm,
     key_version: sealed.keyVersion,
     verification_state: "unverified",
-    config: input.config ?? null,
+    // `config` is NOT NULL in the database: an absent config is an empty
+    // object, never null.
+    config: input.config ?? {},
     // A new credential always invalidates the previous host pin: it may be a
     // different server entirely.
     host_fingerprint: null,

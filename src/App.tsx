@@ -60,6 +60,7 @@ function App() {
   const [draft, setDraft] = useState<RunDraft>(starterRunDraft(seedWorkspace.projects[0]?.environments[0]?.id ?? ""));
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(starterProjectDraft());
   const [saveMessage, setSaveMessage] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
   const [railOpen, setRailOpen] = useState(false);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [workspaceSurface, setWorkspaceSurface] = useState<"conversation" | "access">("conversation");
