@@ -1513,7 +1513,7 @@ export function ProjectWorkspace({
             );
           })}
 
-          {busy && !uploading ? <TypingIndicator /> : null}
+          {(busy || Date.now() < typingUntil) && !uploading ? <TypingIndicator /> : null}
 
           {persistError ? (
             <p className="pw-persist-error" role="status">
