@@ -178,6 +178,8 @@ export function ProjectWorkspace({
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [persistError, setPersistError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The agent's own background step must never lock the person's composer.
+  const [agentBusy, setAgentBusy] = useState(false);
   // Keep the typing indicator visible for a short beat after the agent starts
   // working so the cue doesn't flicker on fast replies.
   const [typingUntil, setTypingUntil] = useState(0);
@@ -221,6 +223,11 @@ export function ProjectWorkspace({
       setTypingUntil(Date.now() + 1200);
     }
   }, [busy]);
+  useEffect(() => {
+    if (agentBusy) {
+      setTypingUntil(Date.now() + 1200);
+    }
+  }, [agentBusy]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
