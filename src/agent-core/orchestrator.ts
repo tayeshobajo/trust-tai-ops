@@ -492,7 +492,7 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
         continue;
       }
 
-      workingPlan = markStep(workingPlan, stepKeyFor(action), "blocked", outcome.summaryNote);
+      workingPlan = markStep(workingPlan, stepKeyFor(action), "blocked", ladder.reason);
 
       if (ladder.action === "ask_human") {
         awaiting = ladder.need;
