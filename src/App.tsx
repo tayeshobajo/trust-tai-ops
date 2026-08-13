@@ -177,15 +177,27 @@ function App() {
   };
 
   const handleCreateProject = async () => {
-    const nextWorkspace = await workspaceRepository.createProject(projectDraft);
-    const nextProject = nextWorkspace.projects[0];
+    const wantedName = (projectDraft.name || projectDraft.clientName).trim().toLowerCase();
 
-    setWorkspace(nextWorkspace);
-    setSelectedProjectId(nextProject?.id ?? null);
-    setWorkspaceView("project_home");
-    setActiveTab("active_run");
-    setProjectDraft(starterProjectDraft());
-    setSaveMessage(`Project created for ${nextProject?.name ?? "the new site"}.`);
+    try {
+      const nextWorkspace = await workspaceRepository.createProject(projectDraft);
+      // Projects come back ordered by name, so find the one we just created
+      // instead of assuming it is first.
+      const nextProject =
+        nextWorkspace.projects.find((project) => project.name.trim().toLowerCase() === wantedName) ??
+        nextWorkspace.projects[0];
+
+      setWorkspace(nextWorkspace);
+      setSelectedProjectId(nextProject?.id ?? null);
+      setWorkspaceView("project_home");
+      setActiveTab("active_run");
+      setProjectDraft(starterProjectDraft());
+      setSaveMessage(`Project created for ${nextProject?.name ?? "the new site"}.`);
+    } catch (error) {
+      setSaveMessage(
+        `Could not create the project: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+    }
   };
 
   const projectEnvironment = selectedProject?.environments.find((environment) => environment.id === activeRun?.environmentId) ?? selectedProject?.environments[0];

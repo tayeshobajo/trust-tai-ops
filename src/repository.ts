@@ -874,9 +874,12 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     }
 
     const newRun = createRunFromDraft(draft, project);
+    // Postgres ids are uuid columns; the client-side factories use readable
+    // slug ids, so mint real uuids at the database boundary.
+    const runId = crypto.randomUUID();
 
     const { error: runError } = await client.from("runs").insert([{
-      id: newRun.id,
+      id: runId,
       project_id: projectId,
       environment_id: newRun.environmentId,
       title: newRun.title,
@@ -901,23 +904,23 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
 
     await Promise.all([
       insertRows(client.from("run_phases").insert(newRun.phases.map((phase) => ({
-        id: phase.id,
-        run_id: newRun.id,
+        id: crypto.randomUUID(),
+        run_id: runId,
         state: phase.state,
         label: phase.label,
         summary: phase.summary,
         status: phase.status,
       })) as never)),
       insertRows(client.from("run_actions").insert(newRun.actions.map((action) => ({
-        id: action.id,
-        run_id: newRun.id,
+        id: crypto.randomUUID(),
+        run_id: runId,
         actor: action.actor,
         summary: action.summary,
         outcome: action.outcome,
       })) as never)),
       insertRows(client.from("run_artifacts").insert(newRun.artifacts.map((artifact) => ({
-        id: artifact.id,
-        run_id: newRun.id,
+        id: crypto.randomUUID(),
+        run_id: runId,
         artifact_type: artifact.type,
         title: artifact.title,
         summary: artifact.summary,
@@ -929,7 +932,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       .from("qa_reports")
       .insert([{
         id: qaReportId,
-        run_id: newRun.id,
+        run_id: runId,
         verdict: newRun.qaReport.verdict,
         summary: newRun.qaReport.summary,
         unresolved_risks: newRun.qaReport.unresolvedRisks,
@@ -940,7 +943,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     }
 
     await insertRows(client.from("qa_results").insert(newRun.qaReport.results.map((result) => ({
-      id: result.id,
+      id: crypto.randomUUID(),
       qa_report_id: qaReportId,
       name: result.name,
       result: result.result,
@@ -954,9 +957,18 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     const client = getSupabaseClient();
     const workspace = await this.loadWorkspace();
     const newProject = createProjectFromDraft(draft);
+    // Database ids are uuids; map the readable factory ids onto real uuids so
+    // every child row points at the same generated identifiers.
+    const projectId = crypto.randomUUID();
+    const environmentIds = new Map<string, string>(
+      newProject.environments.map((environment) => [environment.id, crypto.randomUUID()]),
+    );
+    const firstEnvironmentId = newProject.environments[0]
+      ? environmentIds.get(newProject.environments[0].id) ?? null
+      : null;
 
     const { error: projectError } = await client.from("projects").insert([{
-      id: newProject.id,
+      id: projectId,
       organization_id: workspace.id,
       name: newProject.name,
       client_name: newProject.clientName,
@@ -972,8 +984,8 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
 
     if (newProject.environments.length > 0) {
       await insertRows(client.from("project_environments").insert(newProject.environments.map((environment) => ({
-        id: environment.id,
-        project_id: newProject.id,
+        id: environmentIds.get(environment.id) ?? crypto.randomUUID(),
+        project_id: projectId,
         name: environment.name,
         environment_type: environment.type,
         primary_url: environment.primaryUrl,
@@ -991,9 +1003,9 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
 
     if (newProject.accessMethods.length > 0) {
       await insertRows(client.from("project_access_methods").insert(newProject.accessMethods.map((access) => ({
-        id: access.id,
-        project_id: newProject.id,
-        environment_id: newProject.environments[0]?.id ?? null,
+        id: crypto.randomUUID(),
+        project_id: projectId,
+        environment_id: firstEnvironmentId,
         access_type: access.type,
         label: access.label,
         status: access.status,
@@ -1005,9 +1017,9 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
 
     if (newProject.memoryEntries.length > 0) {
       await insertRows(client.from("project_memory_entries").insert(newProject.memoryEntries.map((entry) => ({
-        id: entry.id,
-        project_id: newProject.id,
-        environment_id: newProject.environments[0]?.id ?? null,
+        id: crypto.randomUUID(),
+        project_id: projectId,
+        environment_id: firstEnvironmentId,
         memory_type: entry.type,
         importance: entry.importance,
         title: entry.title,
@@ -1017,9 +1029,9 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
 
     if (newProject.qaRules.length > 0) {
       await insertRows(client.from("qa_rules").insert(newProject.qaRules.map((rule) => ({
-        id: rule.id,
-        project_id: newProject.id,
-        environment_id: newProject.environments[0]?.id ?? null,
+        id: crypto.randomUUID(),
+        project_id: projectId,
+        environment_id: firstEnvironmentId,
         name: rule.name,
         rule_type: rule.type,
         required: rule.required,
@@ -1029,8 +1041,8 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
 
     if (newProject.recommendations.length > 0) {
       await insertRows(client.from("project_recommendations").insert(newProject.recommendations.map((recommendation) => ({
-        id: recommendation.id,
-        project_id: newProject.id,
+        id: crypto.randomUUID(),
+        project_id: projectId,
         category: recommendation.category,
         priority: recommendation.priority,
         status: recommendation.status,
