@@ -705,6 +705,30 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     this.writeExecutionStore({ ...store, [projectId]: next });
     return saved;
   }
+
+  private readPlanStore(): Record<string, RunPlan> {
+    if (typeof window === "undefined") return {};
+    const raw = window.localStorage.getItem(RUN_PLAN_STORAGE_KEY);
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as Record<string, RunPlan>;
+    } catch {
+      return {};
+    }
+  }
+
+  async loadRunPlan(projectId: string, runId: string): Promise<RunPlan | null> {
+    return this.readPlanStore()[`${projectId}:${runId}`] ?? null;
+  }
+
+  async saveRunPlan(plan: RunPlan): Promise<RunPlan> {
+    if (typeof window === "undefined") return plan;
+    const store = this.readPlanStore();
+    const saved: RunPlan = { ...plan, updatedAt: new Date().toISOString() };
+    store[`${plan.projectId}:${plan.runId}`] = saved;
+    window.localStorage.setItem(RUN_PLAN_STORAGE_KEY, JSON.stringify(store));
+    return saved;
+  }
 }
 
 class SupabaseWorkspaceRepository implements WorkspaceRepository {
