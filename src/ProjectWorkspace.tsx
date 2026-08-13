@@ -149,6 +149,18 @@ const WarningIcon = () => (
   </svg>
 );
 
+/** A calm "agent is thinking" cue that replaces the silent disabled send state. */
+const TypingIndicator = () => (
+  <article className="pw-msg pw-msg-agent pw-typing" aria-busy="true" aria-live="polite">
+    <span className="pw-msg-who">Engineering Agent</span>
+    <div className="pw-typing-dots">
+      <span />
+      <span />
+      <span />
+    </div>
+  </article>
+);
+
 export function ProjectWorkspace({
   project,
   canWrite,
