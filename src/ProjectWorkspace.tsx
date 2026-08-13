@@ -20,6 +20,7 @@ import { workspaceRepository } from "./repository";
 import { ProjectPipelineSummary } from "./ProjectPipelineSummary";
 import { validateAdvance } from "./operations";
 import { projectHasUsableAccess } from "./agent";
+import { composeReply } from "./reply";
 import { agentStepIdentity, executeAgentStep } from "./agentExecutor";
 import { ProjectAccessPanel } from "./ProjectAccessPanel";
 import type { AccessEvent } from "./ProjectAccessPanel";
@@ -885,7 +886,7 @@ export function ProjectWorkspace({
           runId: activeRun?.id ?? null,
           role: "agent",
           kind: "message",
-          body: ["Noted. I've added that to the task context and I'll factor it into what I do next."],
+          body: composeReply(project, activeRun ?? null, value),
           dedupeKey: `ack-${activeRun?.id ?? "project"}-${stamp}`,
         });
         return true;
@@ -1015,7 +1016,7 @@ export function ProjectWorkspace({
       runId: activeRun.id,
       role: "agent",
       kind: "message",
-      body: ["Noted. I've added that to the task context and I'll factor it into what I do next."],
+      body: composeReply(project, activeRun, value),
       dedupeKey: `ack-${activeRun.id}-${stamp}`,
     });
   };
