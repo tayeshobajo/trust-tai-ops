@@ -1445,6 +1445,45 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     return { ...event, id: row.id, projectId };
   }
 
+  async loadRunPlan(projectId: string, runId: string): Promise<RunPlan | null> {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from("run_plans")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("run_id", runId)
+      .limit(1);
+    if (error) throw error;
+    const row = ((data ?? []) as Record<string, unknown>[])[0];
+    if (!row) return null;
+    return {
+      projectId,
+      runId,
+      goal: String(row.goal ?? ""),
+      hypotheses: (row.hypotheses ?? []) as RunPlan["hypotheses"],
+      steps: (row.steps ?? []) as RunPlan["steps"],
+      revision: Number(row.revision ?? 0),
+      updatedAt: String(row.updated_at ?? new Date().toISOString()),
+    };
+  }
+
+  async saveRunPlan(plan: RunPlan): Promise<RunPlan> {
+    const client = getSupabaseClient();
+    const row = {
+      project_id: plan.projectId,
+      run_id: plan.runId,
+      goal: plan.goal,
+      hypotheses: plan.hypotheses,
+      steps: plan.steps,
+      revision: plan.revision,
+    };
+    const { error } = await client
+      .from("run_plans")
+      .upsert([row] as never, { onConflict: "run_id" } as never);
+    if (error) throw error;
+    return { ...plan, updatedAt: new Date().toISOString() };
+  }
+
   private async selectIn<TRow>(
     table: string,
     column: string,
