@@ -1715,6 +1715,9 @@ export function ProjectWorkspace({
               {uploading ? "Reading files…" : "Send"}
             </button>
           </div>
+          <p className="composer-hint">
+            <span>Enter</span> to send · <span>Shift+Enter</span> for a new line
+          </p>
           </div>
         </div>
       </main>
