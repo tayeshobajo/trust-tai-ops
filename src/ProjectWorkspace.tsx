@@ -149,6 +149,18 @@ const WarningIcon = () => (
   </svg>
 );
 
+/** A calm "agent is thinking" cue that replaces the silent disabled send state. */
+const TypingIndicator = () => (
+  <article className="pw-msg pw-msg-agent pw-typing" aria-busy="true" aria-live="polite">
+    <span className="pw-msg-who">Engineering Agent</span>
+    <div className="pw-typing-dots">
+      <span />
+      <span />
+      <span />
+    </div>
+  </article>
+);
+
 export function ProjectWorkspace({
   project,
   canWrite,
@@ -166,6 +178,9 @@ export function ProjectWorkspace({
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [persistError, setPersistError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Keep the typing indicator visible for a short beat after the agent starts
+  // working so the cue doesn't flicker on fast replies.
+  const [typingUntil, setTypingUntil] = useState(0);
   const [mobilePane, setMobilePane] = useState<"tasks" | "chat" | "context">("chat");
   const [surface, setSurface] = useState<"conversation" | "tasks" | "access" | "memory" | "activity">(initialSurface);
   const [accessFocus, setAccessFocus] = useState<AccessType[]>([]);
@@ -200,6 +215,12 @@ export function ProjectWorkspace({
     node.style.height = `${Math.min(node.scrollHeight, max)}px`;
     node.style.overflowY = node.scrollHeight > max ? "auto" : "hidden";
   }, [composerValue]);
+
+  useEffect(() => {
+    if (busy) {
+      setTypingUntil(Date.now() + 1200);
+    }
+  }, [busy]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
@@ -1005,31 +1026,36 @@ export function ProjectWorkspace({
       return;
     }
 
+    setBusy(true);
     const stamp = Date.now();
-    const saved = await emit({
-      runId: activeRun.id,
-      role: "user",
-      kind: "message",
-      body: bodyLines,
-      dedupeKey: `user-${activeRun.id}-${stamp}`,
-    });
+    try {
+      const saved = await emit({
+        runId: activeRun.id,
+        role: "user",
+        kind: "message",
+        body: bodyLines,
+        dedupeKey: `user-${activeRun.id}-${stamp}`,
+      });
 
-    if (!saved) return;
+      if (!saved) return;
 
-    setComposerValue("");
+      setComposerValue("");
 
-    if (attachments.length > 0) {
-      await sendAttachments(activeRun.id, saved.id, attachments);
-      return;
+      if (attachments.length > 0) {
+        await sendAttachments(activeRun.id, saved.id, attachments);
+        return;
+      }
+
+      await emit({
+        runId: activeRun.id,
+        role: "agent",
+        kind: "message",
+        body: composeReply(project, activeRun, value),
+        dedupeKey: `ack-${activeRun.id}-${stamp}`,
+      });
+    } finally {
+      setBusy(false);
     }
-
-    await emit({
-      runId: activeRun.id,
-      role: "agent",
-      kind: "message",
-      body: composeReply(project, activeRun, value),
-      dedupeKey: `ack-${activeRun.id}-${stamp}`,
-    });
   };
 
   const renderDecision = (run: Run, kind: DecisionKind) => {
@@ -1492,6 +1518,8 @@ export function ProjectWorkspace({
             );
           })}
 
+          {(busy || Date.now() < typingUntil) && !uploading ? <TypingIndicator /> : null}
+
           {persistError ? (
             <p className="pw-persist-error" role="status">
               {persistError}
@@ -1701,6 +1729,9 @@ export function ProjectWorkspace({
               {uploading ? "Reading files…" : "Send"}
             </button>
           </div>
+          <p className="composer-hint">
+            <span>Enter</span> to send · <span>Shift+Enter</span> for a new line
+          </p>
           </div>
         </div>
       </main>
