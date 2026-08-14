@@ -1003,6 +1003,7 @@ export type Database = {
           organization_id: string
           primary_domain: string
           status: string
+          trust_tai_os_project_id: string | null
           updated_at: string
         }
         Insert: {
@@ -1015,6 +1016,7 @@ export type Database = {
           organization_id: string
           primary_domain: string
           status: string
+          trust_tai_os_project_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -1027,6 +1029,7 @@ export type Database = {
           organization_id?: string
           primary_domain?: string
           status?: string
+          trust_tai_os_project_id?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -1774,6 +1777,7 @@ export type Database = {
           organization_id: string
           role: string
           status: string
+          trust_tai_os_user_id: string | null
           updated_at: string
         }
         Insert: {
@@ -1785,6 +1789,7 @@ export type Database = {
           organization_id: string
           role: string
           status?: string
+          trust_tai_os_user_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -1796,6 +1801,7 @@ export type Database = {
           organization_id?: string
           role?: string
           status?: string
+          trust_tai_os_user_id?: string | null
           updated_at?: string
         }
         Relationships: [
