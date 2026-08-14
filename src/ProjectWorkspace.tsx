@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { buildSiteHealth } from "./health";
+import type { AgentEvidence } from "./agent-core/types";
 import type { AccessType, NewProjectMessage, Organization, Project, ProjectMessage, Run, RunDraft } from "./types";
 import { buildThread, draftFromBrief } from "./conversation";
 import type { DecisionKind, ThreadCard, ThreadDiff, ThreadMessage } from "./conversation";
@@ -273,6 +275,58 @@ export function ProjectWorkspace({
   const activeRun = runs.find((run) => run.id === activeRunId) ?? null;
   const signal = activeRun ? signalForRun(activeRun) : null;
   const [runPlan, setRunPlan] = useState<RunPlan | null>(null);
+  // Health facts observed this session, keyed by tool so the newest read wins.
+  const [healthEvidence, setHealthEvidence] = useState<AgentEvidence[]>([]);
+  const collectEvidence = useCallback((learned: AgentEvidence[]) => {
+    if (learned.length === 0) return;
+    setHealthEvidence((current) => {
+      const byTool = new Map(current.map((item) => [item.toolId, item] as const));
+      for (const item of learned) byTool.set(item.toolId, item);
+      return [...byTool.values()];
+    });
+  }, []);
+  const healthMetrics = useMemo(() => buildSiteHealth(healthEvidence), [healthEvidence]);
+
+  /**
+   * The plan is a working document, not a log. Reasoner revisions restate the
+   * same intent in slightly different words, so near-duplicates are folded and
+   * the rail shows only the few items that are still live.
+   */
+  const { planHypotheses, planSteps, planHidden } = useMemo(() => {
+    const normalize = (text: string) =>
+      text
+        .toLowerCase()
+        .replace(/[^a-z0-9 ]/g, " ")
+        .split(/\s+/)
+        .filter((word) => word.length > 3)
+        .sort()
+        .join(" ");
+    const trim = <T extends { id: string }>(items: T[], text: (item: T) => string, limit: number) => {
+      const seen = new Set<string>();
+      const kept: T[] = [];
+      for (const item of items) {
+        const key = normalize(text(item));
+        if (seen.has(key)) continue;
+        seen.add(key);
+        kept.push(item);
+      }
+      return { kept: kept.slice(0, limit), hidden: Math.max(0, kept.length - limit) };
+    };
+
+    if (!runPlan) return { planHypotheses: [], planSteps: [], planHidden: 0 };
+    const liveSteps = runPlan.steps.filter((step) => step.status !== "skipped");
+    const hypotheses = trim(
+      runPlan.hypotheses.filter((item) => item.status !== "ruled_out"),
+      (item) => item.text,
+      3,
+    );
+    const steps = trim(liveSteps, (step) => step.label, 5);
+    return {
+      planHypotheses: hypotheses.kept,
+      planSteps: steps.kept,
+      planHidden: hypotheses.hidden + steps.hidden,
+    };
+  }, [runPlan]);
 
   const thread = useMemo<ThreadMessage[]>(
     () => (activeRun ? buildThread(project, activeRun) : []),
@@ -688,6 +742,7 @@ export function ProjectWorkspace({
               recentMessages: messages.filter((message) => message.runId === run.id),
               memory: project.memoryEntries,
               onStream: setStreamingText,
+              onEvidence: collectEvidence,
             }),
             new Promise((resolve) => window.setTimeout(resolve, 45000)),
           ]);
@@ -954,6 +1009,7 @@ export function ProjectWorkspace({
             ],
             memory: nextProject.memoryEntries,
             onStream: setStreamingText,
+              onEvidence: collectEvidence,
           });
           spoke = outcome.spoke;
         } catch {
@@ -1259,6 +1315,7 @@ export function ProjectWorkspace({
         recentMessages: [...messages.filter((message) => message.runId === activeRun.id), savedMessage],
         memory: project.memoryEntries,
         onStream: setStreamingText,
+              onEvidence: collectEvidence,
       });
 
       if (!outcome.spoke) {
@@ -2011,14 +2068,28 @@ export function ProjectWorkspace({
               <p>{signal.needsYou ?? "Nothing needed from you right now."}</p>
             </section>
 
-            {runPlan && (runPlan.goal || runPlan.hypotheses.length > 0 || runPlan.steps.length > 0) ? (
+            {healthMetrics.length > 0 ? (
+              <section className="pw-context-block pw-health">
+                <p className="eyebrow">Site health</p>
+                <ul className="pw-health-list">
+                  {healthMetrics.map((metric) => (
+                    <li key={metric.id} className={`pw-health-row is-${metric.state}`}>
+                      <span className="pw-health-dot" aria-hidden="true" />
+                      <span className="pw-health-label">{metric.label}</span>
+                      <span className="pw-health-value">{metric.value}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="pw-health-note">Only what the agent has actually measured on this site.</p>
+              </section>
+            ) : null}
+
+            {runPlan && (planHypotheses.length > 0 || planSteps.length > 0) ? (
               <section className="pw-context-block pw-plan">
                 <p className="eyebrow">Working plan</p>
-                {runPlan.goal ? <p className="pw-plan-goal">{runPlan.goal}</p> : null}
-
-                {runPlan.hypotheses.length > 0 ? (
+                {planHypotheses.length > 0 ? (
                   <ul className="pw-plan-list">
-                    {runPlan.hypotheses.map((item) => (
+                    {planHypotheses.map((item) => (
                       <li key={item.id} className={`pw-plan-item is-${item.status}`}>
                         <span className="pw-plan-mark" aria-hidden="true" />
                         <span className="pw-plan-text">{item.text}</span>
@@ -2027,9 +2098,9 @@ export function ProjectWorkspace({
                   </ul>
                 ) : null}
 
-                {runPlan.steps.length > 0 ? (
+                {planSteps.length > 0 ? (
                   <ol className="pw-plan-list pw-plan-steps">
-                    {runPlan.steps.map((step) => (
+                    {planSteps.map((step) => (
                       <li key={step.id} className={`pw-plan-item is-${step.status}`}>
                         <span className="pw-plan-mark" aria-hidden="true" />
                         <span className="pw-plan-text">
@@ -2041,6 +2112,9 @@ export function ProjectWorkspace({
                       </li>
                     ))}
                   </ol>
+                ) : null}
+                {planHidden > 0 ? (
+                  <p className="pw-plan-more">+{planHidden} more the agent is tracking quietly.</p>
                 ) : null}
               </section>
             ) : null}

@@ -2,6 +2,7 @@ import type { MemoryEntry, NewProjectMessage, Organization, Project, ProjectMess
 import { autoAdvanceTarget, simulateQa, workingNarration } from "./agent";
 import { workspaceRepository } from "./repository";
 import { runAgentTurn } from "./agent-core/orchestrator";
+import type { AgentEvidence } from "./agent-core/types";
 import { executionGateway } from "./agent-core/gateway";
 import { getProjectStack } from "./stacks";
 import { looksLikeQuestion, replyLines, streamAgentReply, voiceAvailable } from "./agent-core/voice";
@@ -33,6 +34,8 @@ export type AgentStepContext = {
   memory?: MemoryEntry[];
   /** Renders the reply as it is written, before it is persisted. */
   onStream?: (soFar: string) => void;
+  /** Facts this turn observed, for the site-health readout. */
+  onEvidence?: (learned: AgentEvidence[]) => void;
 };
 
 /**
@@ -75,6 +78,8 @@ const speakTurn = async (
     emit: voiceAvailable() ? collect : context.emit,
     onWorkspaceUpdate: context.onWorkspaceUpdate,
   });
+
+  if (turn.learned.length > 0) context.onEvidence?.(turn.learned);
 
   if (!voiceAvailable()) {
     return { spoke: turn.acted, awaiting: turn.awaiting, stopReason: turn.stopReason ?? null };
