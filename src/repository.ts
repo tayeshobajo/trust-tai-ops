@@ -4,6 +4,10 @@ import { createProjectFromDraft, createRunFromDraft, getActiveRun, getProjectByI
 import { advanceRunState } from "./operations";
 import { createSeedWorkspace } from "./seed";
 import { getSupabaseClient } from "./supabase";
+
+/** The database ids are uuids; anything else is rejected on write. */
+const isUuid = (value: string): boolean =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 import { redactBody } from "./agent-core/secretGuard";
 import { isProjectStack, normalizeVersions } from "./stacks";
 import type {
