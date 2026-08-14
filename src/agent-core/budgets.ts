@@ -17,3 +17,11 @@ export const MAX_ACTION_RETRIES = 1;
 
 /** Consecutive iterations without new evidence before the agent stops. */
 export const MAX_ITERATIONS_WITHOUT_PROGRESS = 2;
+
+/**
+ * Read-only investigations the agent may run at the same time. Reads cannot
+ * conflict with each other, so fanning them out costs nothing but network;
+ * the ceiling exists so a plan can never open an unbounded number of
+ * connections to someone's site.
+ */
+export const MAX_PARALLEL_INVESTIGATIONS = 4;
