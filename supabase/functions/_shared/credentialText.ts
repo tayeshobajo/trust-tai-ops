@@ -496,6 +496,8 @@ export const sanitizedIntakeMessage = (input: {
   stored: Array<{ accessType: IntakeAccessType; provider: CredentialProvider }>;
   missing: MissingCredential[];
   intent: string[];
+  /** True when secret-shaped text was seen but no complete bundle could be formed. */
+  sawSecretMaterial?: boolean;
 }): string[] => {
   const lines: string[] = [];
   lines.push(input.site ? `Confirm access for ${input.site}.` : "Confirm access for this project.");
@@ -504,14 +506,16 @@ export const sanitizedIntakeMessage = (input: {
     const parts = input.stored.map(
       (item) => `${accessLabel(item.accessType)} (${providerLabel(item.provider)})`,
     );
-    lines.push(`Credentials shared securely: ${parts.join(", ")}.`);
+    lines.push(`Credentials stored securely: ${parts.join(", ")}.`);
+  } else if (input.missing.length > 0 || input.sawSecretMaterial) {
+    lines.push("I saw credential-shaped text but couldn't store it securely yet.");
   } else {
-    lines.push("Credentials shared securely: none were complete enough to store.");
+    lines.push("No complete credentials were included.");
   }
 
   for (const gap of input.missing) {
     lines.push(
-      `${accessLabel(gap.accessType)} access was requested but no ${accessLabel(gap.accessType)} credentials were included (missing ${gap.fields.join(", ")}).`,
+      `${accessLabel(gap.accessType)} still needs: ${gap.fields.join(", ")}.`,
     );
   }
 
