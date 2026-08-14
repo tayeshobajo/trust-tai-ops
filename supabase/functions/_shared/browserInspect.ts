@@ -169,6 +169,12 @@ export type BrowserServiceConfig = {
   endpoint: string | null;
   token: string | null;
   timeoutMs?: number;
+  /**
+   * Wire format of the service. "browserless" speaks Browserless v2's
+   * `/function` API; "generic" posts our own request shape to a service that
+   * already returns a report. Detected from the endpoint when omitted.
+   */
+  dialect?: "generic" | "browserless";
 };
 
 export type BrowserInspectOutcome =
@@ -187,6 +193,63 @@ const describe = (report: BrowserReport): string => {
   if (report.consoleErrors.length > 0) parts.push(`${report.consoleErrors.length} console errors were reported.`);
   return parts.join(" ");
 };
+
+/**
+ * The page script Browserless runs. It only reads: it navigates once, waits
+ * for the load to settle, and reports timings, console errors and failed
+ * requests. It never clicks, types, or submits anything.
+ */
+export const BROWSERLESS_FUNCTION_SOURCE = `
+export default async function ({ page, context }) {
+  const { url, viewport } = context;
+  const consoleErrors = [];
+  const failedRequests = [];
+  await page.setViewport(viewport);
+  page.on("console", (msg) => {
+    if (msg.type() === "error" && consoleErrors.length < 25) consoleErrors.push(String(msg.text()));
+  });
+  page.on("requestfailed", (req) => {
+    if (failedRequests.length < 25) failedRequests.push({ url: req.url(), status: null });
+  });
+  page.on("response", (res) => {
+    if (res.status() >= 400 && failedRequests.length < 25) {
+      failedRequests.push({ url: res.url(), status: res.status() });
+    }
+  });
+  const started = Date.now();
+  const response = await page.goto(url, { waitUntil: "load", timeout: 30000 });
+  const timing = await page.evaluate(() => {
+    const nav = performance.getEntriesByType("navigation")[0];
+    const resources = performance.getEntriesByType("resource");
+    return {
+      ttfbMs: nav ? nav.responseStart : null,
+      domContentLoadedMs: nav ? nav.domContentLoadedEventEnd : null,
+      loadEventMs: nav ? nav.loadEventEnd : null,
+      requestCount: resources.length + 1,
+      transferBytes: resources.reduce((total, entry) => total + (entry.transferSize || 0), 0),
+    };
+  });
+  return {
+    data: {
+      finalUrl: page.url(),
+      status: response ? response.status() : null,
+      ttfbMs: timing.ttfbMs,
+      domContentLoadedMs: timing.domContentLoadedMs,
+      loadEventMs: timing.loadEventMs === 0 ? Date.now() - started : timing.loadEventMs,
+      transferBytes: timing.transferBytes,
+      requestCount: timing.requestCount,
+      consoleErrors,
+      failedRequests,
+    },
+    type: "application/json",
+  };
+}
+`;
+
+const dialectOf = (config: BrowserServiceConfig, endpoint: URL): "generic" | "browserless" =>
+  config.dialect ?? (/browserless/i.test(endpoint.hostname) || endpoint.pathname.endsWith("/function")
+    ? "browserless"
+    : "generic");
 
 /**
  * Runs one read-only page inspection through the configured rendering service.
@@ -214,23 +277,47 @@ export const runBrowserInspection = async (
   if (!target.ok) return { ok: false, code: target.code, summary: target.reason, retryable: false };
 
   const viewport = BROWSER_VIEWPORTS[request.viewport];
+  const dialect = dialectOf(config, endpoint.url);
+  const requestUrl = new URL(endpoint.url.toString());
+  if (dialect === "browserless" && config.token) requestUrl.searchParams.set("token", config.token);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs ?? 45_000);
 
   let response: Response;
   try {
-    response = await fetchImpl(endpoint.url.toString(), {
+    response = await fetchImpl(requestUrl.toString(), {
       method: "POST",
       signal: controller.signal,
       headers: {
         "content-type": "application/json",
-        ...(config.token ? { authorization: `Bearer ${config.token}` } : {}),
+        ...(config.token && dialect === "generic" ? { authorization: `Bearer ${config.token}` } : {}),
       },
-      body: JSON.stringify({
-        url: target.url.toString(),
-        viewport: { width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor, mobile: viewport.mobile },
-        readOnly: true,
-      }),
+      body: JSON.stringify(
+        dialect === "browserless"
+          ? {
+              code: BROWSERLESS_FUNCTION_SOURCE,
+              context: {
+                url: target.url.toString(),
+                viewport: {
+                  width: viewport.width,
+                  height: viewport.height,
+                  deviceScaleFactor: viewport.deviceScaleFactor,
+                  isMobile: viewport.mobile,
+                  hasTouch: viewport.mobile,
+                },
+              },
+            }
+          : {
+              url: target.url.toString(),
+              viewport: {
+                width: viewport.width,
+                height: viewport.height,
+                deviceScaleFactor: viewport.deviceScaleFactor,
+                mobile: viewport.mobile,
+              },
+              readOnly: true,
+            },
+      ),
     });
   } catch (error) {
     clearTimeout(timer);
@@ -261,6 +348,16 @@ export const runBrowserInspection = async (
     payload = await response.json();
   } catch {
     payload = null;
+  }
+
+  // Browserless wraps whatever the page script returned in `data`.
+  if (
+    dialect === "browserless" &&
+    payload &&
+    typeof payload === "object" &&
+    "data" in (payload as Record<string, unknown>)
+  ) {
+    payload = (payload as Record<string, unknown>).data;
   }
 
   const normalized = normalizeBrowserReport(payload, {
