@@ -79,6 +79,8 @@ const speakTurn = async (
     onWorkspaceUpdate: context.onWorkspaceUpdate,
   });
 
+  if (turn.learned.length > 0) context.onEvidence?.(turn.learned);
+
   if (!voiceAvailable()) {
     return { spoke: turn.acted, awaiting: turn.awaiting, stopReason: turn.stopReason ?? null };
   }
