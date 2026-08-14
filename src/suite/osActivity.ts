@@ -5,6 +5,13 @@
  * logs, credentials, and technical chatter stay inside Ops. Writes go to the
  * OS `public.activities` table using the OS publishable key plus the current
  * OS user's bearer token, so OS row-level security remains the boundary.
+ *
+ * The row shape below is the live OS contract, not an Ops invention:
+ *   id, organization_id (uuid, required), event_type (text, required),
+ *   actor_user_id, app_key (text, required), entity_type, entity_id,
+ *   summary, payload (jsonb, required), provenance (jsonb, required),
+ *   occurred_at (timestamptz, required), created_at.
+ * There is no `activity_type`, no `project_id`, and no `metadata` column.
  */
 
 export const OPS_SUITE_EVENTS = [
@@ -22,6 +29,9 @@ export const OPS_SUITE_EVENTS = [
 
 export type OpsSuiteEvent = (typeof OPS_SUITE_EVENTS)[number];
 
+/** The app_key every Ops-authored activity carries in the OS. */
+export const OPS_APP_KEY = "ops";
+
 export type OpsSuiteSignal = {
   event: OpsSuiteEvent;
   opsProjectId: string;
@@ -32,13 +42,34 @@ export type OpsSuiteSignal = {
   summary: string;
   evidenceRef?: string | null;
   evidenceSummary?: string | null;
+  /**
+   * When the Ops event actually happened. Defaulted at emission time only —
+   * a historical time is never invented for an event whose time is unknown.
+   */
+  occurredAt?: string | null;
+};
+
+/**
+ * Who is writing, and into which OS organization. The organization id comes
+ * from the OS handoff and is never treated as an authorization decision: OS
+ * row-level security is the boundary that accepts or rejects the write.
+ */
+export type SuiteWriteContext = {
+  organizationId: string;
+  actorUserId?: string | null;
 };
 
 export type SuiteActivityRow = {
-  activity_type: OpsSuiteEvent;
+  organization_id: string;
+  event_type: OpsSuiteEvent;
+  actor_user_id: string | null;
+  app_key: typeof OPS_APP_KEY;
+  entity_type: string | null;
+  entity_id: string | null;
   summary: string;
-  project_id: string | null;
-  metadata: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  provenance: Record<string, unknown>;
+  occurred_at: string;
 };
 
 /**
