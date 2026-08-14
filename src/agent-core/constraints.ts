@@ -120,18 +120,16 @@ const STOP_WORDS = new Set([
  * told the agent to leave alone.
  */
 export const constraintsTouching = (entries: MemoryEntry[], target: string): MemoryEntry[] => {
-  const targetTokens = new Set(
-    normalise(target)
-      .split(" ")
-      .filter((token) => token.length > 3 && !STOP_WORDS.has(token)),
-  );
-  if (targetTokens.size === 0) return [];
+  // Targets are machine-shaped ("file:/wp-content/themes/x/checkout.php"),
+  // so they are flattened and matched by containment rather than by word.
+  const flatTarget = normalise(target).replace(/\s+/g, "");
+  if (flatTarget.length === 0) return [];
 
   return entries.filter((entry) => {
     if (entry.type !== "constraint") return false;
     const words = normalise(entry.content)
       .split(" ")
       .filter((token) => token.length > 3 && !STOP_WORDS.has(token));
-    return words.some((token) => targetTokens.has(token));
+    return words.some((token) => flatTarget.includes(token));
   });
 };
