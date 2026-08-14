@@ -14,6 +14,12 @@ export const SSO_READY_TYPE = "trust-tai-ops:sso-ready";
 
 export type SsoHandoff = {
   accessToken: string;
+  /**
+   * The current Trust Tai OS organization. Carried so Ops can address the
+   * right OS rows — never as an authorization claim. OS row-level security
+   * still decides whether the write is allowed.
+   */
+  organizationId: string;
   canonicalProjectId: string | null;
   returnContext: string | null;
 };
@@ -23,6 +29,8 @@ export type SsoRejection =
   | "not_a_handoff"
   | "missing_token"
   | "malformed_token"
+  | "missing_organization_id"
+  | "malformed_organization_id"
   | "malformed_project_id";
 
 export type SsoReadResult =
@@ -74,6 +82,13 @@ export function readHandoffMessage(
   if (typeof token !== "string" || token.length === 0) return { ok: false, reason: "missing_token" };
   if (!JWT_SHAPE.test(token)) return { ok: false, reason: "malformed_token" };
 
+  const organizationRaw = payload.organizationId;
+  if (typeof organizationRaw !== "string" || organizationRaw.length === 0) {
+    return { ok: false, reason: "missing_organization_id" };
+  }
+  if (!UUID.test(organizationRaw)) return { ok: false, reason: "malformed_organization_id" };
+  const organizationId = organizationRaw.toLowerCase();
+
   const canonicalRaw = payload.canonicalProjectId;
   let canonicalProjectId: string | null = null;
   if (typeof canonicalRaw === "string" && canonicalRaw.length > 0) {
@@ -85,7 +100,7 @@ export function readHandoffMessage(
   const returnContext =
     typeof returnRaw === "string" && returnRaw.length > 0 && returnRaw.length <= 512 ? returnRaw : null;
 
-  return { ok: true, handoff: { accessToken: token, canonicalProjectId, returnContext } };
+  return { ok: true, handoff: { accessToken: token, organizationId, canonicalProjectId, returnContext } };
 }
 
 /**
