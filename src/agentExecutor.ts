@@ -41,6 +41,36 @@ const isLegacyRun = (run: Run) => LEGACY_RUN_IDS.has(run.id);
 
 export type AgentStepResult = { ran: boolean };
 
+/**
+ * A message from a person is a reason to think, not a reason to acknowledge.
+ *
+ * Every plain message on a real run opens an agent turn: the reasoner reads
+ * what was just said alongside everything already observed, revises the plan,
+ * and investigates with read-only tools. Returns whether the agent actually
+ * said something, so the caller only falls back to a composed reply when the
+ * kernel had nothing real to contribute.
+ */
+export const respondToUserMessage = async (
+  context: AgentStepContext,
+): Promise<{ spoke: boolean; awaiting: string | null }> => {
+  if (isLegacyRun(context.run)) return { spoke: false, awaiting: null };
+
+  try {
+    const turn = await runAgentTurn({
+      project: context.project,
+      run: context.run,
+      recentMessages: context.recentMessages ?? [],
+      memory: context.memory ?? [],
+      emit: context.emit,
+      onWorkspaceUpdate: context.onWorkspaceUpdate,
+    });
+    return { spoke: turn.acted, awaiting: turn.awaiting };
+  } catch {
+    // The kernel failing must never swallow the person's message.
+    return { spoke: false, awaiting: null };
+  }
+};
+
 /** Deterministic key for anything the agent says about a given step of a run. */
 export const agentStepKey = (runId: string, step: string): string => `auto-${runId}-${step}`;
 
