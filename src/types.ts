@@ -228,6 +228,23 @@ export type RunApproval = {
   type: "high_risk_execution" | "qa_waiver" | "rollback";
   status: "pending" | "approved" | "rejected";
   reason: string;
+  /**
+   * The change itself, shown before it happens. Approving prose is weaker
+   * than approving a diff, so a high-risk approval should carry one.
+   */
+  preview?: ApprovalPreview;
+};
+
+/**
+ * A concrete before/after for a proposed change. `target` is plain English
+ * ("the wp-config.php file"), not an internal identifier.
+ */
+export type ApprovalPreview = {
+  target: string;
+  before: string;
+  after: string;
+  /** Anything that cannot be undone by simply putting `before` back. */
+  irreversible?: string;
 };
 
 /**
