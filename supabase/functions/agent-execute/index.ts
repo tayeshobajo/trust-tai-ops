@@ -39,7 +39,11 @@ const PRIVATE_TOOLS = new Set([
 ]);
 
 /** Every access type whose credential the server can actually resolve. */
-const EXECUTABLE_ACCESS_TYPES = ["wordpress_admin", "ssh"];
+const EXECUTABLE_ACCESS_TYPES = ["wordpress_admin", "ssh", "sftp"];
+
+/** SFTP and SSH are one server capability as far as the tool catalog is concerned. */
+const withServerCapability = (list: string[]): string[] =>
+  list.includes("sftp") && !list.includes("ssh") ? [...list, "ssh"] : list;
 
 /**
  * One authenticated reader for the whole request.
@@ -558,7 +562,12 @@ Deno.serve(async (req) => {
       {
         ok: true,
         summary: "Confirmed the access this project actually holds.",
-        data: { capabilities: truth.stored, verifiedCapabilities: truth.verified },
+        data: {
+          // Password-based SFTP reaches the same server over the same SSH
+          // transport, so it satisfies the "ssh" capability the tools ask for.
+          capabilities: withServerCapability(truth.stored),
+          verifiedCapabilities: withServerCapability(truth.verified),
+        },
       },
       { headers: corsHeaders },
     );
