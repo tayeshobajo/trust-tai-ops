@@ -40,16 +40,26 @@ const setCookies = (headers: Headers): string => {
 export const hasLoggedInCookie = (cookieHeader: string): boolean =>
   /wordpress_logged_in_[a-f0-9]*=(?!deleted|;|\s|$)[^;]+/i.test(cookieHeader);
 
-export const loginEndpointFor = (canonicalUrl: string): string | null => {
+export const loginEndpointFor = (canonicalUrl: string, loginPath?: string): string | null => {
   const check = validatePublicUrl(canonicalUrl);
   if (!check.ok) return null;
-  return new URL(LOGIN_PATH, check.url.origin).toString();
+  // A custom login address is only ever honoured as a path on the project's
+  // own origin.
+  const path = loginPath && loginPath.trim() ? loginPath.trim() : LOGIN_PATH;
+  try {
+    const target = new URL(path, check.url.origin);
+    if (target.origin !== check.url.origin) return null;
+    return target.toString();
+  } catch {
+    return new URL(LOGIN_PATH, check.url.origin).toString();
+  }
 };
 
 export const verifyWordPressLogin = async (
   canonicalUrl: string | null,
   credential: LoginCredential,
   fetchImpl: typeof fetch = fetch,
+  loginPath?: string,
 ): Promise<LoginVerdict> => {
   if (!canonicalUrl) {
     return {
@@ -58,7 +68,7 @@ export const verifyWordPressLogin = async (
       summary: "I don't have a confirmed site address for this project, so I couldn't check that login.",
     };
   }
-  const endpoint = loginEndpointFor(canonicalUrl);
+  const endpoint = loginEndpointFor(canonicalUrl, loginPath);
   if (!endpoint) {
     return {
       state: "unverified",
