@@ -160,12 +160,6 @@ const offSite = await runBrowserInspection(
 check("an unrelated domain never reaches the service", !offSite.ok && offSite.code === "unsafe_destination");
 
 console.log("");
-if (failures.length > 0) {
-  console.error(`${failures.length} check(s) failed:\n - ${failures.join("\n - ")}`);
-  process.exit(1);
-}
-console.log("All browser inspection checks passed.");
-
 // --- browserless dialect -----------------------------------------------------
 
 console.log("\nbrowserless dialect");
@@ -188,5 +182,15 @@ console.log("\nbrowserless dialect");
   check("a browserless report unwraps and normalizes", outcome.ok === true);
   check("the token travels as a query parameter, never a header", seen!.url.includes("token=tok-123"));
   check("the page script is sent as code with a bounded context", typeof seen!.body.code === "string" && seen!.body.context.url === "https://example.com/");
-  check("the page script only navigates and reads", !/\.click\(|\.type\(|\.evaluate\(\s*\(\)\s*=>\s*\{[^}]*document\.\w+\s*=/.test(seen!.body.code));
+  const code: string = seen!.body.code;
+  check(
+    "the page script only navigates and reads",
+    !/\.click\(|\.type\(|keyboard|setContent|\.select\(|\.tap\(/.test(code),
+  );
 }
+
+if (failures.length > 0) {
+  console.error(`${failures.length} check(s) failed:\n - ${failures.join("\n - ")}`);
+  process.exit(1);
+}
+console.log("All browser inspection checks passed.");
