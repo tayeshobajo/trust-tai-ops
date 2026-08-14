@@ -240,6 +240,9 @@ export function ProjectAccessPanel({
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  // Anything that goes wrong while the drawer is open must be said inside the
+  // drawer — the page-level notice sits behind the scrim and is never seen.
+  const [drawerNotice, setDrawerNotice] = useState("");
   // Non-secret details only. A secret is never fetched back into the form.
   const [prefilling, setPrefilling] = useState(false);
 
