@@ -9,7 +9,7 @@
 import { isSuiteConfigured, resolveOpsEnv } from "../env";
 import { getSupabaseClient } from "../supabase";
 import { clearSuiteSession, getSuiteSession, setSuiteSession } from "./osToken";
-import { syncSuiteSignal } from "./osActivity";
+import { OPS_APP_KEY, syncSuiteSignal } from "./osActivity";
 import type { OpsSuiteSignal, SuiteActivityRow, SuiteSyncDeps, SuiteSyncResult } from "./osActivity";
 import type { SsoHandoff } from "./ssoBridge";
 
