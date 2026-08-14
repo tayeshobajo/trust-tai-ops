@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AccessType, NewProjectMessage, Organization, Project, ProjectMessage, Run, RunDraft } from "./types";
 import { buildThread, draftFromBrief } from "./conversation";
 import type { DecisionKind, ThreadCard, ThreadDiff, ThreadMessage } from "./conversation";
+import { constraintAlreadyStored, detectConstraints } from "./agent-core/constraints";
 import {
   dayLabel,
   findHitsOutsideRun,
@@ -1104,6 +1105,7 @@ export function ProjectWorkspace({
         setBusy(false);
       }
       if (savedId && attachments.length > 0) await sendAttachments(createdId, savedId, attachments);
+      if (value) await captureConstraints(value, createdId, savedId);
       return;
     }
 
@@ -1124,8 +1126,11 @@ export function ProjectWorkspace({
 
       if (attachments.length > 0) {
         await sendAttachments(activeRun.id, saved.id, attachments);
+        if (value) await captureConstraints(value, activeRun.id, saved.id);
         return;
       }
+
+      if (value) await captureConstraints(value, activeRun.id, saved.id);
 
       await emit({
         runId: activeRun.id,
