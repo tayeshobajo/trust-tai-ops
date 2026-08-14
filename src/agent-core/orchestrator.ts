@@ -509,7 +509,10 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
             candidate.readOnly &&
             candidate.invocationKey !== action.invocationKey &&
             !attempted.has(candidate.invocationKey) &&
-            !prefetched.has(candidate.invocationKey),
+            !prefetched.has(candidate.invocationKey) &&
+            // A private read is never pulled forward before the person has
+            // been told their stored access is about to be used.
+            (!PRIVATE_TOOLS.has(candidate.toolId) || announcedStoredAccess || alreadyVerified),
         )
         .slice(0, MAX_PARALLEL_INVESTIGATIONS - 1);
 
