@@ -49,7 +49,7 @@ const SECRET_KEY_PATTERN =
   /(password|passwd|secret|private_key|privatekey|api_key|apikey|access_token|refresh_token|service_role|ciphertext|cipher_text|sealed|credential_value|nonce|session_cookie)/i;
 
 const SECRET_VALUE_PATTERN =
-  /(-----BEGIN [A-Z ]*PRIVATE KEY-----|sb_secret_|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.)/;
+  /(-----BEGIN [A-Z ]*PRIVATE KEY-----|sb_secret_|eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]+)/;
 
 export function containsSecretMaterial(value: unknown): boolean {
   const seen = new Set<unknown>();
@@ -74,8 +74,9 @@ export function containsSecretMaterial(value: unknown): boolean {
 /** Strips anything that looks like credential material out of prose. */
 export function sanitizeSummary(text: string): string {
   return text
-    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[removed]")
-    .replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+/g, "[removed]")
+    // Unterminated key blocks are stripped too: a pasted fragment is still a key.
+    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*/g, "[removed]")
+    .replace(/eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]+/g, "[removed]")
     .replace(/\bsb_secret_[A-Za-z0-9_-]+/g, "[removed]")
     .replace(/\b(password|passwd|secret|token|api[_ ]?key)\b\s*[:=]\s*\S+/gi, "$1: [removed]")
     .replace(/\s+/g, " ")
