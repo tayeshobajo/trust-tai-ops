@@ -526,6 +526,7 @@ export function ProjectWorkspace({
   };
 
   const advanceTo = async (run: Run, target: Run["state"]) => {
+
     if (!validateAdvance(run, target).ok) return;
     await apply(() => workspaceRepository.advanceRun(project.id, run.id, target));
   };
