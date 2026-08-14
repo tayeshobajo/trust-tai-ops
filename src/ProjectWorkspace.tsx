@@ -186,6 +186,8 @@ export function ProjectWorkspace({
   // Keep the typing indicator visible for a short beat after the agent starts
   // working so the cue doesn't flicker on fast replies.
   const [typingUntil, setTypingUntil] = useState(0);
+  // The reply as it is being written, rendered in place of the typing dots.
+  const [streamingText, setStreamingText] = useState("");
   const [mobilePane, setMobilePane] = useState<"tasks" | "chat" | "context">("chat");
   const [surface, setSurface] = useState<"conversation" | "tasks" | "access" | "memory" | "activity">(initialSurface);
   const [accessFocus, setAccessFocus] = useState<AccessType[]>([]);
