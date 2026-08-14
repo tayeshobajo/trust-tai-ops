@@ -124,9 +124,9 @@ const speakTurn = async (
           .slice(-4)
           .map((message) => message.body.join(" ")),
         memory: [
-          ...(hostGuidanceFact(context.project) ? [hostGuidanceFact(context.project) as string] : []),
-          ...(context.memory ?? []).slice(-6).map((entry) => `${entry.title}: ${entry.content}`),
-        ],
+          ...(context.memory ?? []).slice(-5).map((entry) => `${entry.title}: ${entry.content}`),
+          hostGuidanceFact(context.project) ?? "",
+        ].filter(Boolean),
       },
       context.onStream,
     );
