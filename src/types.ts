@@ -118,7 +118,7 @@ export type ProjectAccessMethod = {
 export type MemoryEntry = {
   id: string;
   title: string;
-  type: "stack_note" | "incident_note" | "risk_note" | "qa_rule" | "procedure";
+  type: "stack_note" | "incident_note" | "risk_note" | "qa_rule" | "procedure" | "constraint";
   importance: "medium" | "high" | "critical";
   content: string;
   // Optional provenance. Older entries legitimately have no source.

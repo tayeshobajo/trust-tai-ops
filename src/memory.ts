@@ -20,6 +20,7 @@ const SECTION_FOR_TYPE: Record<MemoryEntry["type"], string> = {
   risk_note: "fragile",
   qa_rule: "rules",
   procedure: "rules",
+  constraint: "rules",
 };
 
 const SECTION_META: Array<{ id: string; title: string; blurb: string }> = [
@@ -43,6 +44,8 @@ export const memoryTypeLabel = (type: MemoryEntry["type"]) => {
     case "qa_rule":
     case "procedure":
       return "Project rule";
+    case "constraint":
+      return "Standing instruction";
     default:
       return "General";
   }

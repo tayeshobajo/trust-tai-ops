@@ -7,7 +7,8 @@
 
 import type { AgentAction, AgentContext, Capability, RiskClass, ToolId } from "./types";
 import { getProjectStack, stackCopy } from "../stacks";
-import { checkReadBeforeWrite } from "./precondition";
+import { checkReadBeforeWrite, writeTargetFor } from "./precondition";
+import { constraintsTouching } from "./constraints";
 
 const RISK_BY_TOOL: Record<ToolId, RiskClass> = {
   "public_http.inspect_site": "read_only",
@@ -50,6 +51,25 @@ const requireReadFirst = (action: AgentAction, context: AgentContext): PolicyVer
 };
 
 /**
+ * A rule the person has stated outranks anything the reasoner proposes. If a
+ * change touches something they told the agent to leave alone, it stops and
+ * asks — even when every other gate is satisfied.
+ */
+const respectConstraints = (action: AgentAction, context: AgentContext): PolicyVerdict => {
+  const target = writeTargetFor(action.toolId, action.args);
+  if (!target) return { executable: true };
+
+  const rules = constraintsTouching(context.project.memoryEntries, target);
+  if (rules.length === 0) return { executable: true };
+
+  return {
+    executable: false,
+    requires: "approval",
+    reason: `You've told me: "${rules[0].content}" This step touches that, so I won't do it without you saying otherwise.`,
+  };
+};
+
+/**
  * Tools that only make sense on WordPress. A Meteor project must never be
  * routed into them, no matter what a reasoner proposes.
  */
@@ -66,6 +86,9 @@ export const isToolEligibleForStack = (toolId: ToolId, stack: string): boolean =
   !WORDPRESS_ONLY_TOOLS.has(toolId) || stack === "wordpress";
 
 /** The single place that answers "may this action run right now?". */
+const firstBlocker = (...verdicts: PolicyVerdict[]): PolicyVerdict =>
+  verdicts.find((verdict) => !verdict.executable) ?? { executable: true };
+
 export const evaluateAction = (action: AgentAction, context: AgentContext): PolicyVerdict => {
   const stack = getProjectStack(context.project);
 
@@ -89,12 +112,12 @@ export const evaluateAction = (action: AgentAction, context: AgentContext): Poli
       if (!hasBackup(context)) {
         return { executable: false, requires: "backup", reason: "A safe restore point is needed first." };
       }
-      return requireReadFirst(action, context);
+      return firstBlocker(respectConstraints(action, context), requireReadFirst(action, context));
     case "medium_risk_change":
       if (!hasBackup(context)) {
         return { executable: false, requires: "backup", reason: "A safe restore point is needed first." };
       }
-      return requireReadFirst(action, context);
+      return firstBlocker(respectConstraints(action, context), requireReadFirst(action, context));
     case "high_risk_change":
       if (!hasBackup(context)) {
         return { executable: false, requires: "backup", reason: "A safe restore point is needed first." };
@@ -102,7 +125,7 @@ export const evaluateAction = (action: AgentAction, context: AgentContext): Poli
       if (!hasApproval(context)) {
         return { executable: false, requires: "approval", reason: "This needs the owner's go-ahead first." };
       }
-      return requireReadFirst(action, context);
+      return firstBlocker(respectConstraints(action, context), requireReadFirst(action, context));
     default:
       return { executable: false, requires: "approval", reason: "Unclassified action." };
   }
