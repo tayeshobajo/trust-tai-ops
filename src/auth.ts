@@ -1,5 +1,6 @@
 import { isQaAutoLoginEnabled, resolveOpsEnv } from "./env";
 import { getSupabaseClient } from "./supabase";
+import { clearSuiteSession } from "./suite/osToken";
 import type { AuthState, UserRole } from "./types";
 
 const demoAuthState: AuthState = {
@@ -86,6 +87,10 @@ export async function loadAuthState(): Promise<AuthState> {
 
 export async function signOutIfSupported(): Promise<void> {
   const env = resolveOpsEnv();
+
+  // The Trust Tai OS token lives in memory for this browser session only, and
+  // signing out of Ops ends it.
+  clearSuiteSession();
 
   if (env.adapter === "demo") {
     return;

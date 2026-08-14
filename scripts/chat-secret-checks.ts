@@ -294,7 +294,12 @@ check(
 );
 check("the composer is cleared on a successful handoff", workspaceSource.includes('setComposerValue("");'));
 check("raw composer text is never emitted on the intake path", !/body:\s*\[raw\]/.test(workspaceSource));
-check("access truth is re-read from the server after intake", workspaceSource.includes("onWorkspaceUpdate(await workspaceRepository.loadWorkspace());"));
+check(
+  "access truth is re-read from the server after intake",
+  /const refreshed = await workspaceRepository\.loadWorkspace\(\);\s*\n\s*onWorkspaceUpdate\(refreshed\);/.test(
+    workspaceSource,
+  ),
+);
 
 console.log("");
 if (failures.length > 0) {

@@ -1,0 +1,102 @@
+/**
+ * Trust Tai OS -> Ops SSO bridge (browser side).
+ *
+ * The only thing that crosses the origin boundary is a `postMessage` from an
+ * exactly-matched Trust Tai OS origin. No access token is ever placed in a
+ * query string, a hash, or `localStorage`. The token that arrives here is held
+ * in memory only, exchanged server-side immediately, and then dropped.
+ *
+ * Everything in this file is pure so it can be exercised without a browser.
+ */
+
+export const SSO_MESSAGE_TYPE = "trust-tai-os:sso";
+export const SSO_READY_TYPE = "trust-tai-ops:sso-ready";
+
+export type SsoHandoff = {
+  accessToken: string;
+  canonicalProjectId: string | null;
+  returnContext: string | null;
+};
+
+export type SsoRejection =
+  | "origin_rejected"
+  | "not_a_handoff"
+  | "missing_token"
+  | "malformed_token"
+  | "malformed_project_id";
+
+export type SsoReadResult =
+  | { ok: true; handoff: SsoHandoff }
+  | { ok: false; reason: SsoRejection };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
+/**
+ * Parses a comma-separated browser-safe allowlist into exact origins.
+ * Wildcards are dropped rather than expanded: `*` is never an allowed origin.
+ */
+export function parseOriginAllowlist(raw: string | undefined | null): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((entry) => entry.trim().replace(/\/+$/, ""))
+    .filter((entry) => entry.length > 0 && !entry.includes("*"))
+    .filter((entry) => /^https?:\/\/[^/\s]+$/.test(entry));
+}
+
+/** Exact-match only. No prefix, suffix, or wildcard matching. */
+export function isAllowedOrigin(origin: string | undefined | null, allowlist: string[]): boolean {
+  if (!origin) return false;
+  const normalized = origin.trim().replace(/\/+$/, "");
+  if (normalized === "null" || normalized.includes("*")) return false;
+  return allowlist.includes(normalized);
+}
+
+/**
+ * Reads one `message` event. Rejects anything that is not a well-formed
+ * handoff from an exactly allowed origin.
+ */
+export function readHandoffMessage(
+  event: { origin?: string | null; data?: unknown },
+  allowlist: string[],
+): SsoReadResult {
+  if (!isAllowedOrigin(event.origin, allowlist)) {
+    return { ok: false, reason: "origin_rejected" };
+  }
+
+  const data = event.data;
+  if (!data || typeof data !== "object") return { ok: false, reason: "not_a_handoff" };
+
+  const payload = data as Record<string, unknown>;
+  if (payload.type !== SSO_MESSAGE_TYPE) return { ok: false, reason: "not_a_handoff" };
+
+  const token = payload.accessToken;
+  if (typeof token !== "string" || token.length === 0) return { ok: false, reason: "missing_token" };
+  if (!JWT_SHAPE.test(token)) return { ok: false, reason: "malformed_token" };
+
+  const canonicalRaw = payload.canonicalProjectId;
+  let canonicalProjectId: string | null = null;
+  if (typeof canonicalRaw === "string" && canonicalRaw.length > 0) {
+    if (!UUID.test(canonicalRaw)) return { ok: false, reason: "malformed_project_id" };
+    canonicalProjectId = canonicalRaw.toLowerCase();
+  }
+
+  const returnRaw = payload.returnContext;
+  const returnContext =
+    typeof returnRaw === "string" && returnRaw.length > 0 && returnRaw.length <= 512 ? returnRaw : null;
+
+  return { ok: true, handoff: { accessToken: token, canonicalProjectId, returnContext } };
+}
+
+/**
+ * Guard used by tests and by the landing state: a token must never appear in
+ * the address bar, because URLs leak into history, referrers, and logs.
+ */
+export function locationCarriesToken(href: string): boolean {
+  return /(?:access_token|id_token|refresh_token|token_hash|bearer)=/i.test(href);
+}
+
+/** True when the app was opened as the OS suite handoff landing surface. */
+export function isSsoLandingPath(pathname: string): boolean {
+  return /^\/sso\/?$/.test(pathname);
+}

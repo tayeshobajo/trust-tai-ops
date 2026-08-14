@@ -147,6 +147,17 @@ check("no source or config file references ops.trust-tai.com", offenders.length 
 check("the seed tenant uses the canonical hostname", read("src/seed.ts").includes('subdomain: "ops.trusttai.com"'));
 check("the default tenant subdomain is canonical", envSource.includes('"ops.trusttai.com"'));
 
+console.log("\nno credential is committed for production, and QA cannot auto-login there");
+
+const productionEnv = read(".env.production");
+check("the production env carries no QA password", !/QA_PASSWORD/.test(productionEnv));
+check("the production env carries no private key or secret key", !/PRIVATE KEY|sb_secret_|SERVICE_ROLE/.test(productionEnv));
+check("production QA autologin is explicitly off", /VITE_OPS_QA_AUTOLOGIN=false/.test(productionEnv));
+check(
+  "a production build refuses QA autologin regardless of config",
+  /isQaAutoLoginEnabled[\s\S]{0,200}isProductionBuild\) return false/.test(envSource),
+);
+
 console.log("");
 if (failures.length > 0) {
   console.log(`${failures.length} production-readiness check(s) failed.`);
