@@ -1353,7 +1353,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       created_at: new Date().toISOString(),
     };
 
-    const { error } = await client.from("project_messages").insert([row] as never);
+    let { error } = await client.from("project_messages").insert([row] as never);
 
     if (error) {
       // A concurrent writer may have already stored the same deterministic
@@ -1368,7 +1368,23 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
         const match = ((retry ?? []) as ProjectMessageRow[])[0];
         if (match) return mapProjectMessage(match);
       }
-      throw error;
+      // A stale access token or a dropped connection must not lose what the
+      // person just said. Refresh once and try the same row again.
+      const transient =
+        !error.code ||
+        error.code === "PGRST301" ||
+        error.code === "401" ||
+        /jwt|token|fetch|network|timeout/i.test(`${error.message ?? ""}`);
+      if (transient) {
+        try {
+          await client.auth.refreshSession();
+        } catch {
+          /* keep the original failure if the refresh itself fails */
+        }
+        const second = await client.from("project_messages").insert([row] as never);
+        error = second.error;
+      }
+      if (error) throw error;
     }
 
     return mapProjectMessage(row);
