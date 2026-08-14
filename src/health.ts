@@ -35,7 +35,7 @@ const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 export const buildSiteHealth = (evidence: AgentEvidence[]): HealthMetric[] => {
   const metrics: HealthMetric[] = [];
 
-  const site = latest(evidence, "wordpress.inspect_public_site") ?? latest(evidence, "http.inspect_public_site");
+  const site = latest(evidence, "public_http.inspect_site");
   const surface = latest(evidence, "wordpress.inspect_public_surface");
   const health = latest(evidence, "wordpress.read_health");
   const page = latest(evidence, "browser.inspect_page_readonly");
