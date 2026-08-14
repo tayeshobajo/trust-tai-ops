@@ -28,6 +28,10 @@ export async function exchangeOsHandoff(handoff: SsoHandoff): Promise<SsoExchang
     const { data, error } = await client.functions.invoke("os-sso-exchange", {
       body: {
         osAccessToken: handoff.accessToken,
+        // Sent for context only. The function still verifies the token
+        // against the OS auth service; the organization id never substitutes
+        // for that verification.
+        osOrganizationId: handoff.organizationId,
         canonicalProjectId: handoff.canonicalProjectId,
       },
     });
@@ -59,6 +63,7 @@ export async function exchangeOsHandoff(handoff: SsoHandoff): Promise<SsoExchang
       osAccessToken: handoff.accessToken,
       osUserId: payload.osUserId ?? "",
       osEmail: payload.email,
+      osOrganizationId: handoff.organizationId,
       canonicalProjectId: payload.canonicalProjectId ?? handoff.canonicalProjectId,
       expiresAt: 0,
     });
@@ -98,8 +103,10 @@ const OS_REST_HEADERS = (token: string, anonKey: string) => ({
 });
 
 /**
- * Read-before-write dedupe against the OS activities table. The shared schema
- * has no dedicated dedupe column, so provenance metadata carries the key.
+ * Read-before-write dedupe against the OS activities table. The live schema
+ * has no dedicated idempotency column yet, so `provenance->>dedupe_key`
+ * carries the key. When the OS adds a unique index on it, the 409 handled in
+ * `insert` becomes the authoritative answer and the race closes.
  */
 function suiteDeps(): SuiteSyncDeps | null {
   const env = resolveOpsEnv();
@@ -110,8 +117,11 @@ function suiteDeps(): SuiteSyncDeps | null {
   const headers = OS_REST_HEADERS(session.osAccessToken, env.osSupabasePublicKey ?? "");
 
   return {
+    context: { organizationId: session.osOrganizationId, actorUserId: session.osUserId },
     findExisting: async (dedupeKey: string) => {
-      const url = `${base}?select=id&metadata->>dedupe_key=eq.${encodeURIComponent(dedupeKey)}&limit=1`;
+      // PostgREST JSON path filter: `provenance->>dedupe_key=eq.<value>`.
+      const filter = `provenance->>dedupe_key=eq.${encodeURIComponent(dedupeKey)}`;
+      const url = `${base}?select=id&app_key=eq.${OPS_APP_KEY}&${filter}&limit=1`;
       const response = await fetch(url, { headers });
       if (!response.ok) throw new Error("os_activity_read_failed");
       const rows = (await response.json()) as Array<{ id: string }>;
@@ -123,7 +133,11 @@ function suiteDeps(): SuiteSyncDeps | null {
         headers: { ...headers, Prefer: "return=minimal" },
         body: JSON.stringify(row),
       });
+      // A unique violation means the row is already there: that is a
+      // duplicate, not a failure.
+      if (response.status === 409) return "duplicate";
       if (!response.ok) throw new Error("os_activity_write_failed");
+      return "written";
     },
   };
 }
