@@ -62,6 +62,7 @@ Deno.serve(async (req) => {
 
   let osAccessToken = "";
   let canonicalProjectId: string | null = null;
+  let osOrganizationId: string | null = null;
 
   try {
     const body = await req.json();
@@ -69,6 +70,13 @@ Deno.serve(async (req) => {
       return json({ error: "invalid_os_token" }, 400);
     }
     osAccessToken = body.osAccessToken;
+
+    // Context only. It is validated for shape and echoed back, but it is
+    // never allowed to stand in for token verification or to widen access.
+    if (typeof body?.osOrganizationId === "string" && body.osOrganizationId.length > 0) {
+      if (!UUID.test(body.osOrganizationId)) return json({ error: "invalid_os_organization_id" }, 400);
+      osOrganizationId = body.osOrganizationId.toLowerCase();
+    }
 
     if (typeof body?.canonicalProjectId === "string" && body.canonicalProjectId.length > 0) {
       if (!UUID.test(body.canonicalProjectId)) return json({ error: "invalid_canonical_project_id" }, 400);
@@ -160,6 +168,7 @@ Deno.serve(async (req) => {
       organizationId: String(member.organization_id),
       role: opsRole,
       osUserId: osUser.id,
+      osOrganizationId,
       canonicalProjectId,
     });
   } catch (error) {

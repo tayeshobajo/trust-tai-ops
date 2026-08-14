@@ -20,30 +20,64 @@ technical operational state. Nothing was migrated in either direction.
 | Ops-side link columns | `db/migrations/20260834_os_suite_link.sql` |
 | acceptance checks | `scripts/suite-checks.ts` (`npm run check:suite`) |
 
-## Deployment steps (not yet performed)
+## The live OS activities contract
 
-1. **Migration** — apply `db/migrations/20260834_os_suite_link.sql` to the Ops
-   Supabase project. It is idempotent (`add column if not exists`, partial
-   unique index guarded by `if not exists`).
-2. **Edge Function** — deploy the function slug `os-sso-exchange`. It is
-   registered in `supabase/config.toml` with `verify_jwt = false`, because the
-   caller has no Ops session yet; the OS token in the body is verified against
-   the OS auth service inside the function.
-3. **Ops function secrets** — set on the Ops project:
-   - `TRUST_TAI_OS_SUPABASE_URL` = `https://okydosoacqdnursmmenf.supabase.co`
-   - `TRUST_TAI_OS_SUPABASE_ANON_KEY` = the OS browser-safe anon/publishable key
-   `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` already exist and are used
-   only inside the function.
-4. **Browser-safe build vars** — set in the hosting environment (and mirrored
-   in `.env.production`):
-   - `VITE_OPS_OS_SUPABASE_URL`
-   - `VITE_OPS_OS_SUPABASE_PUBLISHABLE_KEY`
-   - `VITE_OPS_OS_ORIGINS` — exact origins, comma separated, no wildcards.
-     Add the production OS origin when it exists.
-5. **Trust Tai OS side** — open Ops at `https://ops.trusttai.com/sso` and
-   `postMessage` `{ type: "trust-tai-os:sso", accessToken, canonicalProjectId? }`
-   to the opened window, targeting the Ops origin exactly. Do not append the
-   token to the URL.
+Ops writes to `public.activities` in the OS project using exactly these
+columns. `id` and `created_at` are left to the database.
+
+| Column | Ops value |
+| --- | --- |
+| `organization_id` | OS organization id from the handoff (required) |
+| `event_type` | the `ops.*` event (required) |
+| `actor_user_id` | verified OS user id, or `null` so OS RLS decides |
+| `app_key` | `ops` (required) |
+| `entity_type` | `project` when a canonical project is linked, else `null` |
+| `entity_id` | canonical project id |
+| `summary` | redacted one-line summary |
+| `payload` | `ops_project_id`, `canonical_project_id`, `ops_run_id`, `evidence_ref`, `evidence_summary`, `destination_route` (required) |
+| `provenance` | `source_app: "ops"`, `source: "trust-tai-ops"`, `ops_event_key`, `dedupe_key`, `ops_project_id` (required) |
+| `occurred_at` | the real event time; stamped at emission only when unknown (required) |
+
+There is no `activity_type`, `project_id`, or `metadata` column, and Ops never
+sends one. Raw logs, command output, and credential material never cross.
+
+### Idempotency
+
+Dedupe is a read-before-write on `provenance->>dedupe_key` (PostgREST JSON
+path filter), scoped to `app_key=eq.ops`. Read-before-write alone is
+race-prone. The writer already treats a `409` unique violation as a duplicate,
+so when the OS adds a unique index or dedicated idempotency key on
+`provenance->>dedupe_key`, the race closes with no Ops change.
+
+## Deployment status
+
+- **Migration `ops_suite_link_v1`** — applied to the live Ops Supabase project.
+- **Edge Function `os-sso-exchange`** — present and ACTIVE (v1) in live Ops
+  Supabase, registered in `supabase/config.toml` with `verify_jwt = false`
+  (the caller has no Ops session yet; the OS token in the body is verified
+  inside the function).
+- **OS verification secrets** — still required, and **not verified as set**.
+  Lovable cannot read or set Edge Function secret values, so this cannot be
+  confirmed from here. Set them in Project Settings → Secrets:
+  - `TRUST_TAI_OS_SUPABASE_URL` = `https://okydosoacqdnursmmenf.supabase.co`
+  - `TRUST_TAI_OS_SUPABASE_ANON_KEY` = `sb_publishable_uARvNwZli88tfhOHBwFTsQ_JUpQo-UL`
+  Without them the function returns `os_not_configured` and every handoff
+  fails closed.
+
+## Remaining setup
+
+1. **Browser-safe build vars** — already committed to `.env.production` and
+   `.env.development` (`VITE_OPS_OS_SUPABASE_URL`,
+   `VITE_OPS_OS_SUPABASE_PUBLISHABLE_KEY`, `VITE_OPS_OS_ORIGINS`). These are
+   public values. Add the production OS origin to the allowlist when it
+   exists — exact origins, comma separated, no wildcards.
+2. **Trust Tai OS side** — open Ops at `https://ops.trusttai.com/sso` and
+   `postMessage` to the opened window, targeting the Ops origin exactly:
+   ```js
+   { type: "trust-tai-os:sso", accessToken, organizationId, canonicalProjectId? }
+   ```
+   `organizationId` is required and must be a UUID; a missing or malformed one
+   fails closed. Do not append the token to the URL.
 
 ## Manual acceptance that cannot be automated
 

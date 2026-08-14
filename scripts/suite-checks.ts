@@ -27,13 +27,14 @@ import {
 import { canLinkProject, decideCanonicalLink } from "../src/suite/canonicalLink.ts";
 import {
   OPS_SUITE_EVENTS,
+  OPS_APP_KEY,
   buildSuiteActivity,
   containsSecretMaterial,
   sanitizeSummary,
   suiteDedupeKey,
   syncSuiteSignal,
 } from "../src/suite/osActivity.ts";
-import type { OpsSuiteSignal, SuiteActivityRow } from "../src/suite/osActivity.ts";
+import type { OpsSuiteSignal, SuiteActivityRow, SuiteWriteContext } from "../src/suite/osActivity.ts";
 import { buildOpsSnapshot } from "../src/suite/snapshot.ts";
 import { isQaAutoLoginEnabled, resolveOpsEnv } from "../src/env.ts";
 import type { Project } from "../src/types.ts";
@@ -53,9 +54,12 @@ const read = (relative: string) => readFileSync(join(root, relative), "utf8");
 const OS_ORIGIN = "https://id-preview--65944e34-ede5-4757-befb-870e1ff97444.lovable.app";
 const ALLOWLIST = parseOriginAllowlist(`${OS_ORIGIN}, https://os.trusttai.com`);
 const TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcyJ9.c2lnbmF0dXJl";
+const OS_ORG = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+const OS_USER = "77777777-8888-4999-8aaa-bbbbbbbbbbbb";
+const WRITE_CONTEXT: SuiteWriteContext = { organizationId: OS_ORG, actorUserId: OS_USER };
 const handoff = (extra: Record<string, unknown> = {}) => ({
   origin: OS_ORIGIN,
-  data: { type: SSO_MESSAGE_TYPE, accessToken: TOKEN, ...extra },
+  data: { type: SSO_MESSAGE_TYPE, accessToken: TOKEN, organizationId: OS_ORG, ...extra },
 });
 
 console.log("\norigins are matched exactly, never by pattern");
@@ -79,6 +83,20 @@ check("a message without a token is rejected", !readHandoffMessage({ origin: OS_
 check("a non-JWT token shape is rejected", !readHandoffMessage(handoff({ accessToken: "not-a-token" }), ALLOWLIST).ok);
 check("a non-uuid canonical project id is rejected", !readHandoffMessage(handoff({ canonicalProjectId: "acme" }), ALLOWLIST).ok);
 check("an unrelated message is ignored", !readHandoffMessage({ origin: OS_ORIGIN, data: { type: "other" } }, ALLOWLIST).ok);
+
+const missingOrg = readHandoffMessage(handoff({ organizationId: undefined }), ALLOWLIST);
+check("a handoff without an organization fails closed", !missingOrg.ok && missingOrg.reason === "missing_organization_id");
+const badOrg = readHandoffMessage(handoff({ organizationId: "acme-org" }), ALLOWLIST);
+check("a malformed organization id fails closed", !badOrg.ok && badOrg.reason === "malformed_organization_id");
+const goodHandoff = readHandoffMessage(handoff(), ALLOWLIST);
+check("a valid handoff carries the organization", goodHandoff.ok && goodHandoff.handoff.organizationId === OS_ORG);
+check(
+  "the organization is context, never authorization",
+  read("src/suite/ssoBridge.ts").includes("never as an authorization claim") &&
+    read("supabase/functions/os-sso-exchange/index.ts").includes("stand in for token verification"),
+);
+check("the exchange validates the organization id shape", read("supabase/functions/os-sso-exchange/index.ts").includes("invalid_os_organization_id"));
+check("the organization is held only in the in-memory suite session", read("src/suite/osToken.ts").includes("osOrganizationId"));
 
 console.log("\nno token in the URL, no token in localStorage");
 
@@ -173,14 +191,17 @@ const signal: OpsSuiteSignal = {
   opsEventKey: "qa-report-7",
   summary: "QA passed on production after the plugin conflict fix.",
   evidenceRef: "artifact-3",
+  occurredAt: "2026-08-14T12:00:00.000Z",
 };
 
 const rows: SuiteActivityRow[] = [];
 const deps = {
+  context: WRITE_CONTEXT,
   findExisting: async (key: string) =>
-    rows.find((row) => row.metadata.dedupe_key === key) ? "existing" : null,
-  insert: async (row: SuiteActivityRow) => {
+    rows.find((row) => row.provenance.dedupe_key === key) ? "existing" : null,
+  insert: async (row: SuiteActivityRow): Promise<"written" | "duplicate"> => {
     rows.push(row);
+    return "written";
   },
 };
 
@@ -190,12 +211,63 @@ check("a signal writes one OS activity", first.status === "written" && rows.leng
 check("retrying the same signal writes nothing more", second.status === "duplicate" && rows.length === 1);
 check("the dedupe key is stable", suiteDedupeKey(signal) === suiteDedupeKey({ ...signal }));
 
-const built = buildSuiteActivity(signal, "https://ops.trusttai.com");
-check("provenance names the source app", built.metadata.source_app === "ops");
-check("provenance carries the Ops project", built.metadata.ops_project_id === "ops-2");
-check("provenance carries the canonical project", built.metadata.canonical_project_id === CANONICAL);
-check("provenance carries the run", built.metadata.ops_run_id === "run-7");
-check("provenance carries a route back into Ops", String(built.metadata.destination_route).includes("/project/ops-2"));
+const built = buildSuiteActivity(signal, "https://ops.trusttai.com", WRITE_CONTEXT);
+
+console.log("\nthe row matches the live OS activities contract exactly");
+
+// The live public.activities columns, verbatim. Anything else is a write that
+// PostgREST will reject.
+const LIVE_COLUMNS = [
+  "id",
+  "organization_id",
+  "event_type",
+  "actor_user_id",
+  "app_key",
+  "entity_type",
+  "entity_id",
+  "summary",
+  "payload",
+  "provenance",
+  "occurred_at",
+  "created_at",
+];
+const REQUIRED_COLUMNS = ["organization_id", "event_type", "app_key", "payload", "provenance", "occurred_at"];
+const written = Object.keys(built);
+
+check("no column outside the live schema is sent", written.every((key) => LIVE_COLUMNS.includes(key)), written.join(", "));
+check("every required column is present and non-null", REQUIRED_COLUMNS.every((key) => (built as Record<string, unknown>)[key] != null));
+check("the retired activity_type column is gone", !written.includes("activity_type"));
+check("the retired project_id column is gone", !written.includes("project_id"));
+check("the retired metadata column is gone", !written.includes("metadata"));
+check("id and created_at are left to the database", !written.includes("id") && !written.includes("created_at"));
+check("organization_id comes from the handoff", built.organization_id === OS_ORG);
+check("event_type carries the ops.* event", built.event_type === "ops.qa_passed");
+check("app_key identifies Ops", built.app_key === OPS_APP_KEY && OPS_APP_KEY === "ops");
+check("actor_user_id is the verified OS user", built.actor_user_id === OS_USER);
+check(
+  "an unknown actor is left null for RLS to decide",
+  buildSuiteActivity(signal, "https://ops.trusttai.com", { organizationId: OS_ORG }).actor_user_id === null,
+);
+check("entity_type is project when a canonical project exists", built.entity_type === "project");
+check("entity_id is the canonical project", built.entity_id === CANONICAL);
+check("occurred_at is the real event time, not a fabricated one", built.occurred_at === "2026-08-14T12:00:00.000Z");
+check(
+  "a signal with no time is stamped at emission only",
+  Date.parse(buildSuiteActivity({ ...signal, occurredAt: null }, "https://ops.trusttai.com", WRITE_CONTEXT).occurred_at) > 0,
+);
+check("payload carries the Ops project", built.payload.ops_project_id === "ops-2");
+check("payload carries the canonical project", built.payload.canonical_project_id === CANONICAL);
+check("payload carries the run", built.payload.ops_run_id === "run-7");
+check("payload carries a route back into Ops", String(built.payload.destination_route).includes("/project/ops-2"));
+check("provenance names the source app", built.provenance.source_app === "ops" && built.provenance.source === "trust-tai-ops");
+check("provenance carries the Ops event key", built.provenance.ops_event_key === "qa-report-7");
+check("provenance carries the dedupe key", built.provenance.dedupe_key === suiteDedupeKey(signal));
+check(
+  "the dedupe read filters on provenance, not metadata",
+  read("src/suite/client.ts").includes("provenance->>dedupe_key=eq.") && !read("src/suite/client.ts").includes("metadata->>"),
+);
+check("a 409 unique violation is treated as a duplicate", read("src/suite/client.ts").includes("status === 409"));
+check("a write with no organization is refused", (await syncSuiteSignal(signal, { ...deps, context: { organizationId: "" } }, "https://ops.trusttai.com")).status === "unavailable");
 check("the event vocabulary is the agreed one", OPS_SUITE_EVENTS.length === 10 && OPS_SUITE_EVENTS.includes("ops.rollback_performed"));
 
 const unknown = await syncSuiteSignal({ ...signal, event: "ops.shell_command" as never }, deps, "https://ops.trusttai.com");

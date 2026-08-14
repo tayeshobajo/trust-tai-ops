@@ -8,6 +8,8 @@ type SuiteSession = {
   osAccessToken: string;
   osUserId: string;
   osEmail: string;
+  /** The OS organization this handoff belongs to. Addressing, not authority. */
+  osOrganizationId: string;
   canonicalProjectId: string | null;
   expiresAt: number;
 };

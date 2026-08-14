@@ -5,6 +5,13 @@
  * logs, credentials, and technical chatter stay inside Ops. Writes go to the
  * OS `public.activities` table using the OS publishable key plus the current
  * OS user's bearer token, so OS row-level security remains the boundary.
+ *
+ * The row shape below is the live OS contract, not an Ops invention:
+ *   id, organization_id (uuid, required), event_type (text, required),
+ *   actor_user_id, app_key (text, required), entity_type, entity_id,
+ *   summary, payload (jsonb, required), provenance (jsonb, required),
+ *   occurred_at (timestamptz, required), created_at.
+ * There is no `activity_type`, no `project_id`, and no `metadata` column.
  */
 
 export const OPS_SUITE_EVENTS = [
@@ -22,6 +29,9 @@ export const OPS_SUITE_EVENTS = [
 
 export type OpsSuiteEvent = (typeof OPS_SUITE_EVENTS)[number];
 
+/** The app_key every Ops-authored activity carries in the OS. */
+export const OPS_APP_KEY = "ops";
+
 export type OpsSuiteSignal = {
   event: OpsSuiteEvent;
   opsProjectId: string;
@@ -32,13 +42,34 @@ export type OpsSuiteSignal = {
   summary: string;
   evidenceRef?: string | null;
   evidenceSummary?: string | null;
+  /**
+   * When the Ops event actually happened. Defaulted at emission time only —
+   * a historical time is never invented for an event whose time is unknown.
+   */
+  occurredAt?: string | null;
+};
+
+/**
+ * Who is writing, and into which OS organization. The organization id comes
+ * from the OS handoff and is never treated as an authorization decision: OS
+ * row-level security is the boundary that accepts or rejects the write.
+ */
+export type SuiteWriteContext = {
+  organizationId: string;
+  actorUserId?: string | null;
 };
 
 export type SuiteActivityRow = {
-  activity_type: OpsSuiteEvent;
+  organization_id: string;
+  event_type: OpsSuiteEvent;
+  actor_user_id: string | null;
+  app_key: typeof OPS_APP_KEY;
+  entity_type: string | null;
+  entity_id: string | null;
   summary: string;
-  project_id: string | null;
-  metadata: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  provenance: Record<string, unknown>;
+  occurred_at: string;
 };
 
 /**
@@ -96,29 +127,47 @@ export function destinationRoute(signal: OpsSuiteSignal, opsBaseUrl: string): st
   return `${base}/project/${encodeURIComponent(signal.opsProjectId)}${runPart}`;
 }
 
-export function buildSuiteActivity(signal: OpsSuiteSignal, opsBaseUrl: string): SuiteActivityRow {
-  const metadata: Record<string, unknown> = {
-    source_app: "ops",
+export function buildSuiteActivity(
+  signal: OpsSuiteSignal,
+  opsBaseUrl: string,
+  context: SuiteWriteContext,
+): SuiteActivityRow {
+  // Safe structured detail about the Ops event. No logs, no command output.
+  const payload: Record<string, unknown> = {
     ops_project_id: signal.opsProjectId,
     canonical_project_id: signal.canonicalProjectId,
     ops_run_id: signal.opsRunId ?? null,
-    ops_event_key: signal.opsEventKey,
-    dedupe_key: suiteDedupeKey(signal),
     evidence_ref: signal.evidenceRef ?? null,
     evidence_summary: signal.evidenceSummary ? sanitizeSummary(signal.evidenceSummary) : null,
     destination_route: destinationRoute(signal, opsBaseUrl),
   };
 
+  const provenance: Record<string, unknown> = {
+    source_app: OPS_APP_KEY,
+    source: "trust-tai-ops",
+    ops_event_key: signal.opsEventKey,
+    dedupe_key: suiteDedupeKey(signal),
+    ops_project_id: signal.opsProjectId,
+  };
+
   return {
-    activity_type: signal.event,
+    organization_id: context.organizationId,
+    event_type: signal.event,
+    // An unknown actor is left null so OS RLS decides, rather than Ops
+    // asserting an identity it cannot prove.
+    actor_user_id: context.actorUserId && context.actorUserId.length > 0 ? context.actorUserId : null,
+    app_key: OPS_APP_KEY,
+    entity_type: signal.canonicalProjectId ? "project" : null,
+    entity_id: signal.canonicalProjectId,
     summary: sanitizeSummary(signal.summary),
-    project_id: signal.canonicalProjectId,
-    metadata,
+    payload,
+    provenance,
+    occurred_at: signal.occurredAt ?? new Date().toISOString(),
   };
 }
 
 export type SuiteSyncResult =
-  | { status: "unavailable"; reason: "not_linked" | "no_os_session" | "not_configured" }
+  | { status: "unavailable"; reason: "not_linked" | "no_os_session" | "no_organization" | "not_configured" }
   | { status: "rejected"; reason: "secret_material" | "unknown_event" }
   | { status: "duplicate" }
   | { status: "written" }
@@ -127,7 +176,14 @@ export type SuiteSyncResult =
 export type SuiteSyncDeps = {
   /** Returns an existing activity id for this dedupe key, or null. */
   findExisting: (dedupeKey: string) => Promise<string | null>;
-  insert: (row: SuiteActivityRow) => Promise<void>;
+  /**
+   * Read-before-write alone is race-prone. Once the OS adds a unique index on
+   * the provenance dedupe key, a 409 unique violation is the authoritative
+   * duplicate answer, so the writer reports it rather than throwing.
+   */
+  insert: (row: SuiteActivityRow) => Promise<"written" | "duplicate">;
+  /** The OS organization and actor this browser session may write as. */
+  context: SuiteWriteContext;
 };
 
 /**
@@ -144,9 +200,10 @@ export async function syncSuiteSignal(
     return { status: "rejected", reason: "unknown_event" };
   }
   if (!deps) return { status: "unavailable", reason: "no_os_session" };
+  if (!deps.context?.organizationId) return { status: "unavailable", reason: "no_organization" };
   if (!signal.canonicalProjectId) return { status: "unavailable", reason: "not_linked" };
 
-  const row = buildSuiteActivity(signal, opsBaseUrl);
+  const row = buildSuiteActivity(signal, opsBaseUrl, deps.context);
 
   if (containsSecretMaterial(row)) {
     return { status: "rejected", reason: "secret_material" };
@@ -157,8 +214,8 @@ export async function syncSuiteSignal(
     const existing = await deps.findExisting(dedupeKey);
     if (existing) return { status: "duplicate" };
 
-    await deps.insert(row);
-    return { status: "written" };
+    const outcome = await deps.insert(row);
+    return outcome === "duplicate" ? { status: "duplicate" } : { status: "written" };
   } catch (error) {
     return { status: "failed", reason: error instanceof Error ? error.message : "sync_failed" };
   }
