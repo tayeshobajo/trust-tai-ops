@@ -540,8 +540,12 @@ Deno.serve(async (req) => {
   }
 
   const mode = typeof body.mode === "string" ? body.mode : "plan_next_agent_turn";
-  if (mode !== "plan_next_agent_turn" && mode !== "analyze_meeting_source") {
+  if (mode !== "plan_next_agent_turn" && mode !== "analyze_meeting_source" && mode !== "compose_reply") {
     return fail("invalid_input", "I don't know how to think about that.", false);
+  }
+
+  if (mode === "compose_reply") {
+    return await streamReply(model, apiKey, body.facts);
   }
 
   if (mode === "analyze_meeting_source") {
