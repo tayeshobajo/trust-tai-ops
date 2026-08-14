@@ -103,10 +103,11 @@ const OS_REST_HEADERS = (token: string, anonKey: string) => ({
 });
 
 /**
- * Read-before-write dedupe against the OS activities table. The live schema
- * has no dedicated idempotency column yet, so `provenance->>dedupe_key`
- * carries the key. When the OS adds a unique index on it, the 409 handled in
- * `insert` becomes the authoritative answer and the race closes.
+ * Dedupe against the OS activities table. The live schema now has a top-level
+ * `source_event_key` with a unique partial index on
+ * (organization_id, app_key, source_event_key), so the read below is a cheap
+ * fast path and the 409 handled in `insert` is the authoritative, race-safe
+ * answer.
  */
 function suiteDeps(): SuiteSyncDeps | null {
   const env = resolveOpsEnv();
@@ -119,8 +120,9 @@ function suiteDeps(): SuiteSyncDeps | null {
   return {
     context: { organizationId: session.osOrganizationId, actorUserId: session.osUserId },
     findExisting: async (dedupeKey: string) => {
-      // PostgREST JSON path filter: `provenance->>dedupe_key=eq.<value>`.
-      const filter = `provenance->>dedupe_key=eq.${encodeURIComponent(dedupeKey)}`;
+      // Top-level indexed column; provenance.dedupe_key is kept only for
+      // traceability and older rows.
+      const filter = `source_event_key=eq.${encodeURIComponent(dedupeKey)}`;
       const url = `${base}?select=id&app_key=eq.${OPS_APP_KEY}&${filter}&limit=1`;
       const response = await fetch(url, { headers });
       if (!response.ok) throw new Error("os_activity_read_failed");
