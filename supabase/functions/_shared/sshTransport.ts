@@ -235,7 +235,7 @@ export const denoSshTransport = (): SshTransport => ({
           },
         });
       } catch (error) {
-        finish(connectFailure(error, presented) as never);
+        finish(connectFailure(error, presented));
       }
     });
   },
