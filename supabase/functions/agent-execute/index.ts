@@ -17,7 +17,12 @@ import { fetchSafely, readBounded, redact, safeHeaders, validatePublicUrl } from
 import { capabilityTruth, resolveCredential, resolveRawSecret } from "../_shared/secretStore.ts";
 import { loginPathFromConfig } from "../_shared/verification.ts";
 import { openWordPressSession } from "../_shared/wpSession.ts";
-import { authenticatedGet, normalizeHealthTest, normalizePlugins } from "../_shared/wordpress.ts";
+import {
+  authenticatedGet,
+  normalizeHealthTest,
+  normalizePlugins,
+  pluginsFromAdminHtml,
+} from "../_shared/wordpress.ts";
 import { runReadOnlyWpCli } from "../_shared/wpCli.ts";
 import { denoSftpTransport, denoSshTransport } from "../_shared/sshTransport.ts";
 import { readWordPressErrorLog } from "../_shared/errorLog.ts";
@@ -93,7 +98,18 @@ const privateReader = async (projectId: string, canonicalUrl: string) => {
     return authenticatedGet(canonicalUrl, path, null, fetch, signedIn.cookie, signedIn.nonce);
   };
 
-  return { ok: true as const, deps, get };
+  /**
+   * The same read a person would do in a browser: a signed-in GET of an admin
+   * page. Used only when the REST route refuses, and only ever for reading.
+   */
+  const getAdminPage = async (path: string) => {
+    const signedIn = await openSession();
+    if (!signedIn) return null;
+    const outcome = await authenticatedGet(canonicalUrl, path, null, fetch, signedIn.cookie, signedIn.nonce);
+    return outcome.ok ? outcome.body : null;
+  };
+
+  return { ok: true as const, deps, get, getAdminPage };
 };
 
 // --- public inspections (unchanged behaviour) -------------------------------
