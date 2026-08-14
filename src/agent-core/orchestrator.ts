@@ -572,13 +572,34 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
     }
 
     stallCount = 0;
+    // Verify-after-act: the step is judged on its own evidence before the
+    // loop is allowed to treat it as progress.
+    const verification = verifyStep(action, outcome.evidence);
     workingPlan = markStep(
       workingPlan,
       stepKeyFor(action),
-      "done",
-      outcome.evidence[0]?.summary ?? "",
+      verification.verdict === "verified" ? "done" : "unverified",
+      verification.note,
       outcome.evidence[0]?.id ?? null,
     );
+
+    if (verification.verdict !== "verified") {
+      // A step that did not answer its own question is not progress, however
+      // successfully the tool returned.
+      context = {
+        ...context,
+        failedObservations: [
+          ...(context.failedObservations ?? []),
+          { toolId: action.toolId, code: "tool_unavailable" as ToolFailureCode },
+        ],
+      };
+      stallCount += 1;
+      if (stallCount >= MAX_ITERATIONS_WITHOUT_PROGRESS) {
+        stopReason = "safe_stop";
+        break;
+      }
+    }
+
     for (const item of outcome.evidence) {
       learned.push(item);
       workingPlan = applyEvidence(workingPlan, item);
