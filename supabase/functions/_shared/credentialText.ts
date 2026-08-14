@@ -179,17 +179,17 @@ type Field =
 const FIELD_RULES: Array<{ re: RegExp; field: Field; section?: Section }> = [
   // "Wp-admin:" arrives here as the bare word "admin" once the section prefix
   // has been peeled off.
-  { re: /^(?:admin|wp[ _-]?admin|wp[ _-]?admin[ _-]?url|admin[ _-]?url|admin[ _-]?login|dashboard)$/i, field: "adminUrl", section: "wordpress" },
-  { re: /^(?:url|site|site[ _-]?url|website|domain|wordpress[ _-]?url)$/i, field: "siteUrl", section: "wordpress" },
+  { re: /^(?:admin|wp[ _-]?admin|wp[ _-]?admin[ _-]?url|admin[ _-]?url|admin[ _-]?login|admin[ _-]?page|dashboard|dashboard[ _-]?url|login[ _-]?url|login[ _-]?page)$/i, field: "adminUrl", section: "wordpress" },
+  { re: /^(?:url|site|site[ _-]?url|site[ _-]?address|website|domain|wordpress[ _-]?url|home[ _-]?url|home)$/i, field: "siteUrl", section: "wordpress" },
   { re: /^(?:app(?:lication)?[ _-]?password)$/i, field: "appPassword", section: "wordpress" },
-  { re: /^(?:admin[ _-]?)?(?:email|e-?mail|login|user[ _-]?email)$/i, field: "identity", section: "wordpress" },
-  { re: /^(?:host|hostname|host[ _-]?name|server|address|host[ _-]?address|server[ _-]?address|ip|ip[ _-]?address)$/i, field: "host" },
-  { re: /^(?:port|port[ _-]?number)$/i, field: "port" },
-  { re: /^(?:protocol)$/i, field: "protocol" },
-  { re: /^(?:private[ _-]?key|key)$/i, field: "privateKey" },
-  { re: /^(?:passphrase|key[ _-]?passphrase)$/i, field: "passphrase" },
-  { re: /^(?:user|username|user[ _-]?name|account)$/i, field: "username" },
-  { re: /^(?:password|passwd|pwd|pass)$/i, field: "password" },
+  { re: /^(?:admin[ _-]?)?(?:email|e-?mail|login|user[ _-]?email|wp[ _-]?user|wp[ _-]?login)$/i, field: "identity", section: "wordpress" },
+  { re: /^(?:host|hostname|host[ _-]?name|server|address|host[ _-]?address|server[ _-]?address|ip|ip[ _-]?address|sftp[ _-]?host|ftp[ _-]?host)$/i, field: "host" },
+  { re: /^(?:port|port[ _-]?number|sftp[ _-]?port|ftp[ _-]?port)$/i, field: "port" },
+  { re: /^(?:protocol|type)$/i, field: "protocol" },
+  { re: /^(?:private[ _-]?key|ssh[ _-]?key|key)$/i, field: "privateKey" },
+  { re: /^(?:passphrase|key[ _-]?passphrase|ssh[ _-]?passphrase)$/i, field: "passphrase" },
+  { re: /^(?:user|username|user[ _-]?name|account|sftp[ _-]?user|ftp[ _-]?user|ssh[ _-]?user)$/i, field: "username" },
+  { re: /^(?:password|passwd|pwd|pass|sftp[ _-]?password|ftp[ _-]?password|ssh[ _-]?password)$/i, field: "password" },
 ];
 
 // ---------------------------------------------------------------------------
