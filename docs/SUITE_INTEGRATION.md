@@ -31,7 +31,7 @@ technical operational state. Nothing was migrated in either direction.
    the OS auth service inside the function.
 3. **Ops function secrets** — set on the Ops project:
    - `TRUST_TAI_OS_SUPABASE_URL` = `https://okydosoacqdnursmmenf.supabase.co`
-   - `TRUST_TAI_OS_PUBLISHABLE_KEY` = the OS browser-safe anon/publishable key
+   - `TRUST_TAI_OS_SUPABASE_ANON_KEY` = the OS browser-safe anon/publishable key
    `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` already exist and are used
    only inside the function.
 4. **Browser-safe build vars** — set in the hosting environment (and mirrored
