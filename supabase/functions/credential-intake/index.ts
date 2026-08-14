@@ -365,11 +365,8 @@ Deno.serve(async (req) => {
       accessType,
       provider: keyBased ? "ssh_private_key" : "sftp_password",
       mode: keyBased ? "Private key" : "Password",
-      // Only key-based access has a maintained server-side verifier here.
-      verification: keyBased ? "unverified" : "unsupported",
-      note: keyBased
-        ? "Stored securely. I haven't connected yet — checking it will also record the server's identity."
-        : "Stored securely, but this deployment verifies server access with a key, not a password, so I can't confirm it yet.",
+      verification: "unverified",
+      note: "Stored securely. I haven't connected yet — the first connection will also record the server's identity.",
     });
   }
 

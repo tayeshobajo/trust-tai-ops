@@ -23,7 +23,8 @@ export type SshAccess = {
   host: string;
   port: number;
   username: string;
-  privateKey: string;
+  privateKey?: string;
+  password?: string;
   passphrase?: string;
   wpRoot: string | null;
   wpBinary: string | null;
@@ -33,13 +34,21 @@ export type SshAccess = {
 export type SshAccessResult = { ok: true; access: SshAccess } | { ok: false; code: string; summary: string };
 
 /** The shape sealed into the secret column. Only ever secret material. */
-type SshSecretPayload = { privateKey?: unknown; passphrase?: unknown };
+type SshSecretPayload = { privateKey?: unknown; password?: unknown; passphrase?: unknown };
+
+/**
+ * Server access can be stored under either access type: `ssh` (key based, via
+ * Access & Connections) or `sftp` (password based, usually pasted in chat).
+ * Both reach the same SSH/SFTP server, so both are resolvable here.
+ */
+const SERVER_ACCESS_TYPES = ["ssh", "sftp"] as const;
 
 export const resolveSshAccess = async (
   deps: SecretStoreDeps,
   projectId: string,
 ): Promise<SshAccessResult> => {
-  const resolved = await resolveRawSecret(deps, projectId, "ssh");
+  let resolved = await resolveRawSecret(deps, projectId, SERVER_ACCESS_TYPES[0]);
+  if (!resolved.ok) resolved = await resolveRawSecret(deps, projectId, SERVER_ACCESS_TYPES[1]);
   if (!resolved.ok) {
     return {
       ok: false,
@@ -58,8 +67,20 @@ export const resolveSshAccess = async (
     return { ok: false, code: "secret_store_unavailable", summary: "The stored SSH access could not be read." };
   }
 
-  const key = validatePrivateKey(String(payload.privateKey ?? ""));
-  if (!key.ok) return { ok: false, code: "capability_unavailable", summary: key.reason };
+  const rawKey = String(payload.privateKey ?? "");
+  const password = typeof payload.password === "string" ? payload.password : "";
+  let privateKey: string | undefined;
+  if (rawKey) {
+    const key = validatePrivateKey(rawKey);
+    if (!key.ok) return { ok: false, code: "capability_unavailable", summary: key.reason };
+    privateKey = key.key;
+  } else if (!password) {
+    return {
+      ok: false,
+      code: "capability_unavailable",
+      summary: "I don't have usable server access stored for this project yet.",
+    };
+  }
 
   const config = (resolved.row.config ?? {}) as Record<string, unknown>;
   const destination = validateSshDestination(String(config.host ?? ""), config.port);
@@ -74,7 +95,8 @@ export const resolveSshAccess = async (
       host: destination.host,
       port: destination.port,
       username: username.username,
-      privateKey: key.key,
+      privateKey,
+      password: password || undefined,
       passphrase: typeof payload.passphrase === "string" && payload.passphrase ? payload.passphrase : undefined,
       wpRoot: typeof config.wpRoot === "string" && config.wpRoot ? config.wpRoot : null,
       wpBinary: typeof config.wpBinary === "string" && config.wpBinary ? config.wpBinary : null,
@@ -93,7 +115,7 @@ export type WpCliRunResult =
   | { ok: false; code: string; summary: string; retryable: boolean };
 
 const FAILURE_SUMMARY: Record<string, string> = {
-  auth_failed: "The server did not accept the stored SSH key. Please replace the SSH access.",
+  auth_failed: "The server did not accept the stored server sign-in. Please replace the SSH or SFTP access.",
   unreachable: "I could not reach that server over SSH, so nothing ran.",
   timeout: "The server did not answer the inspection in time, so I stopped it.",
   host_key_rejected: "I stopped because the server's identity key did not match the one I recorded.",
@@ -138,6 +160,7 @@ export const runReadOnlyWpCli = async (
       port: access.access.port,
       username: access.access.username,
       privateKey: access.access.privateKey,
+      password: access.access.password,
       passphrase: access.access.passphrase,
     },
     built.command,
