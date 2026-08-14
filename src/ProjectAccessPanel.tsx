@@ -612,6 +612,7 @@ export function ProjectAccessPanel({
             onClick={(event) => event.stopPropagation()}
           >
             <h2>{editing.existingId ? "Replace" : "Add"} {activeDefinition.label}</h2>
+            {drawerNotice ? <p className="access-notice">{drawerNotice}</p> : null}
             {prefilling ? <p className="access-drawer-note">Loading the details you saved before…</p> : null}
             {activeGuidance ? (
               <div className="access-host-guide">
@@ -690,11 +691,15 @@ export function ProjectAccessPanel({
             </p>
 
             <div className="access-drawer-actions">
-              <button className="ghost-button" type="button" onClick={() => { setEditing(null); setValues({}); }}>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => { setEditing(null); setValues({}); setDrawerNotice(""); }}
+              >
                 Cancel
               </button>
               <button className="primary-button" type="button" disabled={!canWrite || busy} onClick={() => void submitConnection()}>
-                Save connection
+                {busy ? "Saving…" : "Save connection"}
               </button>
             </div>
           </div>
