@@ -86,9 +86,13 @@ check("a token in the address bar is detected", locationCarriesToken("https://op
 check("a clean landing url is fine", !locationCarriesToken("https://ops.trusttai.com/sso"));
 check("the landing route is recognised", isSsoLandingPath("/sso") && isSsoLandingPath("/sso/"));
 
+// Comments talk about localStorage on purpose; only real code matters here.
+const stripComments = (source: string) =>
+  source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
 const suiteSources = ["src/suite/ssoBridge.ts", "src/suite/osToken.ts", "src/suite/client.ts", "src/SsoLanding.tsx"];
 for (const file of suiteSources) {
-  const source = read(file);
+  const source = stripComments(read(file));
   check(`${file} never writes the OS token to localStorage`, !/localStorage/.test(source));
   check(`${file} never puts a token in a query string`, !/access_token=/.test(source) || file.includes("ssoBridge"));
 }
