@@ -4308,8 +4308,7 @@ button:focus-visible {
   font-size: 0.78rem;
 }
 
-.access-intro,
-.access-notice {
+.access-intro {
   max-width: 62ch;
   margin: 0;
   color: var(--tt-muted, #6a7280);
@@ -4318,12 +4317,67 @@ button:focus-visible {
 }
 
 .access-notice {
-  padding: var(--tt-space-3) var(--tt-space-4);
-  border: 1px solid var(--tt-rule);
-  border-left: 3px solid var(--tt-royal);
-  border-radius: 10px;
-  background: #fff;
+  width: min(100%, 62ch);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tt-space-3);
+  margin: 0;
+  padding: var(--tt-space-4);
+  border: 1px solid color-mix(in srgb, var(--tt-warning) 35%, var(--tt-rule));
+  border-left: 5px solid var(--tt-warning);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--tt-warning) 7%, var(--tt-paper));
   color: var(--tt-ink);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--tt-ink) 8%, transparent);
+}
+
+.access-notice.is-error {
+  border-color: color-mix(in srgb, var(--tt-danger) 35%, var(--tt-rule));
+  border-left-color: var(--tt-danger);
+  background: color-mix(in srgb, var(--tt-danger) 7%, var(--tt-paper));
+}
+
+.access-notice.is-success {
+  border-color: color-mix(in srgb, var(--tt-success) 35%, var(--tt-rule));
+  border-left-color: var(--tt-success);
+  background: color-mix(in srgb, var(--tt-success) 7%, var(--tt-paper));
+}
+
+.access-notice-icon {
+  flex: 0 0 24px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--tt-warning);
+  color: var(--tt-paper);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.access-notice.is-error .access-notice-icon {
+  background: var(--tt-danger);
+}
+
+.access-notice.is-success .access-notice-icon {
+  background: var(--tt-success);
+}
+
+.access-notice strong {
+  display: block;
+  margin-bottom: var(--tt-space-1);
+  font-family: var(--tt-font-mono);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.access-notice p {
+  margin: 0;
+  font-size: 0.94rem;
+  line-height: 1.5;
 }
 
 .access-grid {

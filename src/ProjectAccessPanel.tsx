@@ -44,6 +44,33 @@ type ConnectionDefinition = {
   executable?: boolean;
 };
 
+type AccessNotice = {
+  message: string;
+  tone: "success" | "warning" | "error";
+};
+
+const Notice = ({ notice }: { notice: AccessNotice }) => (
+  <div
+    className={`access-notice is-${notice.tone}`}
+    role={notice.tone === "error" ? "alert" : "status"}
+    aria-live={notice.tone === "error" ? "assertive" : "polite"}
+  >
+    <span className="access-notice-icon" aria-hidden="true">
+      {notice.tone === "success" ? "✓" : "!"}
+    </span>
+    <div>
+      <strong>
+        {notice.tone === "success"
+          ? "Access updated"
+          : notice.tone === "error"
+            ? "Connection failed"
+            : "Action needed"}
+      </strong>
+      <p>{notice.message}</p>
+    </div>
+  </div>
+);
+
 const CONNECTION_TYPES: ConnectionDefinition[] = [
   {
     type: "wordpress_admin",
@@ -239,10 +266,10 @@ export function ProjectAccessPanel({
   const [editing, setEditing] = useState<{ type: AccessType; existingId?: string } | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<AccessNotice | null>(null);
   // Anything that goes wrong while the drawer is open must be said inside the
   // drawer — the page-level notice sits behind the scrim and is never seen.
-  const [drawerNotice, setDrawerNotice] = useState("");
+  const [drawerNotice, setDrawerNotice] = useState<AccessNotice | null>(null);
   // Non-secret details only. A secret is never fetched back into the form.
   const [prefilling, setPrefilling] = useState(false);
 
@@ -308,7 +335,7 @@ export function ProjectAccessPanel({
     setBusy(true);
     try {
       onWorkspaceUpdate(await work());
-      setNotice(message);
+      setNotice({ message, tone: "success" });
       // Access persistence has already succeeded. History is best-effort and
       // must never undo or block the access change.
       if (event) {
@@ -321,8 +348,9 @@ export function ProjectAccessPanel({
       return true;
     } catch (error) {
       const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
-      setNotice(`I couldn't save that connection${detail}. Nothing was changed.`);
-      setDrawerNotice(`I couldn't save that connection${detail}. Nothing was changed.`);
+      const message = `I couldn't save that connection${detail}. Nothing was changed.`;
+      setNotice({ message, tone: "error" });
+      setDrawerNotice({ message, tone: "error" });
       return false;
     } finally {
       setBusy(false);
@@ -333,7 +361,7 @@ export function ProjectAccessPanel({
     if (!editing) return;
     const definition = CONNECTION_TYPES.find((item) => item.type === editing.type);
     if (!definition) return;
-    setDrawerNotice("");
+    setDrawerNotice(null);
 
     const existing = editing.existingId ? project.accessMethods.find((item) => item.id === editing.existingId) : null;
     const detail = [values.host, values.user].filter(Boolean).join(" · ");
@@ -347,15 +375,16 @@ export function ProjectAccessPanel({
       const isSsh = definition.type === "ssh";
 
       if (!username || secret.trim().length < 8) {
-        setDrawerNotice(
-          isSsh
+        setDrawerNotice({
+          message: isSsh
             ? "I need the SSH username and the whole private key."
             : "I need the WordPress username and a complete Application Password.",
-        );
+          tone: "warning",
+        });
         return;
       }
       if (isSsh && !(values.host ?? "").trim()) {
-        setDrawerNotice("I need the server address before I can store SSH access.");
+        setDrawerNotice({ message: "I need the server address before I can store SSH access.", tone: "warning" });
         return;
       }
 
@@ -380,7 +409,7 @@ export function ProjectAccessPanel({
         const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
         setValues({});
         setBusy(false);
-        setDrawerNotice(`I couldn't reach the secure store${detail}, so nothing was stored.`);
+        setDrawerNotice({ message: `I couldn't reach the secure store${detail}, so nothing was stored.`, tone: "error" });
         return;
       }
       // Drop the key and passphrase from component state immediately.
@@ -388,7 +417,7 @@ export function ProjectAccessPanel({
       setBusy(false);
 
       if (!stored.ok) {
-        setDrawerNotice(stored.summary);
+        setDrawerNotice({ message: stored.summary, tone: "error" });
         return;
       }
       credentialReference = stored.secretReference;
@@ -420,7 +449,7 @@ export function ProjectAccessPanel({
 
     setValues({});
     setEditing(null);
-    setDrawerNotice("");
+    setDrawerNotice(null);
   };
 
   const activeDefinition = editing
@@ -445,7 +474,10 @@ export function ProjectAccessPanel({
         project.id,
         definition.type === "ssh" ? "ssh" : "wordpress_admin",
       );
-      setNotice(outcome.summary);
+      setNotice({
+        message: outcome.summary,
+        tone: outcome.state === "verified" ? "success" : outcome.state === "rejected" ? "error" : "warning",
+      });
       // The server decided this. The repository reconciles the stored record
       // with the server's outcome — on the native adapter that is a pure
       // re-read, because the function already wrote the row.
@@ -494,7 +526,7 @@ export function ProjectAccessPanel({
         The other connections record where access lives; their credentials aren&apos;t stored here yet.
       </p>
 
-      {notice ? <p className="access-notice">{notice}</p> : null}
+      {notice ? <Notice notice={notice} /> : null}
 
       <div className="access-grid">
         {connectionTypes.map((definition) => {
@@ -548,7 +580,7 @@ export function ProjectAccessPanel({
                       disabled={!canWrite || busy}
                       onClick={() => {
                         setValues({});
-                        setDrawerNotice("");
+                        setDrawerNotice(null);
                         setEditing({ type: definition.type, existingId: method.id });
                       }}
                     >
@@ -576,7 +608,7 @@ export function ProjectAccessPanel({
                     disabled={!canWrite || busy}
                     onClick={() => {
                       setValues({});
-                      setDrawerNotice("");
+                      setDrawerNotice(null);
                       setEditing({ type: definition.type });
                     }}
                   >
@@ -614,7 +646,7 @@ export function ProjectAccessPanel({
             onClick={(event) => event.stopPropagation()}
           >
             <h2>{editing.existingId ? "Replace" : "Add"} {activeDefinition.label}</h2>
-            {drawerNotice ? <p className="access-notice">{drawerNotice}</p> : null}
+            {drawerNotice ? <Notice notice={drawerNotice} /> : null}
             {prefilling ? <p className="access-drawer-note">Loading the details you saved before…</p> : null}
             {activeGuidance ? (
               <div className="access-host-guide">
