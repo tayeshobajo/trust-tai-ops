@@ -921,23 +921,58 @@ export function ProjectWorkspace({
       }
       if (runId) setActiveRunId(runId);
 
-      await emit({
+      const sharedMessage = await emit({
         runId,
         role: "user",
         kind: "message",
         body: result.message,
         dedupeKey: `${intakeKey}-shared`,
       });
-      await emit({
-        runId,
-        role: "agent",
-        kind: "message",
-        body: result.reply,
-        dedupeKey: `${intakeKey}-reply`,
-      });
 
       // Access cards follow server truth, never a client claim.
-      onWorkspaceUpdate(await workspaceRepository.loadWorkspace());
+      const refreshed = await workspaceRepository.loadWorkspace();
+      onWorkspaceUpdate(refreshed);
+
+      // Sharing access mid-conversation is not the start of a new one. The
+      // agent thinks about what just became possible and continues the thread
+      // in its own voice; the terse intake lines are only a fallback.
+      const nextProject = refreshed.projects.find((item) => item.id === project.id) ?? project;
+      const nextRun = nextProject.runs.find((item) => item.id === runId) ?? null;
+
+      let spoke = false;
+      if (nextRun) {
+        setAgentBusy(true);
+        try {
+          const outcome = await respondToUserMessage({
+            project: nextProject,
+            run: nextRun,
+            emit,
+            onWorkspaceUpdate,
+            recentMessages: [
+              ...messages.filter((message) => message.runId === nextRun.id),
+              ...(sharedMessage ? [sharedMessage] : []),
+            ],
+            memory: nextProject.memoryEntries,
+            onStream: setStreamingText,
+          });
+          spoke = outcome.spoke;
+        } catch {
+          spoke = false;
+        } finally {
+          setStreamingText("");
+          setAgentBusy(false);
+        }
+      }
+
+      if (!spoke) {
+        await emit({
+          runId,
+          role: "agent",
+          kind: "message",
+          body: result.reply,
+          dedupeKey: `${intakeKey}-reply`,
+        });
+      }
     } catch {
       setPersistError("I couldn't complete that securely, so nothing was stored. Please try again.");
     } finally {
