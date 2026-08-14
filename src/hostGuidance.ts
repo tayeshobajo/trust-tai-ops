@@ -61,10 +61,14 @@ export const hostGuidance = (project: Project, type: AccessType): HostGuidance |
   };
 };
 
-/** A compact form of the same knowledge, for the agent's facts sheet. */
+/**
+ * A compact form of the same knowledge for the agent's facts sheet. The sheet
+ * bounds each line hard, so this says the part the agent must not get wrong.
+ */
 export const hostGuidanceFact = (project: Project): string | null => {
-  const guidance = hostGuidance(project, "ssh");
-  return guidance
-    ? `This site is hosted on ${guidance.host}. ${guidance.summary} If you need SSH, walk them through it: ${guidance.steps.join(" ")}`
-    : null;
+  if (detectHost(project) !== "wpengine") return null;
+  const install = wpEngineInstall(haystack(project));
+  return `Hosted on WP Engine: SSH there is key-only, so never ask for an SSH password. They generate an ed25519 key, add the public half in the WP Engine portal, and paste the private half here; host ${
+    install ? `${install}.ssh.wpengine.net` : "<install>.ssh.wpengine.net"
+  }, port 22.`;
 };
