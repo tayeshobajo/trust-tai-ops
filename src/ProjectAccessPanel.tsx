@@ -591,6 +591,7 @@ export function ProjectAccessPanel({
             onClick={(event) => event.stopPropagation()}
           >
             <h2>{editing.existingId ? "Replace" : "Add"} {activeDefinition.label}</h2>
+            {prefilling ? <p className="access-drawer-note">Loading the details you saved before…</p> : null}
             <p className="access-drawer-note">
               {activeDefinition.executable
                 ? activeDefinition.type === "ssh"
