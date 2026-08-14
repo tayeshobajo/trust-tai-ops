@@ -198,6 +198,51 @@ export type Database = {
           },
         ]
       }
+      knowledge_base_entries: {
+        Row: {
+          created_at: string
+          evidence_signals: Json
+          host_context: string | null
+          id: string
+          last_confirmed_at: string
+          project_count: number
+          resolution: string
+          scope: string
+          symptom_pattern: string
+          task_type: string
+          tools_used: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          evidence_signals?: Json
+          host_context?: string | null
+          id?: string
+          last_confirmed_at?: string
+          project_count?: number
+          resolution: string
+          scope?: string
+          symptom_pattern: string
+          task_type: string
+          tools_used?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          evidence_signals?: Json
+          host_context?: string | null
+          id?: string
+          last_confirmed_at?: string
+          project_count?: number
+          resolution?: string
+          scope?: string
+          symptom_pattern?: string
+          task_type?: string
+          tools_used?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
       memory_candidates: {
         Row: {
           analysis_id: string
