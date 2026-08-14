@@ -87,6 +87,9 @@ export const isToolEligibleForStack = (toolId: ToolId, stack: string): boolean =
   !WORDPRESS_ONLY_TOOLS.has(toolId) || stack === "wordpress";
 
 /** The single place that answers "may this action run right now?". */
+const firstBlocker = (...verdicts: PolicyVerdict[]): PolicyVerdict =>
+  verdicts.find((verdict) => !verdict.executable) ?? { executable: true };
+
 export const evaluateAction = (action: AgentAction, context: AgentContext): PolicyVerdict => {
   const stack = getProjectStack(context.project);
 
