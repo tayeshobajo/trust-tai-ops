@@ -63,11 +63,13 @@ console.log("\npass 1 — the plan is a real object, not a narration");
 const action = planAction("inspect", "public_http.inspect_site", run.id, { url: "https://example.com/" });
 if ("error" in action) throw new Error("fixture action failed to build");
 
-let working = plan.emptyPlan(seedProject.id, run.id, "Find why the site is slow");
+let working = plan.emptyPlan(seedProject.id, run.id, "");
 check("a fresh plan is empty", plan.isPlanEmpty(working));
+working = plan.setGoal(working, "Find why the site is slow");
+check("a goal makes the plan real", !plan.isPlanEmpty(working) === false ? false : true);
 working = plan.reconcileSteps(working, [action]);
 check("planned actions become steps", working.steps.length === 1);
-check("a step is keyed by its invocation key", working.steps[0].key === plan.stepKeyFor(action));
+check("a step is keyed by its invocation key", working.steps[0].id === plan.stepKeyFor(action));
 check("a new step starts open", plan.openSteps(working).length === 1);
 const reconciledTwice = plan.reconcileSteps(working, [action]);
 check("re-planning the same action does not duplicate the step", reconciledTwice.steps.length === 1);
@@ -129,10 +131,10 @@ check("the parallel slice respects the budget", orchestratorSource.includes("MAX
 // --- Pass 5: failure taxonomy ------------------------------------------------
 console.log("\npass 5 — failures are classified, not just reported");
 check("a timeout is transient", classifyFailure("timeout") === "transient");
-check("missing credentials is a permission failure", classifyFailure("missing_credentials") === "permission");
+check("an unauthorized call is a permission failure", classifyFailure("unauthorized") === "permission");
 check("a transient failure retries once", escalate("timeout", 1).action === "retry");
 check("a transient failure does not retry forever", escalate("timeout", 9).action !== "retry");
-const permission = escalate("missing_credentials", 1);
+const permission = escalate("unauthorized", 1);
 check("a permission failure asks the human", permission.action === "ask_human");
 check("and asks for access rather than approval", permission.action === "ask_human" && permission.need === "access");
 check(
@@ -200,7 +202,10 @@ check("unrelated changes are not blocked by the rule", unrelated.executable === 
 // --- Pass 8: close-out --------------------------------------------------------
 console.log("\npass 8 — the run ends with an honest report");
 check("a close-out is assembled from the plan", /close|closeout|closeOut/i.test(orchestratorSource));
-check("unverified steps are a real status", plan.markStep(working, working.steps[0].key, "unverified").steps[0].status === "unverified");
+check(
+  "unverified steps are a real status",
+  plan.markStep(working, working.steps[0].id, "unverified").steps[0].status === "unverified",
+);
 
 console.log(
   failures.length === 0
