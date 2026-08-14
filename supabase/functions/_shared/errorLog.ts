@@ -34,6 +34,7 @@ export type ErrorLogResult =
 const FAILURE_SUMMARY: Record<string, string> = {
   auth_failed: "The server did not accept the stored SSH key, so I could not read the error log. Please replace the SSH access.",
   unreachable: "I could not reach that server over SSH, so I read nothing.",
+  bad_credential: "I could not read the stored SSH key, so I read nothing.",
   timeout: "The server did not answer in time, so I stopped reading.",
   host_key_rejected: "I stopped because the server's identity key did not match the one I recorded.",
   protocol_error: "The server connected but refused the read.",

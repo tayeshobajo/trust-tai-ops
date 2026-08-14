@@ -120,6 +120,7 @@ const FAILURE_SUMMARY: Record<string, string> = {
   timeout: "The server did not answer the inspection in time, so I stopped it.",
   host_key_rejected: "I stopped because the server's identity key did not match the one I recorded.",
   protocol_error: "The server connected but refused to run the inspection.",
+  bad_credential: "I could not read the stored SSH key, so nothing ran.",
 };
 
 /**
@@ -187,7 +188,10 @@ export const runReadOnlyWpCli = async (
     return {
       ok: false,
       code: outcome.kind,
-      summary: FAILURE_SUMMARY[outcome.kind] ?? "The server inspection did not complete.",
+      // The transport's own wording is more specific than the generic map
+      // whenever it has something real to say (an unreadable key, a rejected
+      // host identity), so it wins.
+      summary: outcome.detail || FAILURE_SUMMARY[outcome.kind] || "The server inspection did not complete.",
       retryable: outcome.kind === "unreachable" || outcome.kind === "timeout",
     };
   }

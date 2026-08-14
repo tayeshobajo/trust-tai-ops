@@ -51,7 +51,7 @@ export type SshExecOutcome =
     }
   | {
       ok: false;
-      kind: "auth_failed" | "unreachable" | "timeout" | "host_key_rejected" | "protocol_error";
+      kind: "auth_failed" | "unreachable" | "timeout" | "host_key_rejected" | "protocol_error" | "bad_credential";
       fingerprint: string | null;
       detail: string;
     };
@@ -94,6 +94,32 @@ const boundedCollector = (limit: number) => {
     get truncated() {
       return truncated;
     },
+  };
+};
+
+
+/**
+ * A throw out of `client.connect` almost never means the network was down —
+ * the usual cause is a private key the parser could not read (line breaks lost
+ * on paste, wrong passphrase). Reporting that as "unreachable" sent people
+ * looking at their firewall instead of their key, so the two are separated.
+ */
+const connectFailure = (error: unknown, presented: string | null): SshExecOutcome & { ok: false } => {
+  const message = String((error as Error)?.message ?? error ?? "");
+  if (/key|passphrase|decrypt|decode|parse|base64|malformed|unsupported|OPENSSH|PEM/i.test(message)) {
+    return {
+      ok: false,
+      kind: "bad_credential",
+      fingerprint: presented,
+      detail:
+        "I could not read that SSH private key. Paste the whole key file, including the BEGIN and END lines, each on its own line - and add the passphrase if the key has one.",
+    };
+  }
+  return {
+    ok: false,
+    kind: "unreachable",
+    fingerprint: presented,
+    detail: "I could not open an SSH connection to that server.",
   };
 };
 
@@ -208,13 +234,8 @@ export const denoSshTransport = (): SshTransport => ({
             return acceptHostKey(presented);
           },
         });
-      } catch {
-        finish({
-          ok: false,
-          kind: "unreachable",
-          fingerprint: presented,
-          detail: "I could not open an SSH connection to that server.",
-        });
+      } catch (error) {
+        finish(connectFailure(error, presented));
       }
     });
   },
@@ -244,7 +265,7 @@ export type SftpTailOutcome =
   | { ok: true; files: SftpTailFile[]; fingerprint: string; durationMs: number }
   | {
       ok: false;
-      kind: "auth_failed" | "unreachable" | "timeout" | "host_key_rejected" | "protocol_error" | "sftp_unavailable";
+      kind: "auth_failed" | "unreachable" | "timeout" | "host_key_rejected" | "protocol_error" | "sftp_unavailable" | "bad_credential";
       fingerprint: string | null;
       detail: string;
     };
@@ -424,8 +445,8 @@ export const denoSftpTransport = (): SftpTransport => ({
             return acceptHostKey(presented);
           },
         });
-      } catch {
-        finish({ ok: false, kind: "unreachable", fingerprint: presented, detail: "I could not open an SSH connection to that server." });
+      } catch (error) {
+        finish(connectFailure(error, presented) as never);
       }
     });
   },
