@@ -215,7 +215,7 @@ const describe = (evidence: AgentEvidence): string[] => {
 
 export type ActionOutcome =
   | { kind: "evidence"; evidence: AgentEvidence[] }
-  | { kind: "blocked"; requires: "access" | "backup" | "approval" | "backend"; reason: string }
+  | { kind: "blocked"; requires: "access" | "backup" | "approval" | "backend" | "read_first"; reason: string }
   | { kind: "failed"; code: ToolFailureCode; retryable: boolean }
   | { kind: "in_flight" };
 
@@ -501,6 +501,15 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
       } else if (outcome.requires === "backup" || outcome.requires === "approval") {
         awaiting = outcome.requires;
         stopReason = "approval_required";
+      } else if (outcome.requires === "read_first") {
+        // Not a human's problem. The agent owes itself a read, so it keeps
+        // going and lets the next iteration plan one.
+        stallCount += 1;
+        if (stallCount >= MAX_ITERATIONS_WITHOUT_PROGRESS) {
+          stopReason = "safe_stop";
+          break;
+        }
+        continue;
       } else {
         stopReason = "tool_unavailable";
       }
