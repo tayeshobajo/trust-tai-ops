@@ -444,7 +444,8 @@ export function ProjectWorkspace({
     if (key && emitRef.current.has(key)) return null;
     // The agent repeating itself word for word is noise, never news. The same
     // sentence from the agent is said once per session, whatever produced it.
-    const echo = input.role === "agent" ? `echo:${input.body.join("\n")}` : null;
+    // Wording that only differs by punctuation or casing is the same sentence.
+    const echo = input.role === "agent" ? `echo:${echoSignature(input.body)}` : null;
     if (echo && emitRef.current.has(echo)) return null;
     if (echo) emitRef.current.add(echo);
     if (key) emitRef.current.add(key);
