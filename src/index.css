@@ -5795,6 +5795,63 @@ p, li {
   margin-top: 0.15rem;
 }
 
+.pw-plan-more {
+  margin-top: var(--tt-space-2);
+  font-size: 0.78rem;
+  opacity: 0.6;
+}
+
+.pw-health-list {
+  list-style: none;
+  margin: var(--tt-space-2) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--tt-space-2);
+}
+
+.pw-health-row {
+  display: grid;
+  grid-template-columns: 0.6rem 1fr auto;
+  align-items: baseline;
+  gap: var(--tt-space-2);
+  font-size: 0.85rem;
+}
+
+.pw-health-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--tt-ink) 25%, transparent);
+}
+
+.pw-health-row.is-good .pw-health-dot {
+  background: #2f8f5b;
+}
+
+.pw-health-row.is-warn .pw-health-dot {
+  background: #c98a1e;
+}
+
+.pw-health-row.is-bad .pw-health-dot {
+  background: #b8452f;
+}
+
+.pw-health-label {
+  opacity: 0.75;
+}
+
+.pw-health-value {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--tt-ink);
+}
+
+.pw-health-note {
+  margin-top: var(--tt-space-2);
+  font-size: 0.75rem;
+  opacity: 0.55;
+}
+
 .pw-card {
   background: var(--tt-quiet-tint);
   border: 0;
