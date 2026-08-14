@@ -36,6 +36,13 @@ import {
 } from "../src/suite/osActivity.ts";
 import type { OpsSuiteSignal, SuiteActivityRow, SuiteWriteContext } from "../src/suite/osActivity.ts";
 import { buildOpsSnapshot } from "../src/suite/snapshot.ts";
+import {
+  ACCEPTANCE_SUMMARY,
+  acceptanceEventKey,
+  acceptanceSignal,
+  describeSyncResult,
+  resolveAcceptanceTarget,
+} from "../src/suite/acceptance.ts";
 import { isQaAutoLoginEnabled, resolveOpsEnv } from "../src/env.ts";
 import type { Project } from "../src/types.ts";
 
