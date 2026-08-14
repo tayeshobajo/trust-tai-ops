@@ -1717,7 +1717,9 @@ export function ProjectWorkspace({
             );
           })}
 
-          {(busy || agentBusy || Date.now() < typingUntil) && !uploading ? <TypingIndicator /> : null}
+          {streamingText ? <StreamingMessage text={streamingText} /> : null}
+
+          {!streamingText && (busy || agentBusy || Date.now() < typingUntil) && !uploading ? <TypingIndicator /> : null}
 
           {persistError ? (
             <p className="pw-persist-error" role="status">
