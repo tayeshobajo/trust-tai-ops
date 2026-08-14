@@ -548,6 +548,7 @@ export function ProjectAccessPanel({
                       disabled={!canWrite || busy}
                       onClick={() => {
                         setValues({});
+                        setDrawerNotice("");
                         setEditing({ type: definition.type, existingId: method.id });
                       }}
                     >
@@ -575,6 +576,7 @@ export function ProjectAccessPanel({
                     disabled={!canWrite || busy}
                     onClick={() => {
                       setValues({});
+                      setDrawerNotice("");
                       setEditing({ type: definition.type });
                     }}
                   >
