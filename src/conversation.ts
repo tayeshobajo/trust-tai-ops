@@ -196,12 +196,23 @@ export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
       break;
     case "plan":
       if (run.approvalRequired) {
+        const pending = run.approvals.find(
+          (approval) => approval.type === "high_risk_execution" && approval.status === "pending",
+        );
         messages.push({
           id: `${run.id}-decision-approval`,
           role: "agent",
           body: [
             "If you're happy with that approach, I'll apply it now and verify the result. If anything looks wrong afterwards I'll roll it straight back.",
           ],
+          diff: pending?.preview
+            ? {
+                target: pending.preview.target,
+                before: pending.preview.before,
+                after: pending.preview.after,
+                irreversible: pending.preview.irreversible,
+              }
+            : undefined,
           decision: "approval",
         });
       } else {
