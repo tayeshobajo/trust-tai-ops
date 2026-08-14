@@ -5703,6 +5703,12 @@ p, li {
   border-color: var(--tt-warning);
 }
 
+.pw-plan-item.is-unverified .pw-plan-mark {
+  background: transparent;
+  border-color: var(--tt-warning);
+  border-style: dashed;
+}
+
 .pw-plan-item.is-ruled_out,
 .pw-plan-item.is-skipped {
   opacity: 0.5;
