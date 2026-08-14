@@ -402,7 +402,13 @@ Deno.serve(async (req) => {
     }
     for (const item of rejectedBundles) reply.push(`${accessLabel(item.accessType)}: ${item.reason}`);
   }
-  reply.push("Nothing was changed on the site. Send me the issue whenever you're ready.");
+  // A fallback line only. It must read as a continuation of the conversation
+  // already in progress, never as an invitation to start one.
+  reply.push(
+    stored.length > 0
+      ? "Nothing on the site was changed by storing this. I'll pick up from where we were."
+      : "Nothing on the site was changed.",
+  );
 
   return Response.json(
     {
