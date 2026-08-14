@@ -121,6 +121,37 @@ check("client detector agrees on the bundle", client.containsSecretMaterial(wpBu
 check("client detector agrees on PEM", client.containsSecretMaterial(FAKE_KEY) === true);
 check("bearer token label is detected", containsSecretMaterial("Bearer abcdefghijklmnop1234"));
 
+const aliasText = parseCredentialText(
+  [
+    "Dashboard URL: https://example.com/wp-admin/",
+    "Site address: example.com",
+    "WP User: owner@example.com",
+    `WP Pass: ${FAKE_WP_PASSWORD}`,
+  ].join("\n"),
+);
+check("dashboard url alias parsed as admin url", aliasText.bundles[0]?.adminUrl?.includes("/wp-admin/"));
+check("site address alias parsed as site url", aliasText.bundles[0]?.siteUrl?.includes("example.com"));
+check("wp user alias parsed as identity", aliasText.bundles[0]?.username === "owner@example.com");
+
+const tabularSftp = parseCredentialText(
+  [
+    "SFTP",
+    "Host\t\tsftp.example.com",
+    "Username\tdeploy",
+    `Password\t${FAKE_SFTP_PASSWORD}`,
+  ].join("\n"),
+);
+check("tab-separated SFTP fields parsed", tabularSftp.bundles.some((b) => b.accessType === "sftp"));
+
+const pipeHost = parseCredentialText(
+  [
+    "SSH",
+    "Host: 198.51.100.10 | User: deploy",
+    `Password: ${FAKE_SFTP_PASSWORD}`,
+  ].join("\n"),
+);
+check("pipe-separated inline host and user parsed", pipeHost.bundles.some((b) => b.accessType === "ssh"));
+
 console.log("\nB. Sanitization and secret persistence\n");
 
 const sanitized = sanitizedIntakeMessage({
