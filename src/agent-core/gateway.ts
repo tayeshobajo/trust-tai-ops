@@ -55,7 +55,30 @@ export interface ExecutionGateway {
    * any failure — the synthesis is an enhancement, never a dependency.
    */
   synthesize(projectId: string, digest: Record<string, unknown>): Promise<{ ok: boolean; synthesis?: string } | null>;
+  /**
+   * Fix-plan: given evidence + diagnosis, returns an ordered set of write steps.
+   * Returns null on failure — enhancement only, never a dependency.
+   */
+  planFix(projectId: string, digest: Record<string, unknown>): Promise<FixPlanResult | null>;
 }
+
+export type FixStep = {
+  stepId: string;
+  toolId: string;
+  label: string;
+  args: Record<string, unknown>;
+  risk: "low" | "medium" | "high";
+  backupFirst: boolean;
+  requiresConfirmation: boolean;
+};
+
+export type FixPlanResult = {
+  rationale: string;
+  risk: "low" | "medium" | "high";
+  steps: FixStep[];
+  verificationGoal: string;
+  canAutoExecute: boolean;
+};
 
 const UNAVAILABLE: GatewayResponse = {
   ok: false,
@@ -147,7 +170,29 @@ class SupabaseFunctionGateway implements ExecutionGateway {
       if (!payload.ok || typeof payload.synthesis !== "string") return { ok: false };
       return { ok: true, synthesis: payload.synthesis };
     } catch {
-      // Synthesis is an enhancement, never a dependency.
+      return null;
+    }
+  }
+
+  async planFix(
+    projectId: string,
+    digest: Record<string, unknown>,
+  ): Promise<FixPlanResult | null> {
+    if (!this.available()) return null;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke("agent-reason", {
+        body: { projectId, mode: "plan_fix", digest, model: readReasonModelId() },
+      });
+      if (error) return null;
+      const payload = data as { ok?: boolean; fix_plan?: unknown } | null;
+      if (!payload?.ok || !payload.fix_plan || typeof payload.fix_plan !== "object") return null;
+      const fp = payload.fix_plan as Record<string, unknown>;
+      // Validate the minimum shape before returning.
+      if (!Array.isArray(fp.steps) || fp.steps.length === 0) return null;
+      return payload.fix_plan as FixPlanResult;
+    } catch {
+      // Fix planning is an enhancement, never a dependency.
       return null;
     }
   }

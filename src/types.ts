@@ -129,7 +129,7 @@ export type MemoryEntry = {
 export type MessageRole = "user" | "agent" | "system";
 
 // Internal only. Never rendered as a raw enum in the interface.
-export type MessageKind = "message" | "status_update" | "decision_request" | "decision_response";
+export type MessageKind = "message" | "status_update" | "decision_request" | "decision_response" | "fix_plan";
 
 export type ProjectMessage = {
   id: string;
@@ -218,7 +218,7 @@ export type RunAction = {
 
 export type RunArtifact = {
   id: string;
-  type: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report";
+  type: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report" | "fix_plan";
   title: string;
   summary: string;
 };

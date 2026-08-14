@@ -4,6 +4,7 @@ import { workspaceRepository } from "./repository";
 import { runAgentTurn } from "./agent-core/orchestrator";
 import type { AgentEvidence } from "./agent-core/types";
 import { executionGateway } from "./agent-core/gateway";
+import type { FixPlanResult, GatewayRequest } from "./agent-core/gateway";
 import type { KBDigest } from "./types";
 import { getProjectStack } from "./stacks";
 import { looksLikeQuestion, replyLines, streamAgentReply, voiceAvailable } from "./agent-core/voice";
@@ -138,6 +139,66 @@ const speakTurn = async (
       }
     } catch {
       // The synthesis is an enhancement. The run already closed out truthfully.
+    }
+
+    // Fix-plan: after diagnosis, ask the reasoner what write steps to take.
+    // The plan is stored and emitted as a fix_plan event so the UI can render
+    // the confirmation card. Best-effort — never breaks the turn.
+    try {
+      const capabilities = await executionGateway().projectCapabilities(context.project.id);
+      const synthesisText = await workspaceRepository
+        .getRecentEvidence(context.project.id, context.run.id, "scan_result", 1)
+        .then((rows) => rows[0]?.summary ?? "")
+        .catch(() => "");
+
+      const fixPlan: FixPlanResult | null = await executionGateway().planFix(context.project.id, {
+        stack: getProjectStack(context.project),
+        taskType: context.run.taskType,
+        taskTitle: context.run.title ?? "",
+        symptom: context.run.taskSummary || context.run.title || "",
+        diagnosis: synthesisText,
+        evidence: turn.learned.slice(-20).map((item) => `${item.toolId}: ${item.summary}`),
+        constraints: (context.memory ?? [])
+          .filter((entry) => entry.type === "constraint")
+          .slice(-8)
+          .map((entry) => entry.content),
+        capabilities: [...capabilities.verified, ...capabilities.stored],
+      });
+
+      if (fixPlan && fixPlan.steps.length > 0) {
+        // Emit the plan so the UI can render the confirmation card.
+        await context.emit({
+          runId: context.run.id,
+          role: "agent",
+          kind: "fix_plan",
+          body: [
+            `Here\'s what I can do to fix this:`,
+            `${fixPlan.rationale}`,
+            ...fixPlan.steps.map((s, i) => `${i + 1}. ${s.label}`),
+            `Risk level: ${fixPlan.risk}.`,
+            fixPlan.requiresConfirmation ?? fixPlan.risk !== "low"
+              ? "This requires your approval before I proceed."
+              : "I can run this automatically if you\'d like.",
+          ],
+          dedupeKey: `fix-plan-${context.run.id}`,
+          metadata: { fix_plan: fixPlan },
+        });
+
+        // Store the fix plan as pending evidence so the orchestrator can
+        // retrieve it when the user approves.
+        await workspaceRepository.addEvidence(
+          context.project.id,
+          context.run.id,
+          "fix_plan",
+          "Proposed fix plan",
+          JSON.stringify(fixPlan).slice(0, 2000),
+        );
+
+        // Advance run to approval_required state so the UI shows the card.
+        await workspaceRepository.advanceRun(context.project.id, context.run.id, "approval_required").catch(() => undefined);
+      }
+    } catch {
+      // Fix planning is an enhancement. The diagnosis already closed out.
     }
   }
 
@@ -308,6 +369,150 @@ const runAdvanceStep = async (context: AgentStepContext, target: RunState): Prom
 };
 
 /**
+ * Execute an approved fix plan.
+ *
+ * Reads the stored fix_plan artifact, runs each write step through the gateway
+ * in order, takes a backup snapshot for any step marked backupFirst, and emits
+ * a status line per step. When all steps complete (or a step fails), the run
+ * advances to "qa" for re-observation. Failure is reported truthfully; nothing
+ * is fabricated.
+ */
+const executeFixPlan = async (context: AgentStepContext): Promise<AgentStepResult> => {
+  const { project, run } = context;
+
+  // Retrieve the fix plan we stored when the plan was proposed.
+  let fixPlan: FixPlanResult | null = null;
+  try {
+    const rows = await workspaceRepository.getRecentEvidence(
+      project.id,
+      run.id,
+      "fix_plan",
+      1,
+    );
+    if (rows[0]?.summary) {
+      fixPlan = JSON.parse(rows[0].summary) as FixPlanResult;
+    }
+  } catch {
+    // If the plan is unreadable, bail out gracefully.
+  }
+
+  if (!fixPlan || fixPlan.steps.length === 0) {
+    await sayStep(
+      context,
+      "execute-no-plan",
+      ["I couldn't find a stored fix plan for this run. Please re-run diagnosis."],
+      "status_update",
+    );
+    return { ran: true };
+  }
+
+  await sayStep(
+    context,
+    "execute-start",
+    [`Starting fix execution — ${fixPlan.steps.length} step${fixPlan.steps.length === 1 ? "" : "s"}.`],
+    "status_update",
+  );
+
+  let allOk = true;
+  const gateway = executionGateway();
+
+  for (const step of fixPlan.steps) {
+    // Backup snapshot before any destructive step.
+    if (step.backupFirst) {
+      try {
+        const backupReq: GatewayRequest = {
+          projectId: project.id,
+          runId: run.id,
+          actionId: `backup-before-${step.stepId}`,
+          toolId: "wordpress.sftp_write_file" as GatewayRequest["toolId"],
+          invocationKey: `backup-${run.id}-${step.stepId}`,
+          args: { _op: "snapshot_before", targetStepId: step.stepId },
+        };
+        const backupResult = await gateway.invoke(backupReq);
+        if (backupResult.ok) {
+          await workspaceRepository.addEvidence(
+            project.id,
+            run.id,
+            "backup_note",
+            `Backup before: ${step.label}`,
+            backupResult.summary.slice(0, 400),
+          );
+        }
+      } catch {
+        // A failed backup snapshot is noteworthy but not a blocker by default.
+      }
+    }
+
+    // Execute the step.
+    const req: GatewayRequest = {
+      projectId: project.id,
+      runId: run.id,
+      actionId: step.stepId,
+      toolId: step.toolId as GatewayRequest["toolId"],
+      invocationKey: `exec-${run.id}-${step.stepId}`,
+      args: step.args,
+    };
+
+    let result: Awaited<ReturnType<typeof gateway.invoke>>;
+    try {
+      result = await gateway.invoke(req);
+    } catch {
+      result = {
+        ok: false,
+        code: "execution_backend_unavailable",
+        summary: "Step failed — gateway unreachable.",
+        retryable: true,
+      };
+    }
+
+    // Emit step outcome.
+    const statusLine = result.ok
+      ? `✓ ${step.label}: ${result.summary.slice(0, 200)}`
+      : `✗ ${step.label}: ${result.summary.slice(0, 200)}`;
+
+    await sayStep(
+      context,
+      `execute-step-${step.stepId}`,
+      [statusLine],
+      "status_update",
+    );
+
+    // Store a diff_summary for the step.
+    await workspaceRepository
+      .addEvidence(
+        project.id,
+        run.id,
+        "diff_summary",
+        `Step result: ${step.label}`,
+        result.summary.slice(0, 400),
+      )
+      .catch(() => undefined);
+
+    if (!result.ok) {
+      allOk = false;
+      // Hard failure on a high-risk step: stop immediately.
+      if (step.risk === "high") break;
+    }
+  }
+
+  const summaryLine = allOk
+    ? `All ${fixPlan.steps.length} fix steps completed. Moving to QA verification.`
+    : "One or more fix steps failed. Moving to QA to assess the site state.";
+
+  await sayStep(context, "execute-done", [summaryLine], "status_update");
+
+  // Advance to QA regardless of outcome — the re-observation tells the truth.
+  try {
+    const next = await workspaceRepository.advanceRun(project.id, run.id, "qa");
+    context.onWorkspaceUpdate(next);
+  } catch {
+    // Advance failure is bookkeeping — the steps already ran.
+  }
+
+  return { ran: true };
+};
+
+/**
  * QA for a real run.
  *
  * Runs the same investigation kernel used during diagnosis — reading what the
@@ -364,6 +569,10 @@ export const executeAgentStep = async (context: AgentStepContext): Promise<Agent
 
   if (context.run.state === "qa") {
     return legacy ? runQaStep(context) : runRealQaStep(context);
+  }
+
+  if (!legacy && context.run.state === "execution") {
+    return executeFixPlan(context);
   }
 
   if (!legacy && INVESTIGATION_STATES.includes(context.run.state)) {

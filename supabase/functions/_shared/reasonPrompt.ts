@@ -417,3 +417,201 @@ export const sanitizeSynthesisDigest = (value: unknown): SynthesisDigest => {
       .filter(Boolean),
   };
 };
+
+// ---------------------------------------------------------------------------
+// plan_fix mode — called after sufficient_evidence to propose write steps
+// ---------------------------------------------------------------------------
+
+export type FixDigest = {
+  stack: ReasonStack;
+  taskType: string;
+  taskTitle: string;
+  symptom: string;
+  /** Synthesis text from the previous synthesize_diagnosis call, bounded. */
+  diagnosis: string;
+  /** Evidence lines already collected. */
+  evidence: string[];
+  /** Standing rules from the person. */
+  constraints: string[];
+  /** Capabilities the project has confirmed (e.g. "ssh", "wordpress_admin"). */
+  capabilities: string[];
+};
+
+export type FixStep = {
+  /** A WRITE_STEPS id from reasonCatalog.ts */
+  stepId: string;
+  /** toolId to call in agent-execute */
+  toolId: string;
+  /** Plain-English one-liner: "Flush the LiteSpeed cache" */
+  label: string;
+  /** args to pass to agent-execute */
+  args: Record<string, unknown>;
+  /** low | medium | high */
+  risk: "low" | "medium" | "high";
+  /** True if a backup should be taken before this step */
+  backupFirst: boolean;
+  /** True if this step needs explicit human approval before running */
+  requiresConfirmation: boolean;
+};
+
+export type FixPlan = {
+  /** One sentence: what will be done and why */
+  rationale: string;
+  /** Overall risk of the plan */
+  risk: "low" | "medium" | "high";
+  /** Ordered steps */
+  steps: FixStep[];
+  /** What to verify after all steps complete */
+  verificationGoal: string;
+  /** True if the agent is confident enough to auto-execute low-risk steps */
+  canAutoExecute: boolean;
+};
+
+export const FIX_PLAN_SYSTEM_PROMPT = [
+  "You are a WordPress site repair agent. You have finished diagnosing a problem and must now propose a precise, ordered sequence of fix steps.",
+  "",
+  "Rules:",
+  "1. Only propose steps you have write access to. Check the capabilities list.",
+  "2. Each step must use a toolId from the allowed write tools: wordpress.rest_api_write, wordpress.sftp_write_file, wordpress.run_wp_cli_write, wordpress.purge_cache, wordpress.wpcode_snippet.",
+  "3. Order steps safely: least-destructive first. Cache flush before config change. Read before write.",
+  "4. Mark backupFirst: true for any step that modifies a file or REST resource.",
+  "5. Mark requiresConfirmation: true for any step that is irreversible or high-risk.",
+  "6. Keep the plan minimal: fix the root cause, not every symptom.",
+  "7. Return ONLY valid JSON matching the schema. No explanation outside the JSON.",
+  "",
+  "Respond with a JSON object matching this exact schema:",
+  "{",
+  "  \"rationale\": \"One sentence: what will be done and why.\",",
+  "  \"risk\": \"low|medium|high\",",
+  "  \"steps\": [",
+  "    {",
+  "      \"stepId\": \"purge-cache\",",
+  "      \"toolId\": \"wordpress.purge_cache\",",
+  "      \"label\": \"Flush the LiteSpeed cache\",",
+  "      \"args\": {},",
+  "      \"risk\": \"low\",",
+  "      \"backupFirst\": false,",
+  "      \"requiresConfirmation\": false",
+  "    }",
+  "  ],",
+  "  \"verificationGoal\": \"What to check after the fix to confirm it worked.\",",
+  "  \"canAutoExecute\": true",
+  "}",
+].join("\n");
+
+export const fixPlanUserPrompt = (digest: FixDigest): string => {
+  const numbered = digest.evidence.map((text, index) => `[E${index + 1}] ${text}`);
+  return [
+    `Site stack: ${STACK_LABELS[digest.stack] ?? digest.stack}`,
+    `Task type: ${digest.taskType}`,
+    `What the person asked: ${digest.taskTitle}`,
+    `Symptom: ${digest.symptom}`,
+    "",
+    "DIAGNOSIS:",
+    digest.diagnosis || "(no synthesis available — use evidence to infer the cause)",
+    "",
+    "EVIDENCE:",
+    ...(numbered.length > 0 ? numbered : ["(none)"]),
+    "",
+    ...(digest.constraints.length > 0
+      ? ["STANDING RULES (never violate):", ...digest.constraints.map((c) => `- ${c}`), ""]
+      : []),
+    `Available write capabilities: ${digest.capabilities.filter((c) => ["ssh", "wordpress_admin", "sftp"].includes(c)).join(", ") || "none confirmed"}`,
+    "",
+    "Propose the minimal fix plan as JSON.",
+  ]
+    .filter((part) => part !== "")
+    .join("\n");
+};
+
+export const sanitizeFixDigest = (value: unknown): FixDigest => {
+  const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const stackClaim = typeof raw.stack === "string" ? raw.stack : "";
+  const stack: ReasonStack = (REASON_STACKS as readonly string[]).includes(stackClaim)
+    ? (stackClaim as ReasonStack)
+    : "wordpress";
+  return {
+    stack,
+    taskType: line(raw.taskType, 40) || "unknown",
+    taskTitle: line(raw.taskTitle, 200),
+    symptom: line(raw.symptom, 600),
+    diagnosis: typeof raw.diagnosis === "string" ? raw.diagnosis.slice(0, 3000) : "",
+    evidence: (Array.isArray(raw.evidence) ? raw.evidence : []).slice(-20).map((i) => line(i, 300)).filter(Boolean),
+    constraints: (Array.isArray(raw.constraints) ? raw.constraints : []).slice(-8).map((i) => line(i, 200)).filter(Boolean),
+    capabilities: (Array.isArray(raw.capabilities) ? raw.capabilities : []).slice(-10).map((i) => line(i, 40)).filter(Boolean),
+  };
+};
+
+const ALLOWED_WRITE_TOOL_IDS = new Set([
+  "wordpress.rest_api_write",
+  "wordpress.sftp_write_file",
+  "wordpress.run_wp_cli_write",
+  "wordpress.purge_cache",
+  "wordpress.wpcode_snippet",
+]);
+
+const ALLOWED_STEP_IDS = new Set([
+  "fix-via-rest-api", "fix-via-sftp", "fix-via-wp-cli", "purge-cache",
+  "toggle-wpcode", "activate-plugin", "deactivate-plugin",
+  "flush-rewrites", "enable-maintenance", "disable-maintenance",
+]);
+
+const safeStr = (v: unknown, max = 200): string =>
+  typeof v === "string" ? v.slice(0, max) : "";
+
+const safeArgs = (v: unknown): Record<string, unknown> => {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const raw = v as Record<string, unknown>;
+  // Only pass through scalar values — never nested objects with credentials.
+  const out: Record<string, unknown> = {};
+  for (const [k, val] of Object.entries(raw)) {
+    if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
+      out[k.slice(0, 40)] = typeof val === "string" ? val.slice(0, 500) : val;
+    }
+  }
+  return out;
+};
+
+export const parseFixPlan = (content: string): FixPlan | null => {
+  try {
+    const raw = content.trim().replace(/^```json\s*/i, "").replace(/```$/m, "").trim();
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const steps: FixStep[] = [];
+    const rawSteps = Array.isArray(parsed.steps) ? parsed.steps : [];
+    for (const s of rawSteps.slice(0, 8)) {
+      if (!s || typeof s !== "object") continue;
+      const step = s as Record<string, unknown>;
+      const toolId = safeStr(step.toolId, 60);
+      const stepId = safeStr(step.stepId, 60);
+      if (!ALLOWED_WRITE_TOOL_IDS.has(toolId)) continue;
+      if (stepId && !ALLOWED_STEP_IDS.has(stepId)) continue;
+      const risk = ["low", "medium", "high"].includes(String(step.risk)) ? (String(step.risk) as FixStep["risk"]) : "medium";
+      steps.push({
+        stepId: stepId || "fix-via-wp-cli",
+        toolId,
+        label: safeStr(step.label, 160) || toolId,
+        args: safeArgs(step.args),
+        risk,
+        backupFirst: step.backupFirst === true,
+        requiresConfirmation: step.requiresConfirmation === true || risk === "high",
+      });
+    }
+    if (steps.length === 0) return null;
+
+    const planRisk = ["low", "medium", "high"].includes(String(parsed.risk))
+      ? (String(parsed.risk) as FixPlan["risk"])
+      : "medium";
+
+    return {
+      rationale: safeStr(parsed.rationale, 400) || "Apply the recommended fix.",
+      risk: planRisk,
+      steps,
+      verificationGoal: safeStr(parsed.verificationGoal, 300) || "Verify the issue is resolved.",
+      canAutoExecute: parsed.canAutoExecute === true && planRisk === "low",
+    };
+  } catch {
+    return null;
+  }
+};

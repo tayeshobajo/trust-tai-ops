@@ -27,13 +27,18 @@ import { readModelText, resolveReasonModel, type ReasonModel } from "../_shared/
 import {
   SYSTEM_PROMPT,
   SYNTHESIS_SYSTEM_PROMPT,
+  FIX_PLAN_SYSTEM_PROMPT,
   parseModelJson,
+  parseFixPlan,
   sanitizeDigest,
   sanitizeSynthesisDigest,
+  sanitizeFixDigest,
   synthesisUserPrompt,
+  fixPlanUserPrompt,
   userPromptWithRecall,
   type RetrievedConversation,
   type SynthesisDigest,
+  type FixDigest,
 } from "../_shared/reasonPrompt.ts";
 import type { ReasonDigest, ServerEvidence } from "../_shared/reasonPrompt.ts";
 import { REPLY_SYSTEM_PROMPT, replyUserPrompt, sanitizeReplyFacts } from "../_shared/replyPrompt.ts";
@@ -553,6 +558,7 @@ Deno.serve(async (req) => {
     mode !== "analyze_meeting_source" &&
     mode !== "compose_reply" &&
     mode !== "synthesize_diagnosis" &&
+    mode !== "plan_fix" &&
     mode !== "monitor"
   ) {
     return fail("invalid_input", "I don't know how to think about that.", false);
@@ -583,6 +589,35 @@ Deno.serve(async (req) => {
 
     return Response.json(
       { ok: true, mode, model: model.id, synthesis },
+      { headers: corsHeaders },
+    );
+  }
+
+  if (mode === "plan_fix") {
+    // Fix-plan mode: takes evidence + diagnosis, returns ordered write steps.
+    // Called by speakTurn after sufficient_evidence. Returns a FixPlan or null.
+    const digest: FixDigest = sanitizeFixDigest(body.digest);
+    const FIX_MAX_OUTPUT_TOKENS = 1500;
+    const FIX_TIMEOUT_MS = 60_000;
+
+    const asked = await askModel(
+      model,
+      buildCall(model, apiKey, FIX_PLAN_SYSTEM_PROMPT, fixPlanUserPrompt(digest), FIX_MAX_OUTPUT_TOKENS),
+      FIX_TIMEOUT_MS,
+    );
+    if (!asked.ok) return asked.response;
+
+    const fix_plan = parseFixPlan(asked.content);
+    if (!fix_plan) {
+      // Model couldn't produce a valid plan — not a hard error, just no plan.
+      return Response.json(
+        { ok: true, mode, model: model.id, fix_plan: null, reason: "no_actionable_fix" },
+        { headers: corsHeaders },
+      );
+    }
+
+    return Response.json(
+      { ok: true, mode, model: model.id, fix_plan },
       { headers: corsHeaders },
     );
   }

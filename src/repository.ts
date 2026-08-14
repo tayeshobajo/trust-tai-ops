@@ -235,7 +235,8 @@ export interface WorkspaceRepository {
   rollbackRun(projectId: string, runId: string, reason: string): Promise<Organization>;
   updateQaResult(projectId: string, runId: string, resultId: string, result: "passed" | "failed" | "warning" | "skipped", notes: string): Promise<Organization>;
   setQaVerdict(projectId: string, runId: string, verdict: "passed" | "failed" | "partial" | "waived", summary: string): Promise<Organization>;
-  addEvidence(projectId: string, runId: string, artifactType: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report", title: string, summary: string): Promise<Organization>;
+  addEvidence(projectId: string, runId: string, artifactType: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report" | "fix_plan", title: string, summary: string): Promise<Organization>;
+  getRecentEvidence(projectId: string, runId: string, artifactType: string, limit: number): Promise<Array<{ summary: string }>>;
   addRecommendation(projectId: string, runId: string | null, category: Recommendation["category"], priority: Recommendation["priority"], title: string, summary: string): Promise<Organization>;
   addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string; sourceRunId?: string | null; sourceMessageId?: string | null }): Promise<Organization>;
   saveAccessMethod(projectId: string, method: ProjectAccessMethod): Promise<Organization>;
@@ -474,7 +475,12 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     return nextWorkspace;
   }
 
-  async addEvidence(projectId: string, runId: string, artifactType: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report", title: string, summary: string): Promise<Organization> {
+  async getRecentEvidence(_projectId: string, _runId: string, _artifactType: string, _limit: number): Promise<Array<{ summary: string }>> {
+    // In-memory demo: no persistent evidence store.
+    return [];
+  }
+
+  async addEvidence(projectId: string, runId: string, artifactType: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report" | "fix_plan", title: string, summary: string): Promise<Organization> {
     const workspace = await this.loadWorkspace();
     const { project, run } = findRun(workspace, projectId, runId);
     if (!project || !run) return workspace;
@@ -1277,7 +1283,23 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     return this.loadWorkspace();
   }
 
-  async addEvidence(_projectId: string, runId: string, artifactType: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report", title: string, summary: string): Promise<Organization> {
+  async getRecentEvidence(_projectId: string, runId: string, artifactType: string, limit: number): Promise<Array<{ summary: string }>> {
+    try {
+      const client = getSupabaseClient();
+      const { data } = await client
+        .from("run_artifacts")
+        .select("summary")
+        .eq("run_id", runId)
+        .eq("artifact_type", artifactType)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      return (data ?? []) as Array<{ summary: string }>;
+    } catch {
+      return [];
+    }
+  }
+
+  async addEvidence(_projectId: string, runId: string, artifactType: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report" | "fix_plan", title: string, summary: string): Promise<Organization> {
     const client = getSupabaseClient();
     await client.from("run_artifacts").insert([{
       id: crypto.randomUUID(),
