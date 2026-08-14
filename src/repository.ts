@@ -1367,6 +1367,15 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
           .limit(1);
         const match = ((retry ?? []) as ProjectMessageRow[])[0];
         if (match) return mapProjectMessage(match);
+
+        // The unique index is the final authority for idempotency. A row can
+        // legitimately be hidden from this immediate SELECT while the browser
+        // session or replica catches up, but 23505 proves the same logical
+        // message is already durable. Treat that as success rather than
+        // retrying an INSERT that can only fail again.
+        if (error.code === "23505" || /project_messages_dedupe_idx|duplicate key/i.test(error.message ?? "")) {
+          return mapProjectMessage(row);
+        }
       }
       // A stale access token or a dropped connection must not lose what the
       // person just said. Refresh once and try the same row again.
