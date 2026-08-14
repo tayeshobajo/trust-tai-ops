@@ -97,7 +97,16 @@ export const verifyWordPressLogin = async (
       signal: controller.signal,
       headers: {
         "content-type": "application/x-www-form-urlencoded",
-        "user-agent": "TrustTaiOps/1.0 (+read-only access check)",
+        // WordPress and the firewalls in front of it treat a browserless POST
+        // as hostile: it is refused before the credential is ever checked, and
+        // a correct password then looks wrong. These are the headers a real
+        // sign-in carries, and nothing more.
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 TrustTaiOps/1.0 (+read-only access check)",
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.9",
+        referer: endpoint,
+        origin,
         cookie: "wordpress_test_cookie=WP+Cookie+check",
       },
       body: body.toString(),
@@ -116,6 +125,17 @@ export const verifyWordPressLogin = async (
 
   const cookies = setCookies(response.headers);
   const location = response.headers.get("location") ?? "";
+
+  // A firewall refusing the request is not a wrong password. Saying "rejected"
+  // here would tell someone their correct credential is bad.
+  if (response.status === 401 || response.status === 403 || response.status === 406 || response.status === 429) {
+    return {
+      state: "needs_attention",
+      code: "blocked_by_security",
+      summary:
+        "Your host's security layer blocked my sign-in attempt before WordPress saw it, so this isn't about the password being wrong. It usually clears once my checks are allowed through, or I can work through SSH or SFTP instead.",
+    };
+  }
 
   if (response.status >= 300 && response.status < 400) {
     let sameOrigin = false;
