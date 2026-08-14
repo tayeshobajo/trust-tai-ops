@@ -82,20 +82,36 @@ Be conservative — only flag real issues, not warnings you cannot verify.`;
 // Auth
 // ---------------------------------------------------------------------------
 
+/** Decode a JWT payload without verifying the signature (trust is already
+ * established by Supabase's gateway layer which validates the JWT before
+ * the function handler runs). We only read the `role` claim.
+ */
+const jwtRole = (authHeader: string): string | null => {
+  try {
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    const payloadB64 = token.split(".")[1] ?? "";
+    // atob requires standard base64 — add padding and replace URL-safe chars
+    const padded = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
+    const json = atob(padded + "=".repeat((4 - padded.length % 4) % 4));
+    const payload = JSON.parse(json) as Record<string, unknown>;
+    return typeof payload.role === "string" ? payload.role : null;
+  } catch {
+    return null;
+  }
+};
+
 const authorized = (req: Request): boolean => {
   const secret = getMonitorSecret();
-  const svcKey = getServiceRoleKey();
 
-  // Accept MONITOR_SECRET header
+  // 1. MONITOR_SECRET token (primary path for cron / external callers)
   const monitorToken = req.headers.get("x-monitor-token");
   if (secret && monitorToken === secret) return true;
 
-  // Accept Supabase service-role Authorization header
+  // 2. Supabase JWT with service_role — Supabase already validated the JWT;
+  //    we just confirm the role claim says service_role.
   const authHeader = req.headers.get("authorization") ?? "";
-  if (svcKey && authHeader === `Bearer ${svcKey}`) return true;
+  if (jwtRole(authHeader) === "service_role") return true;
 
-  // Accept Supabase anon key JWT (for internal function-to-function calls)
-  // The actual verification happens via RLS — this is just a gate
   return false;
 };
 
