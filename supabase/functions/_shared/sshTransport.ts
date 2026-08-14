@@ -106,7 +106,7 @@ const boundedCollector = (limit: number) => {
  */
 const connectFailure = (error: unknown, presented: string | null): SshExecOutcome & { ok: false } => {
   const message = String((error as Error)?.message ?? error ?? "");
-  if (/key|passphrase|decrypt|parse|OPENSSH|PEM/i.test(message)) {
+  if (/key|passphrase|decrypt|decode|parse|base64|malformed|unsupported|OPENSSH|PEM/i.test(message)) {
     return {
       ok: false,
       kind: "bad_credential",
