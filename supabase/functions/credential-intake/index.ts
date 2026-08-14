@@ -392,7 +392,10 @@ Deno.serve(async (req) => {
     );
   } else {
     for (const item of stored) {
-      reply.push(`${accessLabel(item.accessType)} — ${item.mode}: ${item.note}`);
+      // The mode is written in brackets, never as "…password: …". A label word
+      // followed by a colon looks exactly like a pasted secret to the
+      // scrubber, and the agent's own safe sentence was being redacted away.
+      reply.push(`${accessLabel(item.accessType)} (${item.mode}) — ${item.note}`);
     }
     for (const gap of effectiveMissing) {
       if (rejectedBundles.some((item) => item.accessType === gap.accessType)) continue;
