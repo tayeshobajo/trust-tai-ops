@@ -596,6 +596,35 @@ export function ProjectAccessPanel({
           >
             <h2>{editing.existingId ? "Replace" : "Add"} {activeDefinition.label}</h2>
             {prefilling ? <p className="access-drawer-note">Loading the details you saved before…</p> : null}
+            {activeGuidance ? (
+              <div className="access-host-guide">
+                <strong>{activeGuidance.host}</strong>
+                <p>{activeGuidance.summary}</p>
+                <ol>
+                  {activeGuidance.steps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
+                {activeGuidance.hints ? (
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() =>
+                      setValues((current) => ({
+                        ...current,
+                        ...Object.fromEntries(
+                          Object.entries(activeGuidance.hints ?? {}).filter(
+                            ([key]) => !(current[key] ?? "").trim(),
+                          ),
+                        ),
+                      }))
+                    }
+                  >
+                    Fill in the {activeGuidance.host} details
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             <p className="access-drawer-note">
               {activeDefinition.executable
                 ? activeDefinition.type === "ssh"
