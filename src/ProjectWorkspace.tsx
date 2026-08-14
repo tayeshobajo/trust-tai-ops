@@ -823,6 +823,18 @@ export function ProjectWorkspace({
       // The raw text is done with. Clear the composer before anything renders.
       setComposerValue("");
 
+      const storedTypes = result.stored.map((item) => item.accessType);
+      const missingTypes = result.missing.map((item) => item.accessType);
+
+      // If nothing could be stored, surface it immediately and open the
+      // dedicated panel so the person isn't left guessing why the paste vanished.
+      if (result.stored.length === 0) {
+        setPersistError(
+          "I couldn't store those details securely from that paste. Please add them in Access & Connections.",
+        );
+        openAccessSurface(missingTypes.length ? missingTypes : ["wordpress_admin", "sftp", "ssh"]);
+      }
+
       // One small read-only run holds the access conversation. An existing one
       // is reused rather than duplicated.
       let runId = activeRun?.id ?? null;
