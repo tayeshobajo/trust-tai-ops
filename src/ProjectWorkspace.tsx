@@ -355,6 +355,7 @@ export function ProjectWorkspace({
           body: message.body,
           createdAt: null,
           card: message.card,
+          diff: message.diff,
           decision: message.decision,
         })),
         ...runMessages.map((message) => ({
@@ -375,6 +376,7 @@ export function ProjectWorkspace({
         body: message.body,
         createdAt: message.createdAt,
         card: source?.card,
+        diff: source?.diff,
         decision: source?.decision,
       };
     });
@@ -389,6 +391,7 @@ export function ProjectWorkspace({
         body: message.body,
         createdAt: null,
         card: message.card,
+        diff: message.diff,
         decision: message.decision,
       });
     }
