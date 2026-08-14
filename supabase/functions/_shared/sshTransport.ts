@@ -123,6 +123,76 @@ const connectFailure = (error: unknown, presented: string | null): SshExecOutcom
   };
 };
 
+type SshClientError = Error & { level?: string; code?: string };
+
+/**
+ * ssh2 reports most failures through the async `error` event, not as a throw
+ * from `connect()`. Classify those with the library's level/code first so a
+ * handshake, key, or authentication failure is never described as a dead
+ * server. The diagnostic log contains no host, username, or credential.
+ */
+const clientFailure = (error: SshClientError, presented: string | null): SshExecOutcome & { ok: false } => {
+  const level = String(error?.level ?? "");
+  const code = String(error?.code ?? "");
+  const message = String(error?.message ?? "");
+  console.warn("ssh_connection_failed", {
+    level: level.slice(0, 80),
+    code: code.slice(0, 80),
+    message: message.slice(0, 240),
+    hostKeyPresented: Boolean(presented),
+  });
+
+  if (/key|passphrase|decrypt|decode|parse|base64|malformed|unsupported|OPENSSH|PEM/i.test(message)) {
+    return connectFailure(error, presented);
+  }
+  if (level.includes("authentication") || /authentication|all configured authentication methods failed/i.test(message)) {
+    return {
+      ok: false,
+      kind: "auth_failed",
+      fingerprint: presented,
+      detail:
+        "The SSH server answered, but it did not accept this key for that username. Confirm the matching public key is assigned to this exact WP Engine environment, then replace the stored private key if needed.",
+    };
+  }
+  if (/host key|hostkey/i.test(message)) {
+    return { ok: false, kind: "host_key_rejected", fingerprint: presented, detail: message.slice(0, 200) };
+  }
+  if (/timed out|ETIMEDOUT/i.test(`${code} ${message}`)) {
+    return { ok: false, kind: "timeout", fingerprint: presented, detail: "The SSH server did not answer in time." };
+  }
+  if (
+    level.includes("handshake") ||
+    /handshake|no matching|protocol|identification string|before handshake/i.test(message)
+  ) {
+    return {
+      ok: false,
+      kind: "protocol_error",
+      fingerprint: presented,
+      detail: "The SSH server answered, but the secure handshake could not be completed.",
+    };
+  }
+  if (/ECONNREFUSED/i.test(`${code} ${message}`)) {
+    return { ok: false, kind: "unreachable", fingerprint: presented, detail: "The SSH server refused the connection on that port." };
+  }
+  if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(`${code} ${message}`)) {
+    return { ok: false, kind: "unreachable", fingerprint: presented, detail: "The SSH server address could not be resolved." };
+  }
+  if (/ECONNRESET|socket closed|connection lost/i.test(`${code} ${message}`)) {
+    return {
+      ok: false,
+      kind: "protocol_error",
+      fingerprint: presented,
+      detail: "The SSH gateway closed the connection before sign-in completed. The server is reachable, but the SSH session was not accepted.",
+    };
+  }
+  return {
+    ok: false,
+    kind: "protocol_error",
+    fingerprint: presented,
+    detail: "The SSH server answered, but the connection could not be completed.",
+  };
+};
+
 export const denoSshTransport = (): SshTransport => ({
   async exec(target, command, timeoutMs, acceptHostKey) {
     const startedAt = Date.now();
@@ -187,29 +257,7 @@ export const denoSshTransport = (): SshTransport => ({
         });
       });
 
-      client.on("error", (error: Error & { level?: string }) => {
-        const level = String(error?.level ?? "");
-        const message = String(error?.message ?? "");
-        if (level.includes("authentication") || /authentication/i.test(message)) {
-          finish({
-            ok: false,
-            kind: "auth_failed",
-            fingerprint: presented,
-            detail: "The server did not accept that SSH sign-in.",
-          });
-          return;
-        }
-        if (/host key|hostkey/i.test(message)) {
-          finish({ ok: false, kind: "host_key_rejected", fingerprint: presented, detail: message.slice(0, 200) });
-          return;
-        }
-        finish({
-          ok: false,
-          kind: /timed out|ETIMEDOUT/i.test(message) ? "timeout" : "unreachable",
-          fingerprint: presented,
-          detail: "I could not reach that server over SSH.",
-        });
-      });
+      client.on("error", (error: SshClientError) => finish(clientFailure(error, presented)));
 
       try {
         client.connect({
@@ -404,24 +452,7 @@ export const denoSftpTransport = (): SftpTransport => ({
         });
       });
 
-      client.on("error", (error: Error & { level?: string }) => {
-        const level = String(error?.level ?? "");
-        const message = String(error?.message ?? "");
-        if (level.includes("authentication") || /authentication/i.test(message)) {
-          finish({ ok: false, kind: "auth_failed", fingerprint: presented, detail: "The server did not accept that SSH sign-in." });
-          return;
-        }
-        if (/host key|hostkey/i.test(message)) {
-          finish({ ok: false, kind: "host_key_rejected", fingerprint: presented, detail: message.slice(0, 200) });
-          return;
-        }
-        finish({
-          ok: false,
-          kind: /timed out|ETIMEDOUT/i.test(message) ? "timeout" : "unreachable",
-          fingerprint: presented,
-          detail: "I could not reach that server over SSH.",
-        });
-      });
+      client.on("error", (error: SshClientError) => finish(clientFailure(error, presented) as SftpTailOutcome));
 
       try {
         client.connect({
