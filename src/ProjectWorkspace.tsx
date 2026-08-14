@@ -448,7 +448,14 @@ export function ProjectWorkspace({
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         const saved = await workspaceRepository.addProjectMessage(project.id, input);
-        setMessages((current) => (current.some((item) => item.id === saved.id) ? current : sortMessages([...current, saved])));
+        setMessages((current) => {
+          const alreadyPresent = current.some(
+            (item) =>
+              item.id === saved.id ||
+              (saved.dedupeKey && item.dedupeKey === saved.dedupeKey),
+          );
+          return alreadyPresent ? current : sortMessages([...current, saved]);
+        });
         setPersistError(null);
         // A labelled choice becomes referenceable the moment it is said, so
         // "option B" still means something months later.
