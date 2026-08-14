@@ -701,6 +701,7 @@ export function ProjectWorkspace({
               recentMessages: messages.filter((message) => message.runId === run.id),
               memory: project.memoryEntries,
               onStream: setStreamingText,
+              onEvidence: collectEvidence,
             }),
             new Promise((resolve) => window.setTimeout(resolve, 45000)),
           ]);
@@ -967,6 +968,7 @@ export function ProjectWorkspace({
             ],
             memory: nextProject.memoryEntries,
             onStream: setStreamingText,
+              onEvidence: collectEvidence,
           });
           spoke = outcome.spoke;
         } catch {
@@ -1272,6 +1274,7 @@ export function ProjectWorkspace({
         recentMessages: [...messages.filter((message) => message.runId === activeRun.id), savedMessage],
         memory: project.memoryEntries,
         onStream: setStreamingText,
+              onEvidence: collectEvidence,
       });
 
       if (!outcome.spoke) {
