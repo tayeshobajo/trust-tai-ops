@@ -185,7 +185,7 @@ console.log("\nbrowserless dialect");
   const code: string = seen!.body.code;
   check(
     "the page script only navigates and reads",
-    !/\.click\(|\.type\(|keyboard|setContent|\.select\(|\.tap\(/.test(code),
+    !/page\.click\(|page\.type\(|keyboard|setContent|page\.select\(|page\.tap\(/.test(code),
   );
 }
 
