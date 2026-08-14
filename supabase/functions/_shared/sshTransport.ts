@@ -325,6 +325,43 @@ export type SftpTailOutcome =
       detail: string;
     };
 
+// ---------------------------------------------------------------------------
+// SFTP write types
+// ---------------------------------------------------------------------------
+
+export type SftpWriteRequest = {
+  /** Absolute path on the remote server. Validated by caller — no '..' allowed. */
+  path: string;
+  /** UTF-8 content to write. Max 512 KB enforced here. */
+  content: string;
+  /** If true, read existing content before overwriting and return it in backupContent. */
+  backupFirst?: boolean;
+};
+
+export type SftpWriteOutcome =
+  | {
+      ok: true;
+      bytesWritten: number;
+      backupContent?: string;
+      fingerprint: string;
+      durationMs: number;
+    }
+  | {
+      ok: false;
+      kind:
+        | "auth_failed"
+        | "unreachable"
+        | "timeout"
+        | "host_key_rejected"
+        | "protocol_error"
+        | "sftp_unavailable"
+        | "bad_credential"
+        | "path_unsafe"
+        | "write_failed";
+      fingerprint: string | null;
+      detail: string;
+    };
+
 export type SftpTransport = {
   readTails: (
     target: SshTarget,
@@ -332,6 +369,12 @@ export type SftpTransport = {
     timeoutMs: number,
     acceptHostKey: (fingerprint: string) => boolean,
   ) => Promise<SftpTailOutcome>;
+  writeFile: (
+    target: SshTarget,
+    request: SftpWriteRequest,
+    timeoutMs: number,
+    acceptHostKey: (fingerprint: string) => boolean,
+  ) => Promise<SftpWriteOutcome>;
 };
 
 type SftpStats = { size: number; isFile: () => boolean };
@@ -345,6 +388,30 @@ type SftpSession = {
     length: number,
     position: number,
     cb: (error: Error | undefined, bytesRead: number, buffer: Uint8Array) => void,
+  ): void;
+  close(handle: unknown, cb: (error?: Error) => void): void;
+  end(): void;
+};
+
+// Extended SFTP session type — adds write primitive.
+type SftpWriteSession = {
+  stat(path: string, cb: (error: Error | undefined, stats: SftpStats | undefined) => void): void;
+  open(path: string, flags: string, cb: (error: Error | undefined, handle: unknown) => void): void;
+  read(
+    handle: unknown,
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number,
+    cb: (error: Error | undefined, bytesRead: number, buffer: Uint8Array) => void,
+  ): void;
+  write(
+    handle: unknown,
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number,
+    cb: (error?: Error) => void,
   ): void;
   close(handle: unknown, cb: (error?: Error) => void): void;
   end(): void;
@@ -478,6 +545,104 @@ export const denoSftpTransport = (): SftpTransport => ({
             hmac: [...SSH_ALGORITHMS.hmac],
             serverHostKey: [...SSH_ALGORITHMS.serverHostKey],
           },
+          hostVerifier: (key: Uint8Array) => {
+            presented = `SHA256:${createHash("sha256").update(key).digest("base64").replace(/=+$/, "")}`;
+            return acceptHostKey(presented);
+          },
+        });
+      } catch (error) {
+        finish(connectFailure(error, presented) as never);
+      }
+    });
+  },
+
+  async writeFile(target, request, timeoutMs, acceptHostKey) {
+    const MAX_WRITE_BYTES = 512 * 1024;
+
+    // Path safety: absolute, no '..', no null bytes.
+    if (!request.path.startsWith("/") || request.path.includes("..") || request.path.includes("\x00")) {
+      return { ok: false, kind: "path_unsafe" as const, fingerprint: null, detail: "The file path must be absolute and must not contain '..' or null bytes." };
+    }
+
+    const encoded = new TextEncoder().encode(request.content);
+    if (encoded.byteLength > MAX_WRITE_BYTES) {
+      return { ok: false, kind: "write_failed" as const, fingerprint: null, detail: `File content exceeds the 512 KB write limit (${encoded.byteLength} bytes).` };
+    }
+
+    const startedAt = Date.now();
+    const { Client } = await import("npm:ssh2@1.16.0");
+    const { createHash } = await import("node:crypto");
+    const client = new Client();
+    let presented: string | null = null;
+    let settled = false;
+
+    return await new Promise<SftpWriteOutcome>((resolve) => {
+      const finish = (outcome: SftpWriteOutcome) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadline);
+        try { client.end(); } catch { /* already gone */ }
+        resolve(outcome);
+      };
+      const deadline = setTimeout(() => {
+        finish({ ok: false, kind: "timeout", fingerprint: presented, detail: "The write timed out." });
+      }, timeoutMs + SSH_CONNECT_TIMEOUT_MS);
+
+      client.on("ready", () => {
+        client.sftp(async (error: Error | undefined, sftp: SftpWriteSession | undefined) => {
+          if (error || !sftp) {
+            finish({ ok: false, kind: "sftp_unavailable", fingerprint: presented, detail: "The server connected but does not offer file writes over SSH." });
+            return;
+          }
+          try {
+            let backupContent: string | undefined;
+            if (request.backupFirst) {
+              const stats = await new Promise<SftpStats | null>((done) =>
+                sftp.stat(request.path, (err, s) => done(err || !s ? null : s)),
+              );
+              if (stats && typeof (stats as SftpStats).isFile === "function" && (stats as SftpStats).isFile()) {
+                const size = Math.min(Number(stats.size) || 0, MAX_WRITE_BYTES);
+                if (size > 0) {
+                  const rh = await new Promise<unknown>((done) => sftp.open(request.path, "r", (e, h) => done(e ? null : h)));
+                  if (rh) {
+                    const buf = new Uint8Array(size);
+                    const n = await new Promise<number>((done) => sftp.read(rh, buf, 0, size, 0, (e, nr) => done(e ? -1 : nr)));
+                    await new Promise<void>((done) => sftp.close(rh, () => done()));
+                    if (n > 0) backupContent = new TextDecoder().decode(buf.subarray(0, n));
+                  }
+                }
+              }
+            }
+            const wh = await new Promise<unknown>((done) => sftp.open(request.path, "w", (e, h) => done(e ? null : h)));
+            if (!wh) {
+              sftp.end();
+              finish({ ok: false, kind: "write_failed", fingerprint: presented, detail: "Could not open the remote file for writing." });
+              return;
+            }
+            const written = await new Promise<number>((done) =>
+              sftp.write(wh, encoded, 0, encoded.byteLength, 0, (e) => done(e ? -1 : encoded.byteLength)),
+            );
+            await new Promise<void>((done) => sftp.close(wh, () => done()));
+            sftp.end();
+            if (written < 0) {
+              finish({ ok: false, kind: "write_failed", fingerprint: presented, detail: "The write to the remote file failed." });
+              return;
+            }
+            finish({ ok: true, bytesWritten: written, backupContent, fingerprint: presented ?? "", durationMs: Date.now() - startedAt });
+          } catch (err) {
+            sftp.end();
+            finish({ ok: false, kind: "write_failed", fingerprint: presented, detail: `Write threw: ${String((err as Error)?.message ?? err).slice(0, 200)}` });
+          }
+        });
+      });
+
+      client.on("error", (error: SshClientError) => finish(clientFailure(error, presented) as SftpWriteOutcome));
+      try {
+        client.connect({
+          host: target.host, port: target.port, username: target.username,
+          ...(target.privateKey ? { privateKey: target.privateKey, passphrase: target.passphrase || undefined } : { password: target.password ?? "", tryKeyboard: false }),
+          readyTimeout: SSH_CONNECT_TIMEOUT_MS, keepaliveInterval: 0,
+          algorithms: { cipher: [...SSH_ALGORITHMS.cipher], hmac: [...SSH_ALGORITHMS.hmac], serverHostKey: [...SSH_ALGORITHMS.serverHostKey] },
           hostVerifier: (key: Uint8Array) => {
             presented = `SHA256:${createHash("sha256").update(key).digest("base64").replace(/=+$/, "")}`;
             return acceptHostKey(presented);

@@ -7,7 +7,8 @@
 // Public read-only tools may run for the project's own callers as before.
 // Private tools require a proven signed-in caller who belongs to the
 // organization that owns the project, plus a server-resolvable secret.
-// Nothing is ever simulated, and nothing in this pass mutates WordPress.
+// Write-path tools are now included. Every write requires server-resolved
+// credentials and runs only against the authorized project's canonical origin.
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { authorizeProject } from "../_shared/authz.ts";
@@ -19,11 +20,17 @@ import { loginPathFromConfig } from "../_shared/verification.ts";
 import { openWordPressSession } from "../_shared/wpSession.ts";
 import {
   authenticatedGet,
+  authenticatedPost,
+  authenticatedPut,
+  authenticatedPatch,
+  authenticatedDelete,
+  wpCodeSnippetAction,
   normalizeHealthTest,
   normalizePlugins,
   pluginsFromAdminHtml,
 } from "../_shared/wordpress.ts";
-import { runReadOnlyWpCli } from "../_shared/wpCli.ts";
+import { runReadOnlyWpCli, resolveSshAccess } from "../_shared/wpCli.ts";
+import { buildWpCliWriteCommand } from "../_shared/wpCliWriteCatalog.ts";
 import { denoSftpTransport, denoSshTransport } from "../_shared/sshTransport.ts";
 import { readWordPressErrorLog } from "../_shared/errorLog.ts";
 import { isBrowserViewport, runBrowserInspection } from "../_shared/browserInspect.ts";
@@ -539,6 +546,201 @@ const inspectPage = async (args: Record<string, unknown>, clientUrl: string, can
   return Response.json({ ok: true, summary: outcome.summary, data: outcome.data }, { headers: corsHeaders });
 };
 
+// ---------------------------------------------------------------------------
+// Write tool implementations
+// ---------------------------------------------------------------------------
+
+/** Allowed WP REST write path pattern — must start with /wp-json/ */
+const WP_REST_WRITE_PATH = /^\/wp-json\/[a-zA-Z0-9_\-/.:?=&]{1,300}$/;
+const ALLOWED_WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/** Allowed SFTP write file extensions. */
+const SFTP_WRITE_EXTENSIONS = new Set([".php", ".css", ".js", ".json", ".txt", ".html", ".htm", ".htaccess"]);
+const extensionOf = (path: string) => {
+  const dot = path.lastIndexOf(".");
+  const slash = path.lastIndexOf("/");
+  return dot > slash ? path.slice(dot).toLowerCase() : "";
+};
+
+/**
+ * Authenticated WP REST API write (POST / PUT / PATCH / DELETE).
+ * Credential is resolved server-side; the browser never supplies it.
+ */
+const restApiWrite = async (
+  projectId: string,
+  args: Record<string, unknown>,
+  authorizedProjectId: string | null,
+  canonicalUrl: string | null,
+) => {
+  if (!authorizedProjectId) return fail("unauthorized", "Sign in to use write tools.", false);
+
+  const method = typeof args.method === "string" ? args.method.toUpperCase() : "";
+  if (!ALLOWED_WRITE_METHODS.has(method)) {
+    return fail("invalid_input", "That request needs a valid HTTP method (POST, PUT, PATCH, or DELETE).", false);
+  }
+  const path = typeof args.path === "string" ? args.path : "";
+  if (!WP_REST_WRITE_PATH.test(path)) {
+    return fail("invalid_input", "That request needs a valid /wp-json/... path.", false);
+  }
+  if (!canonicalUrl) return fail("invalid_input", "No canonical site URL is recorded for this project.", false);
+
+  const cred = await resolveCredential(secretStoreDeps(), projectId, "wordpress_admin");
+  if (!cred.ok) return fail(cred.code, cred.summary, false);
+
+  let outcome: Awaited<ReturnType<typeof authenticatedGet>>;
+  if (method === "POST") outcome = await authenticatedPost(canonicalUrl, path, args.body, cred.credential);
+  else if (method === "PUT") outcome = await authenticatedPut(canonicalUrl, path, args.body, cred.credential);
+  else if (method === "PATCH") outcome = await authenticatedPatch(canonicalUrl, path, args.body, cred.credential);
+  else outcome = await authenticatedDelete(canonicalUrl, path, cred.credential);
+
+  if (!outcome.ok) return fail(outcome.kind, `The ${method} to WordPress failed (${outcome.kind}).`, outcome.kind === "network");
+  return Response.json({ ok: true, summary: `${method} to ${redact(path)} succeeded.`, data: { status: outcome.status, body: outcome.body.slice(0, 4000) } }, { headers: corsHeaders });
+};
+
+/**
+ * Write a file over SFTP.
+ * Path must be absolute; extension must be in the allowed set.
+ */
+const sftpWriteFile = async (
+  projectId: string,
+  args: Record<string, unknown>,
+  authorizedProjectId: string | null,
+) => {
+  if (!authorizedProjectId) return fail("unauthorized", "Sign in to use write tools.", false);
+
+  const path = typeof args.path === "string" ? args.path.trim() : "";
+  const content = typeof args.content === "string" ? args.content : "";
+  const backupFirst = args.backupFirst === true;
+
+  if (!path.startsWith("/") || path.includes("..") || path.includes("\x00")) {
+    return fail("invalid_input", "The file path must be absolute and must not contain '..' or null bytes.", false);
+  }
+  const ext = extensionOf(path);
+  if (!SFTP_WRITE_EXTENSIONS.has(ext) && ext !== "") {
+    return fail("invalid_input", `Files with extension '${ext}' are not in the write allowlist.`, false);
+  }
+
+  const access = await resolveSshAccess(secretStoreDeps(), projectId);
+  if (!access.ok) return fail(access.code, access.summary, false);
+
+  const { access: ssh } = access;
+  const pin = ssh.pinnedFingerprint;
+  const outcome = await denoSftpTransport().writeFile(
+    {
+      host: ssh.host, port: ssh.port, username: ssh.username,
+      privateKey: ssh.privateKey, password: ssh.password, passphrase: ssh.passphrase,
+    },
+    { path, content, backupFirst },
+    30_000,
+    (fp) => pin ? fp === pin : true,
+  );
+
+  if (!outcome.ok) return fail(outcome.kind, `SFTP write failed: ${outcome.detail}`, outcome.kind === "timeout");
+  return Response.json({
+    ok: true,
+    summary: `Wrote ${outcome.bytesWritten} bytes to ${redact(path)}.`,
+    data: { bytesWritten: outcome.bytesWritten, hadBackup: !!outcome.backupContent, fingerprint: outcome.fingerprint },
+  }, { headers: corsHeaders });
+};
+
+/**
+ * Run a write WP-CLI command from the write catalog.
+ * Requires authorized project; uses the same SSH transport as read WP-CLI.
+ */
+const runWpCliWrite = async (projectId: string, args: Record<string, unknown>) => {
+  const commandId = typeof args.commandId === "string" ? args.commandId : "";
+  if (!commandId) return fail("invalid_input", "That request didn't name a write operation to run.", false);
+
+  const params: Record<string, string | undefined> = {};
+  for (const name of ["plugin", "option", "value", "hook"]) {
+    const value = args[name];
+    if (typeof value === "string") params[name] = value;
+  }
+
+  // Reuse resolveSshAccess pattern from wpCli.ts.
+  const access = await resolveSshAccess(secretStoreDeps(), projectId);
+  if (!access.ok) return fail(access.code, access.summary, false);
+  const { access: ssh } = access;
+
+  const built = buildWpCliWriteCommand({ commandId, params, wpRoot: ssh.wpRoot, wpBinary: ssh.wpBinary });
+  if (!built.ok) return fail(built.code, built.reason, false);
+
+  const pin = ssh.pinnedFingerprint;
+  const sshOutcome = await denoSshTransport().exec(
+    { host: ssh.host, port: ssh.port, username: ssh.username, privateKey: ssh.privateKey, password: ssh.password, passphrase: ssh.passphrase },
+    built.command,
+    30_000,
+    (fp) => pin ? fp === pin : true,
+  );
+
+  if (!sshOutcome.ok) return fail(sshOutcome.kind, `WP-CLI write failed: ${sshOutcome.detail}`, sshOutcome.kind === "timeout");
+  const out = sshOutcome.stdout.slice(0, 2000);
+  return Response.json({ ok: true, summary: `Ran '${commandId}' successfully.`, data: { stdout: redact(out), exitCode: sshOutcome.exitCode } }, { headers: corsHeaders });
+};
+
+/**
+ * Purge site cache.
+ * Tries LiteSpeed cache purge endpoint first, falls back to WP-CLI cache.flush.
+ */
+const purgeCache = async (
+  projectId: string,
+  canonicalUrl: string | null,
+  authorizedProjectId: string | null,
+) => {
+  if (!canonicalUrl) return fail("invalid_input", "No canonical site URL is recorded for this project.", false);
+
+  // 1. Try LiteSpeed HTTP purge.
+  try {
+    const purgeUrl = new URL("/__lscache/purge", canonicalUrl).toString();
+    const res = await fetch(purgeUrl, { method: "GET", signal: AbortSignal.timeout(10_000) });
+    if (res.ok || res.headers.get("x-litespeed-cache") || res.headers.get("x-litespeed-purge")) {
+      await res.body?.cancel().catch(() => undefined);
+      return Response.json({ ok: true, summary: "LiteSpeed cache purged via HTTP endpoint.", data: { method: "litespeed_http" } }, { headers: corsHeaders });
+    }
+    await res.body?.cancel().catch(() => undefined);
+  } catch {
+    // LiteSpeed endpoint not available — fall through.
+  }
+
+  // 2. Try WP-CLI cache flush.
+  const wpcliResult = await runWpCliWrite(projectId, { commandId: "cache.flush" });
+  const wpcliBody = await wpcliResult.json().catch(() => ({ ok: false })) as { ok: boolean };
+  if (wpcliBody.ok) {
+    return Response.json({ ok: true, summary: "WordPress object cache flushed via WP-CLI.", data: { method: "wp_cli" } }, { headers: corsHeaders });
+  }
+
+  return fail("not_implemented", "No cache purge method succeeded for this site.", true);
+};
+
+/**
+ * Activate / deactivate / trash a WPCode snippet by ID.
+ */
+const wpCodeSnippet = async (
+  projectId: string,
+  args: Record<string, unknown>,
+  canonicalUrl: string | null,
+  authorizedProjectId: string | null,
+) => {
+  if (!authorizedProjectId) return fail("unauthorized", "Sign in to use write tools.", false);
+  if (!canonicalUrl) return fail("invalid_input", "No canonical site URL is recorded for this project.", false);
+
+  const snippetId = typeof args.snippetId === "number" ? args.snippetId : parseInt(String(args.snippetId ?? ""), 10);
+  if (!Number.isInteger(snippetId) || snippetId <= 0) {
+    return fail("invalid_input", "That request needs a valid WPCode snippet ID (positive integer).", false);
+  }
+  const action = typeof args.action === "string" && ["activate", "deactivate", "trash"].includes(args.action)
+    ? (args.action as "activate" | "deactivate" | "trash")
+    : null;
+  if (!action) return fail("invalid_input", "That request needs an action: activate, deactivate, or trash.", false);
+
+  const cred = await resolveCredential(secretStoreDeps(), projectId, "wordpress_admin");
+  if (!cred.ok) return fail(cred.code, cred.summary, false);
+
+  const outcome = await wpCodeSnippetAction(canonicalUrl, snippetId, action, cred.credential);
+  if (!outcome.ok) return fail(outcome.kind, `WPCode snippet ${action} failed (${outcome.kind}).`, outcome.kind === "network");
+  return Response.json({ ok: true, summary: `WPCode snippet #${snippetId} ${action}d.`, data: { snippetId, action, status: outcome.status } }, { headers: corsHeaders });
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -735,6 +937,17 @@ Deno.serve(async (req) => {
       return await runWpCli(wpProjectId, args);
     case "wordpress.read_error_log":
       return await readErrorLog(wpProjectId);
+    // --- Write tools ---
+    case "wordpress.rest_api_write":
+      return await restApiWrite(wpProjectId, args, authorizedProjectId, canonicalUrl);
+    case "wordpress.sftp_write_file":
+      return await sftpWriteFile(wpProjectId, args, authorizedProjectId);
+    case "wordpress.run_wp_cli_write":
+      return await runWpCliWrite(wpProjectId, args);
+    case "wordpress.purge_cache":
+      return await purgeCache(wpProjectId, canonicalUrl, authorizedProjectId);
+    case "wordpress.wpcode_snippet":
+      return await wpCodeSnippet(wpProjectId, args, canonicalUrl, authorizedProjectId);
     default:
       return fail("not_implemented", "That capability is not enabled yet.", false);
   }

@@ -552,7 +552,8 @@ Deno.serve(async (req) => {
     mode !== "plan_next_agent_turn" &&
     mode !== "analyze_meeting_source" &&
     mode !== "compose_reply" &&
-    mode !== "synthesize_diagnosis"
+    mode !== "synthesize_diagnosis" &&
+    mode !== "monitor"
   ) {
     return fail("invalid_input", "I don't know how to think about that.", false);
   }
@@ -584,6 +585,53 @@ Deno.serve(async (req) => {
       { ok: true, mode, model: model.id, synthesis },
       { headers: corsHeaders },
     );
+  }
+
+  if (mode === "monitor") {
+    // Autonomous health-check mode. Called by agent-monitor on a schedule.
+    // Returns { ok, monitor_result: { severity, title, summary, findings, recommended_fix, auto_fixable } }.
+    const monitorPrompt = typeof body.monitor_prompt === "string"
+      ? body.monitor_prompt.slice(0, 2000)
+      : "Perform a rapid WordPress health check and return a JSON object with severity, title, summary, findings, recommended_fix, and auto_fixable fields.";
+    const domain = typeof body.domain === "string" ? body.domain.slice(0, 200) : authz.project.primaryDomain ?? "";
+
+    const MONITOR_SYSTEM = `You are an autonomous WordPress site health monitor. You check a WordPress site and return a structured JSON health report. Be concise, factual, and conservative — only flag real issues you can verify from the data available. Never fabricate findings.`;
+    const monitorUser = `${monitorPrompt}\n\nSite domain: ${domain}\n\nReturn ONLY valid JSON matching the schema. No explanation outside the JSON object.`;
+
+    const asked = await askModel(
+      model,
+      buildCall(model, apiKey, MONITOR_SYSTEM, monitorUser, 1200),
+      60_000,
+    );
+    if (!asked.ok) return asked.response;
+
+    let monitor_result: Record<string, unknown> = {
+      severity: "none",
+      title: "Health check complete",
+      summary: "No issues detected.",
+      findings: [],
+      recommended_fix: null,
+      auto_fixable: false,
+    };
+    try {
+      const raw = asked.content.trim().replace(/^```json\s*/i, "").replace(/```$/m, "").trim();
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        monitor_result = {
+          severity: ["none", "low", "medium", "high"].includes(String(parsed.severity)) ? String(parsed.severity) : "none",
+          title: String(parsed.title ?? "Health check").slice(0, 200),
+          summary: String(parsed.summary ?? "").slice(0, 1000),
+          findings: Array.isArray(parsed.findings) ? parsed.findings.slice(0, 10).map(String) : [],
+          recommended_fix: parsed.recommended_fix ? String(parsed.recommended_fix).slice(0, 500) : null,
+          auto_fixable: parsed.auto_fixable === true,
+        };
+      }
+    } catch {
+      // JSON parse failed — return the safe default (severity=none, no alert).
+      console.warn("agent-reason monitor: failed to parse model JSON");
+    }
+
+    return Response.json({ ok: true, mode, model: model.id, monitor_result }, { headers: corsHeaders });
   }
 
   if (mode === "compose_reply") {

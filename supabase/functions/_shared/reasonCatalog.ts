@@ -293,3 +293,110 @@ export const validateReasonPlan = (
     },
   };
 };
+// ---------------------------------------------------------------------------
+// Write step definitions (added alongside read steps above)
+// These require sufficient_evidence to have been reached before they can be
+// proposed by the planner. The orchestrator enforces this gate.
+// ---------------------------------------------------------------------------
+
+export type WriteStepId =
+  | "fix-via-rest-api"
+  | "fix-via-sftp"
+  | "fix-via-wp-cli"
+  | "purge-cache"
+  | "toggle-wpcode"
+  | "activate-plugin"
+  | "deactivate-plugin"
+  | "flush-rewrites"
+  | "enable-maintenance"
+  | "disable-maintenance";
+
+export type WriteStepSpec = {
+  id: WriteStepId;
+  toolId: string;
+  purpose: string;
+  /** Extra args to merge into the tool call when dispatching. */
+  defaultArgs?: Record<string, unknown>;
+  /** Human approval required before dispatch (for irreversible ops). */
+  requiresConfirmation: boolean;
+  /** Must be true for all write steps. Enforced by the orchestrator. */
+  requiresEvidence: true;
+};
+
+export const WRITE_STEPS: Record<WriteStepId, WriteStepSpec> = {
+  "fix-via-rest-api": {
+    id: "fix-via-rest-api",
+    toolId: "wordpress.rest_api_write",
+    purpose: "Apply a fix through the WordPress REST API (events, venues, posts, taxonomies).",
+    requiresConfirmation: false,
+    requiresEvidence: true,
+  },
+  "fix-via-sftp": {
+    id: "fix-via-sftp",
+    toolId: "wordpress.sftp_write_file",
+    purpose: "Patch a file on the server over SFTP (templates, configs, PHP snippets).",
+    requiresConfirmation: true,
+    requiresEvidence: true,
+  },
+  "fix-via-wp-cli": {
+    id: "fix-via-wp-cli",
+    toolId: "wordpress.run_wp_cli_write",
+    purpose: "Run a write WP-CLI command (plugin activate/deactivate, option update, cron run).",
+    requiresConfirmation: false,
+    requiresEvidence: true,
+  },
+  "purge-cache": {
+    id: "purge-cache",
+    toolId: "wordpress.purge_cache",
+    purpose: "Purge the site cache (LiteSpeed, WP-CLI object cache, WP Rocket).",
+    requiresConfirmation: false,
+    requiresEvidence: true,
+  },
+  "toggle-wpcode": {
+    id: "toggle-wpcode",
+    toolId: "wordpress.wpcode_snippet",
+    purpose: "Activate, deactivate, or trash a WPCode code snippet.",
+    requiresConfirmation: false,
+    requiresEvidence: true,
+  },
+  "activate-plugin": {
+    id: "activate-plugin",
+    toolId: "wordpress.run_wp_cli_write",
+    purpose: "Activate a specific plugin.",
+    defaultArgs: { commandId: "plugin.activate" },
+    requiresConfirmation: false,
+    requiresEvidence: true,
+  },
+  "deactivate-plugin": {
+    id: "deactivate-plugin",
+    toolId: "wordpress.run_wp_cli_write",
+    purpose: "Deactivate a specific plugin to isolate a conflict.",
+    defaultArgs: { commandId: "plugin.deactivate" },
+    requiresConfirmation: false,
+    requiresEvidence: true,
+  },
+  "flush-rewrites": {
+    id: "flush-rewrites",
+    toolId: "wordpress.run_wp_cli_write",
+    purpose: "Flush WordPress rewrite rules to fix permalink 404s.",
+    defaultArgs: { commandId: "rewrite.flush" },
+    requiresConfirmation: false,
+    requiresEvidence: true,
+  },
+  "enable-maintenance": {
+    id: "enable-maintenance",
+    toolId: "wordpress.run_wp_cli_write",
+    purpose: "Enable maintenance mode before applying a risky change.",
+    defaultArgs: { commandId: "maintenance.enable" },
+    requiresConfirmation: false,
+    requiresEvidence: true,
+  },
+  "disable-maintenance": {
+    id: "disable-maintenance",
+    toolId: "wordpress.run_wp_cli_write",
+    purpose: "Disable maintenance mode after changes are applied.",
+    defaultArgs: { commandId: "maintenance.disable" },
+    requiresConfirmation: false,
+    requiresEvidence: true,
+  },
+};

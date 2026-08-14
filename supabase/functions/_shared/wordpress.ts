@@ -188,3 +188,99 @@ export const normalizeHealthTest = (id: string, payload: unknown): HealthTest | 
   if (!label && !status) return null;
   return { id, label: label || id, status: status || null };
 };
+// ---------------------------------------------------------------------------
+// Authenticated write methods (POST / PUT / PATCH / DELETE)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared mutate helper. All write methods go through here.
+ * Same origin-lock and credential-drop logic as authenticatedGet.
+ */
+const authenticatedMutate = async (
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  credential: WpCredential | null,
+  fetchImpl: typeof fetch = fetch,
+  sessionCookie?: string | null,
+  sessionNonce?: string | null,
+): Promise<WpOutcome> => {
+  const base = validatePublicUrl(baseUrl);
+  if (!base.ok) return { ok: false, kind: "unsafe", status: null };
+  const target = validatePublicUrl(new URL(path, base.url.origin).toString());
+  if (!target.ok) return { ok: false, kind: "unsafe", status: null };
+
+  const headers: Record<string, string> = { accept: "application/json", "content-type": "application/json" };
+  if (credential) headers.authorization = basicAuthHeader(credential);
+  if (sessionCookie) headers.cookie = sessionCookie;
+  if (sessionNonce) headers["x-wp-nonce"] = sessionNonce;
+
+  const hasBody = method !== "DELETE";
+  const attempt = await fetchSafely(
+    target.url,
+    {
+      method,
+      headers,
+      credentialHeaders: ["authorization", "cookie", "x-wp-nonce"],
+      body: hasBody ? JSON.stringify(body ?? {}) : undefined,
+    },
+    fetchImpl,
+  );
+  if ("error" in attempt) {
+    return { ok: false, kind: attempt.error === "unsafe_destination" ? "unsafe" : "network", status: null };
+  }
+
+  const { response, credentialsSurvived } = attempt;
+  if (response.status === 401) { await response.body?.cancel().catch(() => undefined); return { ok: false, kind: "unauthorized", status: 401 }; }
+  if (response.status === 403) { await response.body?.cancel().catch(() => undefined); return { ok: false, kind: "forbidden", status: 403 }; }
+  if (response.status === 404 || response.status === 501) { await response.body?.cancel().catch(() => undefined); return { ok: false, kind: "endpoint_unavailable", status: response.status }; }
+  if (!response.ok) { await response.body?.cancel().catch(() => undefined); return { ok: false, kind: "network", status: response.status }; }
+
+  const responseBody = await readBounded(response);
+  return { ok: true, status: response.status, body: responseBody, credentialsSurvived };
+};
+
+export const authenticatedPost = (
+  baseUrl: string, path: string, body: unknown, credential: WpCredential | null,
+  fetchImpl?: typeof fetch, sessionCookie?: string | null, sessionNonce?: string | null,
+): Promise<WpOutcome> =>
+  authenticatedMutate("POST", baseUrl, path, body, credential, fetchImpl, sessionCookie, sessionNonce);
+
+export const authenticatedPut = (
+  baseUrl: string, path: string, body: unknown, credential: WpCredential | null,
+  fetchImpl?: typeof fetch, sessionCookie?: string | null, sessionNonce?: string | null,
+): Promise<WpOutcome> =>
+  authenticatedMutate("PUT", baseUrl, path, body, credential, fetchImpl, sessionCookie, sessionNonce);
+
+export const authenticatedPatch = (
+  baseUrl: string, path: string, body: unknown, credential: WpCredential | null,
+  fetchImpl?: typeof fetch, sessionCookie?: string | null, sessionNonce?: string | null,
+): Promise<WpOutcome> =>
+  authenticatedMutate("PATCH", baseUrl, path, body, credential, fetchImpl, sessionCookie, sessionNonce);
+
+export const authenticatedDelete = (
+  baseUrl: string, path: string, credential: WpCredential | null,
+  fetchImpl?: typeof fetch, sessionCookie?: string | null, sessionNonce?: string | null,
+): Promise<WpOutcome> =>
+  authenticatedMutate("DELETE", baseUrl, path, undefined, credential, fetchImpl, sessionCookie, sessionNonce);
+
+/**
+ * WPCode snippet activate / deactivate / trash.
+ * Uses the WPCode REST API (/wp-json/wpcode/v1/snippets/:id).
+ */
+export const wpCodeSnippetAction = async (
+  baseUrl: string,
+  snippetId: number,
+  action: "activate" | "deactivate" | "trash",
+  credential: WpCredential | null,
+  fetchImpl: typeof fetch = fetch,
+  sessionCookie?: string | null,
+  sessionNonce?: string | null,
+): Promise<WpOutcome> => {
+  const path = `/wp-json/wpcode/v1/snippets/${snippetId}`;
+  if (action === "trash") {
+    return authenticatedDelete(baseUrl, path, credential, fetchImpl, sessionCookie, sessionNonce);
+  }
+  return authenticatedPut(baseUrl, path, { active: action === "activate" }, credential, fetchImpl, sessionCookie, sessionNonce);
+};
