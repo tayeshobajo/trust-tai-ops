@@ -7,8 +7,7 @@
 
 import type { AgentAction, AgentContext, Capability, RiskClass, ToolId } from "./types";
 import { getProjectStack, stackCopy } from "../stacks";
-import { checkReadBeforeWrite } from "./precondition";
-import { writeTargetFor } from "./precondition";
+import { checkReadBeforeWrite, writeTargetFor } from "./precondition";
 import { constraintsTouching } from "./constraints";
 
 const RISK_BY_TOOL: Record<ToolId, RiskClass> = {
