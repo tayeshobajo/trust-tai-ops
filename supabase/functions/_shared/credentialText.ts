@@ -179,17 +179,17 @@ type Field =
 const FIELD_RULES: Array<{ re: RegExp; field: Field; section?: Section }> = [
   // "Wp-admin:" arrives here as the bare word "admin" once the section prefix
   // has been peeled off.
-  { re: /^(?:admin|wp[ _-]?admin|wp[ _-]?admin[ _-]?url|admin[ _-]?url|admin[ _-]?login|dashboard)$/i, field: "adminUrl", section: "wordpress" },
-  { re: /^(?:url|site|site[ _-]?url|website|domain|wordpress[ _-]?url)$/i, field: "siteUrl", section: "wordpress" },
+  { re: /^(?:admin|wp[ _-]?admin|wp[ _-]?admin[ _-]?url|admin[ _-]?url|admin[ _-]?login|admin[ _-]?page|dashboard|dashboard[ _-]?url|login[ _-]?url|login[ _-]?page)$/i, field: "adminUrl", section: "wordpress" },
+  { re: /^(?:url|site|site[ _-]?url|site[ _-]?address|website|domain|wordpress[ _-]?url|home[ _-]?url|home)$/i, field: "siteUrl", section: "wordpress" },
   { re: /^(?:app(?:lication)?[ _-]?password)$/i, field: "appPassword", section: "wordpress" },
-  { re: /^(?:admin[ _-]?)?(?:email|e-?mail|login|user[ _-]?email)$/i, field: "identity", section: "wordpress" },
-  { re: /^(?:host|hostname|host[ _-]?name|server|address|host[ _-]?address|server[ _-]?address|ip|ip[ _-]?address)$/i, field: "host" },
-  { re: /^(?:port|port[ _-]?number)$/i, field: "port" },
-  { re: /^(?:protocol)$/i, field: "protocol" },
-  { re: /^(?:private[ _-]?key|key)$/i, field: "privateKey" },
-  { re: /^(?:passphrase|key[ _-]?passphrase)$/i, field: "passphrase" },
-  { re: /^(?:user|username|user[ _-]?name|account)$/i, field: "username" },
-  { re: /^(?:password|passwd|pwd|pass)$/i, field: "password" },
+  { re: /^(?:admin[ _-]?)?(?:email|e-?mail|login|user[ _-]?email|wp[ _-]?user|wp[ _-]?login)$/i, field: "identity", section: "wordpress" },
+  { re: /^(?:host|hostname|host[ _-]?name|server|address|host[ _-]?address|server[ _-]?address|ip|ip[ _-]?address|sftp[ _-]?host|ftp[ _-]?host)$/i, field: "host" },
+  { re: /^(?:port|port[ _-]?number|sftp[ _-]?port|ftp[ _-]?port)$/i, field: "port" },
+  { re: /^(?:protocol|type)$/i, field: "protocol" },
+  { re: /^(?:private[ _-]?key|ssh[ _-]?key|key)$/i, field: "privateKey" },
+  { re: /^(?:passphrase|key[ _-]?passphrase|ssh[ _-]?passphrase)$/i, field: "passphrase" },
+  { re: /^(?:user|username|user[ _-]?name|account|sftp[ _-]?user|ftp[ _-]?user|ssh[ _-]?user)$/i, field: "username" },
+  { re: /^(?:password|passwd|pwd|pass|sftp[ _-]?password|ftp[ _-]?password|ssh[ _-]?password)$/i, field: "password" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -234,6 +234,27 @@ const splitInlineLabels = (line: string): string[] => {
   return segments;
 };
 
+const TABULAR_LABEL = new RegExp(
+  "^\\s*(" +
+    "app(?:lication)?[ _-]?password|password|passwd|pwd|pass" +
+    "|passphrase|private[ _-]?key" +
+    "|host(?:[ _-]?name)?|server(?:[ _-]?address)?|address|ip(?:[ _-]?address)?" +
+    "|port(?:[ _-]?number)?|protocol" +
+    "|user(?:[ _-]?name)?|username|account" +
+    "|admin(?:[ _-]?(?:url|login|email))?|e-?mail|email|login" +
+    "|site(?:[ _-]?url)?|website|domain|url" +
+    ")(?:\\t+|\\s{2,})",
+  "i",
+);
+
+const convertTabularLine = (line: string): string => {
+  const match = line.match(TABULAR_LABEL);
+  if (!match) return line;
+  const label = match[1];
+  const rest = line.slice(match[0].length).trim();
+  return `${label}: ${rest}`;
+};
+
 /** Run-on credential lines become one labelled field per line. PEM blocks are left alone. */
 export const expandInlineLabels = (input: string): string => {
   const out: string[] = [];
@@ -245,7 +266,8 @@ export const expandInlineLabels = (input: string): string => {
       if (/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(line)) inPem = false;
       continue;
     }
-    out.push(...splitInlineLabels(line));
+    const converted = convertTabularLine(line);
+    out.push(...splitInlineLabels(converted));
   }
   return out.join("\n");
 };
@@ -496,6 +518,8 @@ export const sanitizedIntakeMessage = (input: {
   stored: Array<{ accessType: IntakeAccessType; provider: CredentialProvider }>;
   missing: MissingCredential[];
   intent: string[];
+  /** True when secret-shaped text was seen but no complete bundle could be formed. */
+  sawSecretMaterial?: boolean;
 }): string[] => {
   const lines: string[] = [];
   lines.push(input.site ? `Confirm access for ${input.site}.` : "Confirm access for this project.");
@@ -504,14 +528,16 @@ export const sanitizedIntakeMessage = (input: {
     const parts = input.stored.map(
       (item) => `${accessLabel(item.accessType)} (${providerLabel(item.provider)})`,
     );
-    lines.push(`Credentials shared securely: ${parts.join(", ")}.`);
+    lines.push(`Credentials stored securely: ${parts.join(", ")}.`);
+  } else if (input.missing.length > 0 || input.sawSecretMaterial) {
+    lines.push("I saw credential-shaped text but couldn't store it securely yet.");
   } else {
-    lines.push("Credentials shared securely: none were complete enough to store.");
+    lines.push("No complete credentials were included.");
   }
 
   for (const gap of input.missing) {
     lines.push(
-      `${accessLabel(gap.accessType)} access was requested but no ${accessLabel(gap.accessType)} credentials were included (missing ${gap.fields.join(", ")}).`,
+      `${accessLabel(gap.accessType)} still needs: ${gap.fields.join(", ")}.`,
     );
   }
 

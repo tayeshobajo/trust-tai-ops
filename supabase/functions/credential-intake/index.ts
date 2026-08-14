@@ -374,25 +374,34 @@ Deno.serve(async (req) => {
   }
 
   const site = [...canonicalHosts][0] ?? "";
+  const effectiveMissing = parsed.missing.filter(
+    (gap) => !stored.some((item) => item.accessType === gap.accessType),
+  );
   const message = sanitizedIntakeMessage({
     site,
     stored: stored.map((item) => ({ accessType: item.accessType, provider: item.provider })),
-    missing: parsed.missing.filter((gap) => !stored.some((item) => item.accessType === gap.accessType)),
+    missing: effectiveMissing,
     intent: parsed.intent,
+    sawSecretMaterial: parsed.containsSecrets && stored.length === 0 && effectiveMissing.length === 0,
   });
 
   const reply: string[] = [];
-  for (const item of stored) {
-    reply.push(`${accessLabel(item.accessType)} — ${item.mode}: ${item.note}`);
-  }
-  for (const gap of parsed.missing) {
-    if (stored.some((item) => item.accessType === gap.accessType)) continue;
-    if (rejectedBundles.some((item) => item.accessType === gap.accessType)) continue;
+  if (stored.length === 0 && effectiveMissing.length === 0 && rejectedBundles.length === 0) {
     reply.push(
-      `${accessLabel(gap.accessType)} access still needs ${gap.fields.join(", ")}. I won't guess it from the website or the WordPress login.`,
+      "I can see credential-shaped text, but I couldn't match it to a complete access bundle. Try the Access & Connections panel, or paste each access type with clear labels like 'Username:' and 'Password:'.",
     );
+  } else {
+    for (const item of stored) {
+      reply.push(`${accessLabel(item.accessType)} — ${item.mode}: ${item.note}`);
+    }
+    for (const gap of effectiveMissing) {
+      if (rejectedBundles.some((item) => item.accessType === gap.accessType)) continue;
+      reply.push(
+        `${accessLabel(gap.accessType)} access still needs ${gap.fields.join(", ")}. I won't guess it from the website or the WordPress login.`,
+      );
+    }
+    for (const item of rejectedBundles) reply.push(`${accessLabel(item.accessType)}: ${item.reason}`);
   }
-  for (const item of rejectedBundles) reply.push(`${accessLabel(item.accessType)}: ${item.reason}`);
   reply.push("Nothing was changed on the site. Send me the issue whenever you're ready.");
 
   return Response.json(
