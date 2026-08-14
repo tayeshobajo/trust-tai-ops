@@ -273,6 +273,17 @@ export function ProjectWorkspace({
   const activeRun = runs.find((run) => run.id === activeRunId) ?? null;
   const signal = activeRun ? signalForRun(activeRun) : null;
   const [runPlan, setRunPlan] = useState<RunPlan | null>(null);
+  // Health facts observed this session, keyed by tool so the newest read wins.
+  const [healthEvidence, setHealthEvidence] = useState<AgentEvidence[]>([]);
+  const collectEvidence = useCallback((learned: AgentEvidence[]) => {
+    if (learned.length === 0) return;
+    setHealthEvidence((current) => {
+      const byTool = new Map(current.map((item) => [item.toolId, item] as const));
+      for (const item of learned) byTool.set(item.toolId, item);
+      return [...byTool.values()];
+    });
+  }, []);
+  const healthMetrics = useMemo(() => buildSiteHealth(healthEvidence), [healthEvidence]);
 
   const thread = useMemo<ThreadMessage[]>(
     () => (activeRun ? buildThread(project, activeRun) : []),
