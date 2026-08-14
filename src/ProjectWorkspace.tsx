@@ -2027,14 +2027,28 @@ export function ProjectWorkspace({
               <p>{signal.needsYou ?? "Nothing needed from you right now."}</p>
             </section>
 
-            {runPlan && (runPlan.goal || runPlan.hypotheses.length > 0 || runPlan.steps.length > 0) ? (
+            {healthMetrics.length > 0 ? (
+              <section className="pw-context-block pw-health">
+                <p className="eyebrow">Site health</p>
+                <ul className="pw-health-list">
+                  {healthMetrics.map((metric) => (
+                    <li key={metric.id} className={`pw-health-row is-${metric.state}`}>
+                      <span className="pw-health-dot" aria-hidden="true" />
+                      <span className="pw-health-label">{metric.label}</span>
+                      <span className="pw-health-value">{metric.value}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="pw-health-note">Only what the agent has actually measured on this site.</p>
+              </section>
+            ) : null}
+
+            {runPlan && (planHypotheses.length > 0 || planSteps.length > 0) ? (
               <section className="pw-context-block pw-plan">
                 <p className="eyebrow">Working plan</p>
-                {runPlan.goal ? <p className="pw-plan-goal">{runPlan.goal}</p> : null}
-
-                {runPlan.hypotheses.length > 0 ? (
+                {planHypotheses.length > 0 ? (
                   <ul className="pw-plan-list">
-                    {runPlan.hypotheses.map((item) => (
+                    {planHypotheses.map((item) => (
                       <li key={item.id} className={`pw-plan-item is-${item.status}`}>
                         <span className="pw-plan-mark" aria-hidden="true" />
                         <span className="pw-plan-text">{item.text}</span>
@@ -2043,9 +2057,9 @@ export function ProjectWorkspace({
                   </ul>
                 ) : null}
 
-                {runPlan.steps.length > 0 ? (
+                {planSteps.length > 0 ? (
                   <ol className="pw-plan-list pw-plan-steps">
-                    {runPlan.steps.map((step) => (
+                    {planSteps.map((step) => (
                       <li key={step.id} className={`pw-plan-item is-${step.status}`}>
                         <span className="pw-plan-mark" aria-hidden="true" />
                         <span className="pw-plan-text">
@@ -2057,6 +2071,9 @@ export function ProjectWorkspace({
                       </li>
                     ))}
                   </ol>
+                ) : null}
+                {planHidden > 0 ? (
+                  <p className="pw-plan-more">+{planHidden} more the agent is tracking quietly.</p>
                 ) : null}
               </section>
             ) : null}
