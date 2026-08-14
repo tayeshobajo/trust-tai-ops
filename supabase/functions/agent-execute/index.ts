@@ -17,7 +17,12 @@ import { fetchSafely, readBounded, redact, safeHeaders, validatePublicUrl } from
 import { capabilityTruth, resolveCredential, resolveRawSecret } from "../_shared/secretStore.ts";
 import { loginPathFromConfig } from "../_shared/verification.ts";
 import { openWordPressSession } from "../_shared/wpSession.ts";
-import { authenticatedGet, normalizeHealthTest, normalizePlugins } from "../_shared/wordpress.ts";
+import {
+  authenticatedGet,
+  normalizeHealthTest,
+  normalizePlugins,
+  pluginsFromAdminHtml,
+} from "../_shared/wordpress.ts";
 import { runReadOnlyWpCli } from "../_shared/wpCli.ts";
 import { denoSftpTransport, denoSshTransport } from "../_shared/sshTransport.ts";
 import { readWordPressErrorLog } from "../_shared/errorLog.ts";
@@ -93,7 +98,18 @@ const privateReader = async (projectId: string, canonicalUrl: string) => {
     return authenticatedGet(canonicalUrl, path, null, fetch, signedIn.cookie, signedIn.nonce);
   };
 
-  return { ok: true as const, deps, get };
+  /**
+   * The same read a person would do in a browser: a signed-in GET of an admin
+   * page. Used only when the REST route refuses, and only ever for reading.
+   */
+  const getAdminPage = async (path: string) => {
+    const signedIn = await openSession();
+    if (!signedIn) return null;
+    const outcome = await authenticatedGet(canonicalUrl, path, null, fetch, signedIn.cookie, signedIn.nonce);
+    return outcome.ok ? outcome.body : null;
+  };
+
+  return { ok: true as const, deps, get, getAdminPage };
 };
 
 // --- public inspections (unchanged behaviour) -------------------------------
@@ -347,12 +363,49 @@ const listPlugins = async (projectId: string, canonicalUrl: string | null) => {
   }
   const deps = reader.deps;
 
+  /**
+   * A refusal on one route is not a dead end. Before reporting that it cannot
+   * read the plugins, the agent tries the route a human would use.
+   */
+  const fromAdminPage = async () => {
+    const html = await reader.getAdminPage("/wp-admin/plugins.php");
+    return html ? pluginsFromAdminHtml(html) : null;
+  };
+
+  const respond = (inventory: NonNullable<ReturnType<typeof normalizePlugins>>, route: "rest" | "admin_page") =>
+    Response.json(
+      {
+        ok: true,
+        summary: redact(
+          `I read ${inventory.total} installed plugins (${inventory.active} active, ${inventory.inactive} inactive)${
+            route === "admin_page" ? " by reading the WordPress plugins screen directly, since the REST route was blocked" : ""
+          }.`,
+        ),
+        data: {
+          total: inventory.total,
+          active: inventory.active,
+          inactive: inventory.inactive,
+          truncated: inventory.truncated,
+          plugins: inventory.plugins,
+          route,
+        },
+      },
+      { headers: corsHeaders },
+    );
+
   const outcome = await reader.get("/wp-json/wp/v2/plugins");
   if (!outcome.ok) {
+    if (outcome.kind === "unauthorized" || outcome.kind === "forbidden" || outcome.kind === "endpoint_unavailable") {
+      const scraped = await fromAdminPage();
+      if (scraped) {
+        await deps.markVerification?.(projectId, "wordpress_admin", "verified", new Date().toISOString());
+        return respond(scraped, "admin_page");
+      }
+    }
     if (outcome.kind === "unauthorized") {
       return fail(
         "unauthorized",
-        "WordPress accepted the login, but this site's private REST interface would not authorize the plugin-list read. The stored password has not been marked invalid.",
+        "WordPress accepted the login, but neither the private REST route nor the plugins screen itself would give up the plugin list. The stored password has not been marked invalid.",
         false,
       );
     }
@@ -380,22 +433,7 @@ const listPlugins = async (projectId: string, canonicalUrl: string | null) => {
 
   await deps.markVerification?.(projectId, "wordpress_admin", "verified", new Date().toISOString());
 
-  return Response.json(
-    {
-      ok: true,
-      summary: redact(
-        `I read ${inventory.total} installed plugins (${inventory.active} active, ${inventory.inactive} inactive).`,
-      ),
-      data: {
-        total: inventory.total,
-        active: inventory.active,
-        inactive: inventory.inactive,
-        truncated: inventory.truncated,
-        plugins: inventory.plugins,
-      },
-    },
-    { headers: corsHeaders },
-  );
+  return respond(inventory, "rest");
 };
 
 // --- entrypoint --------------------------------------------------------------

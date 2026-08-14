@@ -128,6 +128,57 @@ export const normalizePlugins = (payload: unknown): PluginInventory | null => {
 
 export type HealthTest = { id: string; label: string; status: string | null };
 
+/**
+ * The resourceful route to the plugin inventory.
+ *
+ * Plenty of installs refuse `/wp-json/wp/v2/plugins` (a security plugin, a
+ * host rule, or a role without `activate_plugins` over REST) even though the
+ * very same signed-in account can read `/wp-admin/plugins.php` in a browser.
+ * Rather than stopping and asking a person for SSH, the agent reads the page
+ * a human would read. Still a plain GET, still read-only.
+ */
+export const pluginsFromAdminHtml = (html: string): PluginInventory | null => {
+  if (typeof html !== "string" || !/data-plugin=/i.test(html)) return null;
+
+  const rows = html.split(/<tr\b/i).slice(1);
+  const items: PluginInventoryItem[] = [];
+  let total = 0;
+
+  for (const row of rows) {
+    const identifier = row.match(/data-plugin=["']([^"']+)["']/i)?.[1];
+    if (!identifier) continue;
+    total += 1;
+    if (items.length >= MAX_PLUGINS) continue;
+
+    const classes = row.match(/class=["']([^"']*)["']/i)?.[1] ?? "";
+    const status = /\bactive\b/i.test(classes) && !/\binactive\b/i.test(classes) ? "active" : "inactive";
+    const name =
+      row.match(/<strong>([\s\S]*?)<\/strong>/i)?.[1] ??
+      identifier.split("/")[0];
+    const version = row.match(/Version\s+([0-9][0-9A-Za-z.\-+]*)/i)?.[1] ?? null;
+    const author = row.match(/By\s*(?:<a[^>]*>)?([^<|]{2,80})/i)?.[1] ?? null;
+
+    items.push({
+      identifier: clean(identifier, 160),
+      name: clean(name, 120) || clean(identifier, 120),
+      status,
+      version: version ? clean(version, 32) : null,
+      author: author ? clean(author.trim(), 80) || null : null,
+      updateAvailable: /there is a new version|update now|update-message/i.test(row) ? true : null,
+    });
+  }
+
+  if (total === 0) return null;
+
+  return {
+    total,
+    active: items.filter((plugin) => plugin.status === "active").length,
+    inactive: items.filter((plugin) => plugin.status === "inactive").length,
+    truncated: total > items.length,
+    plugins: items,
+  };
+};
+
 /** Site Health results, reduced to what the response actually proves. */
 export const normalizeHealthTest = (id: string, payload: unknown): HealthTest | null => {
   if (!payload || typeof payload !== "object") return null;
