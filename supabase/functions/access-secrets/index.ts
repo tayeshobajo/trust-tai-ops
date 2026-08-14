@@ -49,10 +49,50 @@ Deno.serve(async (req) => {
   const accessType = typeof body.accessType === "string" ? body.accessType.trim() : "";
   const username = typeof body.username === "string" ? body.username.trim() : "";
   const secret = typeof body.secret === "string" ? body.secret.trim() : "";
-  const mode = body.mode === "verify" ? "verify" : "store";
+  const mode = body.mode === "verify" ? "verify" : body.mode === "details" ? "details" : "store";
 
   if (!SUPPORTED.has(accessType)) {
     return fail("not_implemented", "That kind of access can't be stored securely yet.");
+  }
+
+  // --- Non-secret details --------------------------------------------------
+  //
+  // Everything a person typed that is *not* a credential, so replacing access
+  // doesn't mean retyping it. No ciphertext, no plaintext, ever.
+  if (mode === "details") {
+    const authz = await authorizeProject(req.headers.get("Authorization"), projectId, authzDeps());
+    if (!authz.ok) return fail(authz.code, AUTH_FAIL_SUMMARY[authz.code]);
+
+    let row: Awaited<ReturnType<ReturnType<typeof secretStoreDeps>["loadRow"]>> = null;
+    try {
+      row = await secretStoreDeps().loadRow(authz.project.projectId, accessType);
+    } catch {
+      row = null;
+    }
+
+    const config = (row?.config ?? {}) as Record<string, unknown>;
+    const text = (key: string) => (typeof config[key] === "string" ? (config[key] as string) : "");
+
+    return Response.json(
+      {
+        ok: true,
+        summary: row ? "Stored connection details." : "Nothing stored for that connection yet.",
+        data: {
+          accessType,
+          exists: Boolean(row),
+          provider: row?.provider ?? "",
+          username: row?.username ?? "",
+          details: {
+            host: text("host"),
+            port: typeof config.port === "number" ? String(config.port) : text("port"),
+            wpRoot: text("wpRoot"),
+            wpBinary: text("wpBinary"),
+            loginUrl: text("loginUrl"),
+          },
+        },
+      },
+      { headers: corsHeaders },
+    );
   }
 
   // --- SSH -----------------------------------------------------------------
@@ -195,6 +235,20 @@ Deno.serve(async (req) => {
     return fail(authz.code, summaries[authz.code]);
   }
 
+  // A custom admin address is a non-secret hint, kept only when it points at
+  // the project's own site.
+  const rawLoginUrl = typeof body.loginUrl === "string" ? body.loginUrl.trim().slice(0, 500) : "";
+  let loginUrl = "";
+  if (rawLoginUrl && authz.project.canonicalUrl) {
+    try {
+      const origin = new URL(authz.project.canonicalUrl).origin;
+      const parsed = new URL(rawLoginUrl, origin);
+      if (parsed.origin === origin) loginUrl = `${parsed.pathname}${parsed.search}`;
+    } catch {
+      loginUrl = "";
+    }
+  }
+
   let stored: Awaited<ReturnType<typeof storeCredential>>;
   try {
     stored = await storeCredential(secretStoreDeps(), {
@@ -204,6 +258,7 @@ Deno.serve(async (req) => {
       username,
       // Application Passwords are shown with spaces; WordPress accepts either.
       secret: secret.replace(/\s+/g, ""),
+      config: loginUrl ? { loginUrl } : {},
     });
   } catch {
     return fail("secret_store_unavailable", "I couldn't store that access just now, so nothing was saved.");

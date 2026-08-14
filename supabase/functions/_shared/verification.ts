@@ -115,7 +115,7 @@ export const verifyStoredWordPressCredential = async (
     // bounded login attempt against the project's own login form settles it.
     if (outcome.kind === "unauthorized") {
       const verdict = await verifyWordPressLogin(
-        loginPath ? new URL(loginPath, canonicalUrl).toString() : canonicalUrl,
+        canonicalUrl,
         { username: resolved.credential.username, password: resolved.credential.applicationPassword },
         fetchImpl,
         loginPath ?? undefined,
