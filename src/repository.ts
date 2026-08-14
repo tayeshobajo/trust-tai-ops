@@ -31,10 +31,12 @@ import type {
   ProjectDraft,
 } from "./types";
 import type { ExecutionEvent, NewExecutionEvent } from "./agent-core/types";
+import type { RunPlan } from "./agent-core/plan";
 
 const STORAGE_KEY = "ops-trust-tai.workspace";
 const MESSAGE_STORAGE_KEY = "ops-trust-tai.messages";
 const EXECUTION_STORAGE_KEY = "ops-trust-tai.execution-events";
+const RUN_PLAN_STORAGE_KEY = "ops-trust-tai.run-plans";
 
 type OrganizationRow = {
   id: string;
@@ -259,6 +261,9 @@ export interface WorkspaceRepository {
   findExecutionEvent(projectId: string, invocationKey: string): Promise<ExecutionEvent | null>;
   /** Upserts on the deterministic invocation key. */
   saveExecutionEvent(projectId: string, event: NewExecutionEvent): Promise<ExecutionEvent>;
+  /** The agent's living working plan for a run. Null until the agent writes one. */
+  loadRunPlan(projectId: string, runId: string): Promise<RunPlan | null>;
+  saveRunPlan(plan: RunPlan): Promise<RunPlan>;
 }
 
 class LocalWorkspaceRepository implements WorkspaceRepository {
@@ -698,6 +703,30 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
       ? existing.map((item) => (item.id === match.id ? saved : item))
       : [...existing, saved];
     this.writeExecutionStore({ ...store, [projectId]: next });
+    return saved;
+  }
+
+  private readPlanStore(): Record<string, RunPlan> {
+    if (typeof window === "undefined") return {};
+    const raw = window.localStorage.getItem(RUN_PLAN_STORAGE_KEY);
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as Record<string, RunPlan>;
+    } catch {
+      return {};
+    }
+  }
+
+  async loadRunPlan(projectId: string, runId: string): Promise<RunPlan | null> {
+    return this.readPlanStore()[`${projectId}:${runId}`] ?? null;
+  }
+
+  async saveRunPlan(plan: RunPlan): Promise<RunPlan> {
+    if (typeof window === "undefined") return plan;
+    const store = this.readPlanStore();
+    const saved: RunPlan = { ...plan, updatedAt: new Date().toISOString() };
+    store[`${plan.projectId}:${plan.runId}`] = saved;
+    window.localStorage.setItem(RUN_PLAN_STORAGE_KEY, JSON.stringify(store));
     return saved;
   }
 }
@@ -1414,6 +1443,45 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       .upsert([row] as never, { onConflict: "project_id,invocation_key" } as never);
     if (error) throw error;
     return { ...event, id: row.id, projectId };
+  }
+
+  async loadRunPlan(projectId: string, runId: string): Promise<RunPlan | null> {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from("run_plans")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("run_id", runId)
+      .limit(1);
+    if (error) throw error;
+    const row = ((data ?? []) as Record<string, unknown>[])[0];
+    if (!row) return null;
+    return {
+      projectId,
+      runId,
+      goal: String(row.goal ?? ""),
+      hypotheses: (row.hypotheses ?? []) as RunPlan["hypotheses"],
+      steps: (row.steps ?? []) as RunPlan["steps"],
+      revision: Number(row.revision ?? 0),
+      updatedAt: String(row.updated_at ?? new Date().toISOString()),
+    };
+  }
+
+  async saveRunPlan(plan: RunPlan): Promise<RunPlan> {
+    const client = getSupabaseClient();
+    const row = {
+      project_id: plan.projectId,
+      run_id: plan.runId,
+      goal: plan.goal,
+      hypotheses: plan.hypotheses,
+      steps: plan.steps,
+      revision: plan.revision,
+    };
+    const { error } = await client
+      .from("run_plans")
+      .upsert([row] as never, { onConflict: "run_id" } as never);
+    if (error) throw error;
+    return { ...plan, updatedAt: new Date().toISOString() };
   }
 
   private async selectIn<TRow>(

@@ -23,6 +23,17 @@ import { getTool } from "./registry";
 import { executionGateway } from "./gateway";
 import { safeSummary } from "./safety";
 import { selectReasoner, type AgentReasoner } from "./reasoner";
+import { escalate, routeIsExhausted, classifyFailure } from "./failure";
+import {
+  addHypotheses,
+  applyEvidence,
+  emptyPlan,
+  markStep,
+  reconcileSteps,
+  setGoal,
+  stepKeyFor,
+  type RunPlan,
+} from "./plan";
 import {
   MAX_ACTION_RETRIES,
   MAX_AGENT_ITERATIONS,
@@ -208,6 +219,45 @@ export type ActionOutcome =
   | { kind: "failed"; code: ToolFailureCode; retryable: boolean }
   | { kind: "in_flight" };
 
+/**
+ * The close-out. Three parts, always the same three, so a person never has to
+ * guess what is finished and what is still theirs to decide.
+ */
+const buildCloseout = (
+  plan: RunPlan,
+  learned: AgentEvidence[],
+  awaiting: AgentTurnResult["awaiting"],
+): string[] => {
+  const verified = plan.steps.filter((step) => step.status === "done");
+  const blocked = plan.steps.filter((step) => step.status === "blocked");
+  const open = plan.hypotheses.filter((item) => item.status === "open");
+
+  const lines: string[] = [];
+
+  lines.push(
+    verified.length > 0
+      ? `Here's where this landed. Verified: ${verified.map((step) => step.label.replace(/\.$/, "")).join("; ")}.`
+      : "Here's where this landed. I wasn't able to verify anything conclusively yet.",
+  );
+
+  if (blocked.length > 0) {
+    lines.push(
+      `Still recommended but not done: ${blocked
+        .map((step) => `${step.label.replace(/\.$/, "")}${step.note ? ` — ${step.note}` : ""}`)
+        .join("; ")}.`,
+    );
+  } else if (open.length > 0) {
+    lines.push(`Still open: ${open.map((item) => item.text.replace(/\.$/, "")).join("; ")}.`);
+  }
+
+  if (awaiting === "access") lines.push("What I need from you: the access above, and I'll carry on.");
+  else if (awaiting === "backup") lines.push("What I need from you: confirmation of a safe restore point.");
+  else if (awaiting === "approval") lines.push("What I need from you: a go-ahead on the change I proposed.");
+  else if (learned.length > 0) lines.push("Nothing is blocked on you. Tell me which of these you want me to act on.");
+
+  return lines;
+};
+
 /** Executes one action, reusing a completed invocation when replayed. */
 const executeAction = async (
   input: OrchestratorInput,
@@ -331,6 +381,21 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
   let context = await buildAgentContext(input);
   const reasoner = input.reasoner ?? selectReasoner();
 
+  // The living plan. Loaded once, revised throughout, saved once.
+  let workingPlan: RunPlan = emptyPlan(
+    input.project.id,
+    input.run.id,
+    input.run.taskSummary || input.run.title,
+  );
+  try {
+    const stored = await workspaceRepository.loadRunPlan(input.project.id, input.run.id);
+    if (stored) workingPlan = stored;
+  } catch {
+    // A missing plan is not a reason to refuse to work.
+  }
+  workingPlan = setGoal(workingPlan, input.run.taskSummary || input.run.title);
+  const planAtStart = workingPlan.revision;
+
   const learned: AgentEvidence[] = [];
   const spoke: string[] = [];
   const attempted = new Map<string, number>();
@@ -356,6 +421,10 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
       stopReason = learned.length > 0 ? "sufficient_evidence" : "safe_stop";
       break;
     }
+
+    // What the reasoner intends becomes visible before it happens.
+    workingPlan = addHypotheses(workingPlan, plan.qaPlan ?? []);
+    workingPlan = reconcileSteps(workingPlan, plan.actions);
 
     if (plan.decision.intent === "request_access") {
       const requested = plan.decision.requestedAccess ?? [];
@@ -420,9 +489,12 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
     const attempts = attempted.get(action.invocationKey) ?? 0;
     attempted.set(action.invocationKey, attempts + 1);
 
+    workingPlan = markStep(workingPlan, stepKeyFor(action), "active");
+
     const outcome = await executeAction(input, context, action);
 
     if (outcome.kind === "blocked") {
+      workingPlan = markStep(workingPlan, stepKeyFor(action), "blocked", outcome.reason);
       if (outcome.requires === "access") {
         awaiting = "access";
         stopReason = "needs_access";
@@ -441,29 +513,66 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
     }
 
     if (outcome.kind === "failed") {
-      // A retryable failure earns one more attempt; anything else becomes a
-      // remembered dead end so the next iteration chooses differently.
-      if (outcome.retryable && attempts < MAX_ACTION_RETRIES) {
+      // The failure is classified, and the class decides what happens next.
+      // The same error is never retried blindly.
+      const history = [
+        ...(context.failedObservations ?? []),
+        { toolId: action.toolId, code: outcome.code },
+      ];
+      context = { ...context, failedObservations: history };
+
+      const ladder = escalate(outcome.code, attempts + 1);
+      const exhausted = routeIsExhausted(history, classifyFailure(outcome.code));
+
+      if (ladder.action === "retry" && !exhausted && attempts < MAX_ACTION_RETRIES) {
         attempted.delete(action.invocationKey);
         attempted.set(`${action.invocationKey}:retried`, 1);
+        if (ladder.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, ladder.delayMs));
+        continue;
       }
-      context = {
-        ...context,
-        failedObservations: [...(context.failedObservations ?? []), { toolId: action.toolId, code: outcome.code }],
-      };
+
+      workingPlan = markStep(
+        workingPlan,
+        stepKeyFor(action),
+        "blocked",
+        ladder.action === "retry" ? "" : ladder.reason,
+      );
+
+      if (ladder.action === "ask_human") {
+        awaiting = ladder.need;
+        stopReason = ladder.need === "access" ? "needs_access" : "approval_required";
+        break;
+      }
+
+      if (ladder.action === "stop" || exhausted) {
+        stopReason =
+          outcome.code === "tool_unavailable" || outcome.code === "not_implemented"
+            ? "tool_unavailable"
+            : "safe_stop";
+        break;
+      }
+
+      // alternate_route: remember the dead end and let the next iteration
+      // choose differently, under the usual no-progress ceiling.
       stallCount += 1;
       if (stallCount >= MAX_ITERATIONS_WITHOUT_PROGRESS) {
-        stopReason = outcome.code === "tool_unavailable" || outcome.code === "not_implemented"
-          ? "tool_unavailable"
-          : "safe_stop";
+        stopReason = "safe_stop";
         break;
       }
       continue;
     }
 
     stallCount = 0;
+    workingPlan = markStep(
+      workingPlan,
+      stepKeyFor(action),
+      "done",
+      outcome.evidence[0]?.summary ?? "",
+      outcome.evidence[0]?.id ?? null,
+    );
     for (const item of outcome.evidence) {
       learned.push(item);
+      workingPlan = applyEvidence(workingPlan, item);
       const lines = describe(item);
       spoke.push(...lines);
       await say(input, item.id, lines);
@@ -507,6 +616,23 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
     ];
     await say(input, `access-verified-${input.run.id}`, lines);
     spoke.push(...lines);
+  }
+
+  // The plan is persisted once per turn, and only when it actually moved.
+  if (workingPlan.revision !== planAtStart) {
+    try {
+      await workspaceRepository.saveRunPlan(workingPlan);
+    } catch {
+      // A plan that failed to save is rebuilt next turn from the audit trail.
+    }
+  }
+
+  // Nothing ends silently. When the agent stops because it has what it needs,
+  // it names what was verified, what it recommends, and what is left to you.
+  if (stopReason === "sufficient_evidence") {
+    const closeout = buildCloseout(workingPlan, learned, awaiting);
+    await say(input, `closeout-${input.run.id}-${workingPlan.revision}`, closeout);
+    spoke.push(...closeout);
   }
 
   return {

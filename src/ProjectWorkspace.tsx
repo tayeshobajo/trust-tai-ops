@@ -48,6 +48,7 @@ import {
 import type { QueuedFile, QueuedState } from "./evidence";
 import type { ProjectEvidence } from "./types";
 import { containsSecretMaterial } from "./agent-core/secretGuard";
+import type { RunPlan } from "./agent-core/plan";
 import { credentialIntakeAvailable, submitCredentialText } from "./agent-core/credentialIntake";
 import {
   continuityAvailable,
@@ -243,11 +244,33 @@ export function ProjectWorkspace({
 
   const activeRun = runs.find((run) => run.id === activeRunId) ?? null;
   const signal = activeRun ? signalForRun(activeRun) : null;
+  const [runPlan, setRunPlan] = useState<RunPlan | null>(null);
 
   const thread = useMemo<ThreadMessage[]>(
     () => (activeRun ? buildThread(project, activeRun) : []),
     [project, activeRun],
   );
+
+  // The agent's living plan for the current task. Re-read whenever the
+  // conversation moves, because that is when the agent revises it.
+  useEffect(() => {
+    if (!activeRunId) {
+      setRunPlan(null);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const stored = await workspaceRepository.loadRunPlan(project.id, activeRunId);
+        if (alive) setRunPlan(stored);
+      } catch {
+        if (alive) setRunPlan(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [project.id, activeRunId, messages.length]);
 
   // Attachments for this project, loaded once alongside the conversation.
   useEffect(() => {
@@ -1783,6 +1806,40 @@ export function ProjectWorkspace({
               <p className="eyebrow">Agent needs</p>
               <p>{signal.needsYou ?? "Nothing needed from you right now."}</p>
             </section>
+
+            {runPlan && (runPlan.goal || runPlan.hypotheses.length > 0 || runPlan.steps.length > 0) ? (
+              <section className="pw-context-block pw-plan">
+                <p className="eyebrow">Working plan</p>
+                {runPlan.goal ? <p className="pw-plan-goal">{runPlan.goal}</p> : null}
+
+                {runPlan.hypotheses.length > 0 ? (
+                  <ul className="pw-plan-list">
+                    {runPlan.hypotheses.map((item) => (
+                      <li key={item.id} className={`pw-plan-item is-${item.status}`}>
+                        <span className="pw-plan-mark" aria-hidden="true" />
+                        <span className="pw-plan-text">{item.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+
+                {runPlan.steps.length > 0 ? (
+                  <ol className="pw-plan-list pw-plan-steps">
+                    {runPlan.steps.map((step) => (
+                      <li key={step.id} className={`pw-plan-item is-${step.status}`}>
+                        <span className="pw-plan-mark" aria-hidden="true" />
+                        <span className="pw-plan-text">
+                          {step.label}
+                          {step.status === "blocked" && step.note ? (
+                            <em className="pw-plan-note">{step.note}</em>
+                          ) : null}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : null}
+              </section>
+            ) : null}
 
           </>
         ) : (
