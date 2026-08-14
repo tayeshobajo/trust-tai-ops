@@ -98,6 +98,7 @@ type ViewItem = {
   body: string[];
   createdAt: string | null;
   card?: ThreadCard;
+  diff?: ThreadDiff;
   decision?: DecisionKind;
 };
 
