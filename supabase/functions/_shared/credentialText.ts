@@ -243,7 +243,7 @@ const TABULAR_LABEL = new RegExp(
     "|user(?:[ _-]?name)?|username|account" +
     "|admin(?:[ _-]?(?:url|login|email))?|e-?mail|email|login" +
     "|site(?:[ _-]?url)?|website|domain|url" +
-    ")\\s{2,}|\\t+",
+    ")(?:\\t+|\\s{2,})",
   "i",
 );
 
