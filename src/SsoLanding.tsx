@@ -11,6 +11,8 @@ type LandingState =
 
 const FAILURE_COPY: Record<string, string> = {
   origin_rejected: "That handoff did not come from a recognised Trust Tai OS address.",
+  missing_organization_id: "That handoff did not say which Trust Tai OS organization it came from.",
+  malformed_organization_id: "That handoff carried an unusable Trust Tai OS organization.",
   os_token_rejected: "Your Trust Tai OS session has expired. Sign in there again, then relaunch Ops.",
   no_ops_membership: "This account does not have Ops access yet. Ask an Ops admin to add you.",
   ops_access_disabled: "Ops access for this account is disabled.",
