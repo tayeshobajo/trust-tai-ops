@@ -198,7 +198,7 @@ const rows: SuiteActivityRow[] = [];
 const deps = {
   context: WRITE_CONTEXT,
   findExisting: async (key: string) =>
-    rows.find((row) => row.provenance.dedupe_key === key) ? "existing" : null,
+    rows.find((row) => row.source_event_key === key) ? "existing" : null,
   insert: async (row: SuiteActivityRow): Promise<"written" | "duplicate"> => {
     rows.push(row);
     return "written";
@@ -228,10 +228,19 @@ const LIVE_COLUMNS = [
   "summary",
   "payload",
   "provenance",
+  "source_event_key",
   "occurred_at",
   "created_at",
 ];
-const REQUIRED_COLUMNS = ["organization_id", "event_type", "app_key", "payload", "provenance", "occurred_at"];
+const REQUIRED_COLUMNS = [
+  "organization_id",
+  "event_type",
+  "app_key",
+  "payload",
+  "provenance",
+  "source_event_key",
+  "occurred_at",
+];
 const written = Object.keys(built);
 
 check("no column outside the live schema is sent", written.every((key) => LIVE_COLUMNS.includes(key)), written.join(", "));
@@ -262,9 +271,10 @@ check("payload carries a route back into Ops", String(built.payload.destination_
 check("provenance names the source app", built.provenance.source_app === "ops" && built.provenance.source === "trust-tai-ops");
 check("provenance carries the Ops event key", built.provenance.ops_event_key === "qa-report-7");
 check("provenance carries the dedupe key", built.provenance.dedupe_key === suiteDedupeKey(signal));
+check("source_event_key matches the same deterministic invariant", built.source_event_key === suiteDedupeKey(signal));
 check(
-  "the dedupe read filters on provenance, not metadata",
-  read("src/suite/client.ts").includes("provenance->>dedupe_key=eq.") && !read("src/suite/client.ts").includes("metadata->>"),
+  "the dedupe read filters on the indexed source_event_key column",
+  read("src/suite/client.ts").includes("source_event_key=eq.") && !read("src/suite/client.ts").includes("metadata->>"),
 );
 check("a 409 unique violation is treated as a duplicate", read("src/suite/client.ts").includes("status === 409"));
 check("a write with no organization is refused", (await syncSuiteSignal(signal, { ...deps, context: { organizationId: "" } }, "https://ops.trusttai.com")).status === "unavailable");
