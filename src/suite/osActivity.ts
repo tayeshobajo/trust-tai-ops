@@ -10,6 +10,7 @@
  *   id, organization_id (uuid, required), event_type (text, required),
  *   actor_user_id, app_key (text, required), entity_type, entity_id,
  *   summary, payload (jsonb, required), provenance (jsonb, required),
+ *   source_event_key (text, unique per organization_id + app_key),
  *   occurred_at (timestamptz, required), created_at.
  * There is no `activity_type`, no `project_id`, and no `metadata` column.
  */
@@ -69,6 +70,8 @@ export type SuiteActivityRow = {
   summary: string;
   payload: Record<string, unknown>;
   provenance: Record<string, unknown>;
+  /** DB-level idempotency: unique on (organization_id, app_key, source_event_key). */
+  source_event_key: string;
   occurred_at: string;
 };
 
@@ -162,6 +165,9 @@ export function buildSuiteActivity(
     summary: sanitizeSummary(signal.summary),
     payload,
     provenance,
+    // Same deterministic invariant as provenance.dedupe_key, now enforced by
+    // the live unique partial index rather than a read-before-write race.
+    source_event_key: suiteDedupeKey(signal),
     occurred_at: signal.occurredAt ?? new Date().toISOString(),
   };
 }
