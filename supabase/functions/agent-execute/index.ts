@@ -589,6 +589,92 @@ Deno.serve(async (req) => {
     }
   }
 
+  // ---- Knowledge base (cross-project incident library) ------------------
+  // The table is service-role only (RLS, no anon policies), so the browser
+  // reaches it exclusively through this authorized boundary. Reads seed the
+  // reasoning digest; writes happen only at a verified sufficient_evidence
+  // stop, distilled from the run's own evidence.
+  if (mode === "kb_list" || mode === "kb_upsert") {
+    const authz = await authorizeProject(authorization, projectId, authzDeps());
+    if (!authz.ok) return fail(authz.code, AUTH_FAIL_SUMMARY[authz.code], false);
+    const service = serviceClient();
+
+    if (mode === "kb_list") {
+      const taskType = typeof args.taskType === "string" && args.taskType ? args.taskType : null;
+      let query = service
+        .from("knowledge_base_entries")
+        .select("*")
+        .order("last_confirmed_at", { ascending: false })
+        .limit(50);
+      if (taskType) query = query.eq("task_type", taskType);
+      const { data, error } = await query;
+      if (error) return fail("kb_read_failed", "I couldn't read the incident library just now.", true);
+      return Response.json(
+        {
+          ok: true,
+          summary: "Read the incident library.",
+          data: { entries: data ?? [] },
+        },
+        { headers: corsHeaders },
+      );
+    }
+
+    // kb_upsert: match on task_type + normalized symptom_pattern. On match,
+    // increment project_count, refresh last_confirmed_at, keep the longer
+    // resolution. No client-supplied ids, no scope escalation.
+    const taskType = typeof args.taskType === "string" ? args.taskType.trim() : "";
+    const symptomPattern = typeof args.symptomPattern === "string" ? args.symptomPattern.trim() : "";
+    const resolution = typeof args.resolution === "string" ? args.resolution.trim() : "";
+    if (!taskType || !symptomPattern || !resolution) {
+      return fail("invalid_input", "That knowledge-base entry was missing required fields.", false);
+    }
+    const evidenceSignals = Array.isArray(args.evidenceSignals)
+      ? args.evidenceSignals.filter((s): s is string => typeof s === "string").slice(0, 5)
+      : [];
+    const toolsUsed = Array.isArray(args.toolsUsed)
+      ? args.toolsUsed.filter((s): s is string => typeof s === "string").slice(0, 20)
+      : [];
+    const hostContext = typeof args.hostContext === "string" && args.hostContext ? args.hostContext : null;
+    const normalized = symptomPattern.toLowerCase();
+
+    const existing = await service
+      .from("knowledge_base_entries")
+      .select("id, symptom_pattern, resolution, project_count")
+      .eq("task_type", taskType)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (existing.error) {
+      return fail("kb_write_failed", "I couldn't reach the incident library just now.", true);
+    }
+    const match = (existing.data ?? []).find(
+      (row) => String(row.symptom_pattern ?? "").trim().toLowerCase() === normalized,
+    );
+
+    if (match) {
+      const { error: updateError } = await service.from("knowledge_base_entries").update({
+        project_count: Number(match.project_count ?? 1) + 1,
+        last_confirmed_at: new Date().toISOString(),
+        ...(resolution.length > String(match.resolution ?? "").length ? { resolution } : {}),
+        evidence_signals: evidenceSignals.length > 0 ? evidenceSignals : undefined,
+        tools_used: toolsUsed.length > 0 ? toolsUsed : undefined,
+        host_context: hostContext ?? undefined,
+      }).eq("id", match.id);
+      if (updateError) return fail("kb_write_failed", "I couldn't update the incident library.", true);
+      return Response.json({ ok: true, summary: "Reinforced a known incident pattern.", data: {} }, { headers: corsHeaders });
+    }
+
+    const { error: insertError } = await service.from("knowledge_base_entries").insert({
+      task_type: taskType,
+      symptom_pattern: symptomPattern,
+      resolution,
+      evidence_signals: evidenceSignals,
+      tools_used: toolsUsed,
+      host_context: hostContext,
+    });
+    if (insertError) return fail("kb_write_failed", "I couldn't save to the incident library.", true);
+    return Response.json({ ok: true, summary: "Learned a new incident pattern.", data: {} }, { headers: corsHeaders });
+  }
+
   if (mode === "capabilities") {
     if (!authorizedProjectId) {
       return fail("execution_context_unavailable", "I can't confirm what access this project has.", false);

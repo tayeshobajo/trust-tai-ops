@@ -50,6 +50,11 @@ export interface ExecutionGateway {
    * a hint, and "stored" is never presented to a person as "verified".
    */
   projectCapabilities(projectId: string): Promise<ProjectCapabilities>;
+  /**
+   * Diagnosis synthesis: all evidence in, causal chains out. Returns null on
+   * any failure — the synthesis is an enhancement, never a dependency.
+   */
+  synthesize(projectId: string, digest: Record<string, unknown>): Promise<{ ok: boolean; synthesis?: string } | null>;
 }
 
 const UNAVAILABLE: GatewayResponse = {
@@ -122,6 +127,27 @@ class SupabaseFunctionGateway implements ExecutionGateway {
       return payload.plan;
     } catch {
       // Reasoning is an enhancement, never a dependency.
+      return null;
+    }
+  }
+
+  async synthesize(
+    projectId: string,
+    digest: Record<string, unknown>,
+  ): Promise<{ ok: boolean; synthesis?: string } | null> {
+    if (!this.available()) return null;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke("agent-reason", {
+        body: { projectId, mode: "synthesize_diagnosis", digest, model: readReasonModelId() },
+      });
+      if (error) return null;
+      const payload = data as { ok?: boolean; synthesis?: unknown } | null;
+      if (!payload || typeof payload.ok !== "boolean") return null;
+      if (!payload.ok || typeof payload.synthesis !== "string") return { ok: false };
+      return { ok: true, synthesis: payload.synthesis };
+    } catch {
+      // Synthesis is an enhancement, never a dependency.
       return null;
     }
   }

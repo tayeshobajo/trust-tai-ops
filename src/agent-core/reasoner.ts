@@ -384,6 +384,15 @@ export const reasoningDigest = (context: AgentContext): Record<string, unknown> 
     siteKnown: Boolean(context.environment.primaryUrl),
     capabilities: context.capabilities,
     verifiedCapabilities: context.verifiedCapabilities ?? [],
+    // Prior incidents from the global library, same task type first. These are
+    // resolutions that worked before, seeded before the first observation so
+    // the reasoner starts from experience, not from zero.
+    priorIncidents: (context.knowledgeBase ?? []).slice(0, 6).map((entry) => ({
+      symptom: redactSecrets(entry.symptom).slice(0, 200),
+      resolution: redactSecrets(entry.resolution).slice(0, 400),
+      evidenceSignals: entry.evidenceSignals.slice(0, 3).map((signal) => redactSecrets(signal).slice(0, 200)),
+      host: entry.host ?? null,
+    })),
     // Wider window: 20 evidence items so the agent never loses early findings
     // that are still relevant mid-investigation.
     evidence: context.evidence.slice(-20).map((item) => ({ toolId: item.toolId, summary: item.summary })),

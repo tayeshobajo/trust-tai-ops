@@ -4,6 +4,7 @@ import { workspaceRepository } from "./repository";
 import { runAgentTurn } from "./agent-core/orchestrator";
 import type { AgentEvidence } from "./agent-core/types";
 import { executionGateway } from "./agent-core/gateway";
+import type { KBDigest } from "./types";
 import { getProjectStack } from "./stacks";
 import { looksLikeQuestion, replyLines, streamAgentReply, voiceAvailable } from "./agent-core/voice";
 import { hostGuidanceFact } from "./hostGuidance";
@@ -72,6 +73,22 @@ const speakTurn = async (
     return context.emit(input);
   };
 
+  // Prior incidents, fetched once per turn. Task-type match first; the library
+  // is global so one project's fix is every project's starting point.
+  let knowledgeBase: KBDigest[] = [];
+  try {
+    const entries = await workspaceRepository.listKnowledgeBase(context.project.id, context.run.taskType);
+    const globals = entries.length > 0 ? entries : await workspaceRepository.listKnowledgeBase(context.project.id);
+    knowledgeBase = (globals.length > 0 ? globals : entries).slice(0, 6).map((entry) => ({
+      symptom: entry.symptomPattern,
+      resolution: entry.resolution,
+      evidenceSignals: entry.evidenceSignals.slice(0, 3),
+      host: entry.hostContext,
+    }));
+  } catch {
+    // The library is an enhancement. Unreachable means empty.
+  }
+
   const turn = await runAgentTurn({
     project: context.project,
     run: context.run,
@@ -79,9 +96,50 @@ const speakTurn = async (
     memory: context.memory ?? [],
     emit: voiceAvailable() ? collect : context.emit,
     onWorkspaceUpdate: context.onWorkspaceUpdate,
+    knowledgeBase,
   });
 
   if (turn.learned.length > 0) context.onEvidence?.(turn.learned);
+
+  // Diagnosis synthesis: when the investigation stopped because it learned
+  // enough, ask the server reasoner for the causal chain — the "why", not
+  // the "what". Failure never breaks the turn; the closeout already said
+  // the truth in plain words.
+  if (turn.stopReason === "sufficient_evidence" && turn.learned.length > 0) {
+    try {
+      const synthesis = await executionGateway().synthesize(context.project.id, {
+        stack: getProjectStack(context.project),
+        taskType: context.run.taskType,
+        taskTitle: context.run.title ?? "",
+        symptom: context.run.taskSummary || context.run.title || "",
+        evidence: turn.learned.slice(-40).map((item) => `${item.toolId}: ${item.summary}`),
+        hypotheses: [],
+        constraints: (context.memory ?? [])
+          .filter((entry) => entry.type === "constraint")
+          .slice(-12)
+          .map((entry) => entry.content),
+        doneTools: [...new Set(turn.learned.map((item) => item.toolId))],
+      });
+      if (synthesis?.ok && synthesis.synthesis) {
+        await context.emit({
+          runId: context.run.id,
+          role: "agent",
+          kind: "status_update",
+          body: [synthesis.synthesis.slice(0, 4000)],
+          dedupeKey: `synthesis-${context.run.id}`,
+        });
+        await workspaceRepository.addEvidence(
+          context.project.id,
+          context.run.id,
+          "scan_result",
+          "Diagnosis synthesis",
+          synthesis.synthesis.slice(0, 400),
+        );
+      }
+    } catch {
+      // The synthesis is an enhancement. The run already closed out truthfully.
+    }
+  }
 
   if (!voiceAvailable()) {
     return { spoke: turn.acted, awaiting: turn.awaiting, stopReason: turn.stopReason ?? null };

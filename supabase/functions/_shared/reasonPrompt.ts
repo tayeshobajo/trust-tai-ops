@@ -62,6 +62,8 @@ export type ReasonDigest = {
   memory: string[];
   /** Standing rules the person stated. Hard rules, above all other context. */
   constraints: string[];
+  /** Prior incidents from the global library: what worked before. */
+  priorIncidents: Array<{ symptom: string; resolution: string; evidenceSignals: string[]; host: string | null }>;
 };
 
 /**
@@ -130,6 +132,18 @@ export const sanitizeDigest = (value: unknown): ReasonDigest => {
       .filter((item) => item.text.length > 0),
     memory: (Array.isArray(raw.memory) ? raw.memory : []).slice(-10).map((item) => line(item, 200)).filter(Boolean),
     constraints: (Array.isArray(raw.constraints) ? raw.constraints : []).slice(-12).map((item) => line(item, 300)).filter(Boolean),
+    priorIncidents: (Array.isArray(raw.priorIncidents) ? raw.priorIncidents : []).slice(-6).map((item) => {
+      const entry = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
+      return {
+        symptom: line(entry.symptom, 200),
+        resolution: line(entry.resolution, 400),
+        evidenceSignals: (Array.isArray(entry.evidenceSignals) ? entry.evidenceSignals : [])
+          .slice(0, 3)
+          .map((signal) => line(signal, 200))
+          .filter(Boolean),
+        host: typeof entry.host === "string" ? line(entry.host, 60) || null : null,
+      };
+    }).filter((item) => item.symptom.length > 0 && item.resolution.length > 0),
   };
 };
 
@@ -251,6 +265,19 @@ export const userPromptWithRecall = (
       : []),
     ...evidencePromptLines(attachments),
     ...retrievedPromptLines(retrieved),
+    ...(digest.constraints.length > 0
+      ? ["STANDING RULES FROM THE PERSON (hard constraints, never propose a step that breaks one):", ...digest.constraints.map((c) => `- ${c}`)]
+      : []),
+    ...(digest.priorIncidents.length > 0
+      ? [
+          "PRIOR INCIDENTS (same task type from other projects; a resolution that worked before, not a guarantee it applies here):",
+          ...digest.priorIncidents.map(
+            (incident) =>
+              `- prior_incident${incident.host ? ` (${incident.host})` : ""}: ${incident.symptom} → ${incident.resolution}` +
+              (incident.evidenceSignals.length > 0 ? ` [signals: ${incident.evidenceSignals.join(" | ")}]` : ""),
+          ),
+        ]
+      : []),
     ...(digest.memory.length > 0 ? ["What we already know about this project:", ...digest.memory.map((m) => `- ${m}`)] : []),
     ...(digest.messages.length > 0
       ? [
@@ -276,4 +303,117 @@ export const parseModelJson = (content: string): unknown => {
   } catch {
     return null;
   }
+};
+// ---------------------------------------------------------------------------
+// Diagnosis synthesis — second reasoning mode.
+//
+// All evidence in, causal chains out. The synthesis mode answers "why is this
+// happening", not "what should I check next".
+// ---------------------------------------------------------------------------
+
+/** The sanitized evidence picture a diagnosis synthesis is built from. */
+export type SynthesisDigest = {
+  stack: ReasonStack;
+  taskType: string;
+  taskTitle: string;
+  /** The symptom the person reported, bounded. */
+  symptom: string;
+  /** Evidence lines, each already redacted and bounded. */
+  evidence: string[];
+  /** Open hypotheses from the working plan. */
+  hypotheses: string[];
+  /** Standing rules from the person. */
+  constraints: string[];
+  /** Tools already run this task, deduped. */
+  doneTools: string[];
+};
+
+/**
+ * Synthesis prompt: causal chains, not observations. Every hypothesis must
+ * cite the evidence lines that support it and name a plan to confirm or
+ * refute it. Missing evidence is named, not glossed over.
+ */
+export const SYNTHESIS_SYSTEM_PROMPT = [
+  "You are a senior systems diagnostician. You are given every verified observation from an engineering investigation and must produce a diagnosis, not a summary.",
+  "",
+  "Rules:",
+  "1. Explain WHY the problem happens — causal chains, not observations. 'The log shows X' is an observation; 'X happens because the plugin's autoloader runs before Y, so Z' is a cause.",
+  "2. Every hypothesis must cite the evidence lines that support it by their number, e.g. [E3][E7].",
+  "3. Every hypothesis gets a concrete plan to confirm or refute it: what to check next and what result would prove it wrong.",
+  "4. Rank hypotheses by likelihood and say which evidence is missing to be certain.",
+  "5. Plain text with the section headers below. No JSON, no markdown code fences, no tables.",
+  "",
+  "Sections:",
+  "DIAGNOSIS",
+  "The single best explanation, as a causal chain.",
+  "HYPOTHESES",
+  "Ranked list. Each: the cause, the cited evidence, the confirm/refute plan, and its likelihood (high/medium/low).",
+  "MISSING EVIDENCE",
+  "What has not been observed and why it matters.",
+  "NEXT STEP",
+  "The one check that most increases diagnostic certainty.",
+].join("\n");
+
+/** Builds the user prompt from a sanitized synthesis digest. */
+export const synthesisUserPrompt = (digest: SynthesisDigest): string => {
+  const numbered = digest.evidence.map((text, index) => `[E${index + 1}] ${text}`);
+  return [
+    `This project runs on ${STACK_LABELS[digest.stack]}.`,
+    `Task type: ${digest.taskType}`,
+    digest.taskTitle ? `What the person asked: ${digest.taskTitle}` : "",
+    "",
+    `SYMPTOM: ${digest.symptom || "(the person did not describe the symptom in words — derive it from the task title and evidence)"}`,
+    "",
+    "EVIDENCE (verified observations from this run, in order):",
+    ...(numbered.length > 0 ? numbered : ["(no evidence collected yet)"]),
+    "",
+    ...(digest.hypotheses.length > 0
+      ? ["HYPOTHESES ALREADY OPEN (from the working plan):", ...digest.hypotheses.map((h) => `- ${h}`), ""]
+      : []),
+    ...(digest.constraints.length > 0
+      ? ["STANDING RULES FROM THE PERSON (hard constraints, never violate):", ...digest.constraints.map((c) => `- ${c}`), ""]
+      : []),
+    digest.doneTools.length > 0 ? `Tools already run: ${[...new Set(digest.doneTools)].join(", ")}` : "",
+    "",
+    "Produce the diagnosis.",
+  ]
+    .filter((part) => part !== "")
+    .join("\n");
+};
+
+/**
+ * Sanitizes an untrusted synthesis digest. Follows the sanitizeDigest
+ * pattern: nothing from the browser is trusted until it is bounded and
+ * redacted here.
+ */
+export const sanitizeSynthesisDigest = (value: unknown): SynthesisDigest => {
+  const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+
+  const stackClaim = typeof raw.stack === "string" ? raw.stack : "";
+  const stack: ReasonStack = (REASON_STACKS as readonly string[]).includes(stackClaim)
+    ? (stackClaim as ReasonStack)
+    : "wordpress";
+
+  return {
+    stack,
+    taskType: line(raw.taskType, 40) || "unknown",
+    taskTitle: line(raw.taskTitle, 160),
+    symptom: line(raw.symptom, 600),
+    evidence: (Array.isArray(raw.evidence) ? raw.evidence : [])
+      .slice(-40)
+      .map((item) => line(item, 300))
+      .filter(Boolean),
+    hypotheses: (Array.isArray(raw.hypotheses) ? raw.hypotheses : [])
+      .slice(-8)
+      .map((item) => line(item, 300))
+      .filter(Boolean),
+    constraints: (Array.isArray(raw.constraints) ? raw.constraints : [])
+      .slice(-12)
+      .map((item) => line(item, 300))
+      .filter(Boolean),
+    doneTools: (Array.isArray(raw.doneTools) ? raw.doneTools : [])
+      .slice(-40)
+      .map((item) => line(item, 60))
+      .filter(Boolean),
+  };
 };

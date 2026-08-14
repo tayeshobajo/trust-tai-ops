@@ -7,7 +7,7 @@
  * stays precise.
  */
 
-import type { AccessType, MemoryEntry, Project, ProjectMessage, Run } from "../types";
+import type { AccessType, KBDigest, MemoryEntry, Project, ProjectMessage, Run } from "../types";
 
 /** How dangerous an action is. Drives the approval policy, nothing else. */
 export type RiskClass = "read_only" | "low_risk_change" | "medium_risk_change" | "high_risk_change";
@@ -54,6 +54,12 @@ export type AgentContext = {
    * The reasoner uses these to stop asking for the same thing again.
    */
   failedObservations?: Array<{ toolId: ToolId; code: ToolFailureCode }>;
+  /**
+   * Prior incident library entries for this task type. Injected once per turn
+   * by agentExecutor, passed through to reasoningDigest as priorIncidents.
+   * Max 6 entries, task_type match first, then global fallback.
+   */
+  knowledgeBase?: KBDigest[];
   environment: {
     primaryUrl: string | null;
     executionBackendAvailable: boolean;

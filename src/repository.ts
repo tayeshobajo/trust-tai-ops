@@ -12,6 +12,7 @@ import { redactBody } from "./agent-core/secretGuard";
 import { isProjectStack, normalizeVersions } from "./stacks";
 import type {
   AccessType,
+  KBEntry,
   MemoryEntry,
   NewProjectMessage,
   Organization,
@@ -35,6 +36,8 @@ import type {
   ProjectDraft,
 } from "./types";
 import type { ExecutionEvent, NewExecutionEvent } from "./agent-core/types";
+
+const KNOWLEDGE_BASE_STORAGE_KEY = "tt-ops.knowledge-base.v1";
 import type { RunPlan } from "./agent-core/plan";
 
 const STORAGE_KEY = "ops-trust-tai.workspace";
@@ -269,6 +272,20 @@ export interface WorkspaceRepository {
   /** The agent's living working plan for a run. Null until the agent writes one. */
   loadRunPlan(projectId: string, runId: string): Promise<RunPlan | null>;
   saveRunPlan(plan: RunPlan): Promise<RunPlan>;
+  /**
+   * Cross-project incident library. Read path for the reasoning digest;
+   * write path runs service-role in the orchestrator via edge function.
+   * projectId proves the caller's membership — the library itself is global.
+   */
+  listKnowledgeBase(projectId: string, taskType?: string): Promise<KBEntry[]>;
+  upsertKnowledgeBaseEntry(projectId: string, entry: {
+    taskType: string;
+    symptomPattern: string;
+    resolution: string;
+    evidenceSignals: string[];
+    toolsUsed: string[];
+    hostContext?: string | null;
+  }): Promise<void>;
 }
 
 class LocalWorkspaceRepository implements WorkspaceRepository {
@@ -733,6 +750,62 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     store[`${plan.projectId}:${plan.runId}`] = saved;
     window.localStorage.setItem(RUN_PLAN_STORAGE_KEY, JSON.stringify(store));
     return saved;
+  }
+
+  async listKnowledgeBase(_projectId: string, taskType?: string): Promise<KBEntry[]> {
+    if (typeof window === "undefined") return [];
+    const raw = window.localStorage.getItem(KNOWLEDGE_BASE_STORAGE_KEY);
+    if (!raw) return [];
+    try {
+      const all = JSON.parse(raw) as KBEntry[];
+      return taskType ? all.filter((entry) => entry.taskType === taskType) : all;
+    } catch {
+      return [];
+    }
+  }
+
+  async upsertKnowledgeBaseEntry(_projectId: string, entry: {
+    taskType: string;
+    symptomPattern: string;
+    resolution: string;
+    evidenceSignals: string[];
+    toolsUsed: string[];
+    hostContext?: string | null;
+  }): Promise<void> {
+    if (typeof window === "undefined") return;
+    const all = await this.listKnowledgeBase(_projectId);
+    const normalized = entry.symptomPattern.trim().toLowerCase();
+    const match = all.find(
+      (existing) =>
+        existing.taskType === entry.taskType &&
+        existing.symptomPattern.trim().toLowerCase() === normalized,
+    );
+    const now = new Date().toISOString();
+    if (match) {
+      match.projectCount += 1;
+      match.lastConfirmedAt = now;
+      match.updatedAt = now;
+      // Keep the longer resolution — richer description wins.
+      if (entry.resolution.length > match.resolution.length) match.resolution = entry.resolution;
+      window.localStorage.setItem(KNOWLEDGE_BASE_STORAGE_KEY, JSON.stringify(all));
+      return;
+    }
+    const next: KBEntry = {
+      id: `kb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      scope: "global",
+      taskType: entry.taskType,
+      symptomPattern: entry.symptomPattern,
+      resolution: entry.resolution,
+      evidenceSignals: entry.evidenceSignals,
+      toolsUsed: entry.toolsUsed,
+      hostContext: entry.hostContext ?? null,
+      projectCount: 1,
+      lastConfirmedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    };
+    all.push(next);
+    window.localStorage.setItem(KNOWLEDGE_BASE_STORAGE_KEY, JSON.stringify(all));
   }
 }
 
@@ -1518,6 +1591,81 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       .upsert([row] as never, { onConflict: "run_id" } as never);
     if (error) throw error;
     return { ...plan, updatedAt: new Date().toISOString() };
+  }
+
+  /**
+   * The knowledge base is service-role only (RLS without anon policies), so
+   * the browser never touches the table directly. Reads route through the
+   * authorized agent-execute boundary, which proves project ownership first.
+   */
+  async listKnowledgeBase(projectId: string, taskType?: string): Promise<KBEntry[]> {
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke("agent-execute", {
+        body: {
+          mode: "kb_list",
+          projectId,
+          args: taskType ? { taskType } : {},
+        },
+      });
+      if (error) return [];
+      const payload = data as { ok?: boolean; data?: { entries?: unknown[] } } | null;
+      if (!payload?.ok || !Array.isArray(payload.data?.entries)) return [];
+      return payload.data!.entries
+        .map((row): KBEntry | null => {
+          const record = row as Record<string, unknown>;
+          if (!record || typeof record !== "object") return null;
+          const strings = (value: unknown): string[] =>
+            Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+          return {
+            id: String(record.id ?? ""),
+            scope: String(record.scope ?? "global"),
+            taskType: String(record.task_type ?? ""),
+            symptomPattern: String(record.symptom_pattern ?? ""),
+            resolution: String(record.resolution ?? ""),
+            evidenceSignals: strings(record.evidence_signals),
+            toolsUsed: strings(record.tools_used),
+            hostContext: typeof record.host_context === "string" ? record.host_context : null,
+            projectCount: Number(record.project_count ?? 1),
+            lastConfirmedAt: String(record.last_confirmed_at ?? ""),
+            createdAt: String(record.created_at ?? ""),
+            updatedAt: String(record.updated_at ?? ""),
+          };
+        })
+        .filter((entry): entry is KBEntry => entry !== null);
+    } catch {
+      // The library is an enhancement. Unreachable means empty, never a crash.
+      return [];
+    }
+  }
+
+  async upsertKnowledgeBaseEntry(projectId: string, entry: {
+    taskType: string;
+    symptomPattern: string;
+    resolution: string;
+    evidenceSignals: string[];
+    toolsUsed: string[];
+    hostContext?: string | null;
+  }): Promise<void> {
+    try {
+      const client = getSupabaseClient();
+      await client.functions.invoke("agent-execute", {
+        body: {
+          mode: "kb_upsert",
+          projectId,
+          args: {
+            taskType: entry.taskType,
+            symptomPattern: entry.symptomPattern,
+            resolution: entry.resolution,
+            evidenceSignals: entry.evidenceSignals,
+            toolsUsed: entry.toolsUsed,
+            hostContext: entry.hostContext ?? null,
+          },
+        },
+      });
+    } catch {
+      // A failed KB write must never break a run.
+    }
   }
 
   private async selectIn<TRow>(

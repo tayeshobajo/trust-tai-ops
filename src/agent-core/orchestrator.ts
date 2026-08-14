@@ -7,7 +7,7 @@
  * The workspace never talks to tools, policy or the gateway directly.
  */
 
-import type { AccessType, MemoryEntry, Organization, NewProjectMessage, Project, ProjectMessage, Run } from "../types";
+import type { AccessType, KBDigest, MemoryEntry, Organization, NewProjectMessage, Project, ProjectMessage, Run } from "../types";
 import { workspaceRepository } from "../repository";
 import {
   describeHealth,
@@ -61,6 +61,11 @@ export type OrchestratorInput = {
   emit: (message: NewProjectMessage) => Promise<ProjectMessage | null>;
   onWorkspaceUpdate: (next: Organization) => void;
   reasoner?: AgentReasoner;
+  /**
+   * Prior incident-library entries for this task type, fetched once per turn
+   * by the caller. Optional — the reasoner works without it, just from zero.
+   */
+  knowledgeBase?: KBDigest[];
 };
 
 const ACCESS_LABELS: Record<AccessType, string> = {
@@ -175,6 +180,7 @@ export const buildAgentContext = async (input: OrchestratorInput): Promise<Agent
     verifiedCapabilities: capabilities.verified,
     evidence: observations.evidence,
     failedObservations,
+    knowledgeBase: input.knowledgeBase,
     environment: {
       primaryUrl: primaryUrlFor(project, run),
       executionBackendAvailable: executionGateway().available(),
@@ -710,6 +716,36 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
     stopReason === "sufficient_evidence" ||
     stopReason === "budget_exhausted" ||
     (stopReason === "safe_stop" && learned.length > 0);
+
+  // Cross-project learning: when the run verified something real, distill it
+  // into the global incident library so the same pattern on another project
+  // starts with the answer, not the search. A failed write never breaks the
+  // run — the library is an enhancement, not a dependency.
+  if (shouldCloseout) {
+    try {
+      const supportedHypotheses = workingPlan.hypotheses.filter((h) => h.status === "supported");
+      const verifiedSteps = workingPlan.steps.filter(
+        (s) => s.status === "done" && typeof s.evidenceId === "string" && s.evidenceId.length > 0,
+      );
+      if (supportedHypotheses.length > 0 && verifiedSteps.length > 0) {
+        await workspaceRepository.upsertKnowledgeBaseEntry(input.project.id, {
+          taskType: input.run.taskType,
+          symptomPattern: input.run.title || input.run.taskSummary || "unnamed symptom",
+          resolution: [
+            supportedHypotheses.map((h) => h.text).join("; "),
+            verifiedSteps.map((s) => s.label).join("; "),
+          ].join(" — verified by: "),
+          evidenceSignals: learned.slice(-5).map((item) => item.summary),
+          toolsUsed: [...new Set(learned.map((item) => item.toolId))],
+          hostContext:
+            input.project.environments.find((item) => item.id === input.run.environmentId)?.hostingProvider ?? null,
+        });
+      }
+    } catch {
+      // The library write is best-effort. The run's own outcome is already
+      // recorded in evidence and the plan.
+    }
+  }
 
   if (shouldCloseout) {
     const closeout = buildCloseout(workingPlan, learned, awaiting);

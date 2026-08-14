@@ -4,9 +4,11 @@
 // function proves the caller belongs to the project, asks a model a question,
 // and returns only answers that survive validation.
 //
-// Two modes share the boundary:
+// Modes that share the boundary:
 //   plan_next_agent_turn   — the next read-only inspection, from a closed catalog.
 //   analyze_meeting_source — what a client meeting means for this project.
+//   compose_reply          — the spoken reply, streamed.
+//   synthesize_diagnosis   — all evidence in, causal chains out (4K budget).
 //
 // Nothing here executes a tool, approves anything, or mutates WordPress.
 
@@ -24,10 +26,14 @@ import { validateReasonPlan } from "../_shared/reasonCatalog.ts";
 import { readModelText, resolveReasonModel, type ReasonModel } from "../_shared/reasonModels.ts";
 import {
   SYSTEM_PROMPT,
+  SYNTHESIS_SYSTEM_PROMPT,
   parseModelJson,
   sanitizeDigest,
+  sanitizeSynthesisDigest,
+  synthesisUserPrompt,
   userPromptWithRecall,
   type RetrievedConversation,
+  type SynthesisDigest,
 } from "../_shared/reasonPrompt.ts";
 import type { ReasonDigest, ServerEvidence } from "../_shared/reasonPrompt.ts";
 import { REPLY_SYSTEM_PROMPT, replyUserPrompt, sanitizeReplyFacts } from "../_shared/replyPrompt.ts";
@@ -46,6 +52,8 @@ const MAX_OUTPUT_TOKENS = 1200;
 const REPLY_MAX_OUTPUT_TOKENS = 400;
 const MEETING_TIMEOUT_MS = 90_000;
 const MEETING_MAX_OUTPUT_TOKENS = 8_000;
+const SYNTHESIS_TIMEOUT_MS = 90_000;
+const SYNTHESIS_MAX_OUTPUT_TOKENS = 4_096;
 
 const fail = (code: string, summary: string, retryable: boolean, status = 200) =>
   Response.json({ ok: false, code, summary, retryable }, { status, headers: corsHeaders });
@@ -540,8 +548,42 @@ Deno.serve(async (req) => {
   }
 
   const mode = typeof body.mode === "string" ? body.mode : "plan_next_agent_turn";
-  if (mode !== "plan_next_agent_turn" && mode !== "analyze_meeting_source" && mode !== "compose_reply") {
+  if (
+    mode !== "plan_next_agent_turn" &&
+    mode !== "analyze_meeting_source" &&
+    mode !== "compose_reply" &&
+    mode !== "synthesize_diagnosis"
+  ) {
     return fail("invalid_input", "I don't know how to think about that.", false);
+  }
+
+  if (mode === "synthesize_diagnosis") {
+    const digest: SynthesisDigest = sanitizeSynthesisDigest(body.digest);
+    const asked = await askModel(
+      model,
+      buildCall(model, apiKey, SYNTHESIS_SYSTEM_PROMPT, synthesisUserPrompt(digest), SYNTHESIS_MAX_OUTPUT_TOKENS),
+      SYNTHESIS_TIMEOUT_MS,
+    );
+    if (!asked.ok) return asked.response;
+
+    const synthesis = asked.content.trim();
+    // Output validation: non-empty, bounded length, no credential leakage.
+    // A too-short answer read as a synthesis is worse than no synthesis.
+    if (synthesis.length < 200 || synthesis.length > 8000) {
+      console.error(
+        `agent-reason rejected synthesis output: ${synthesis.length} chars`,
+      );
+      return fail(
+        "synthesis_invalid",
+        "I couldn't form a diagnosis I trust from this evidence yet.",
+        true,
+      );
+    }
+
+    return Response.json(
+      { ok: true, mode, model: model.id, synthesis },
+      { headers: corsHeaders },
+    );
   }
 
   if (mode === "compose_reply") {

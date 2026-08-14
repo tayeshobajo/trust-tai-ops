@@ -435,3 +435,33 @@ export type ProjectEvidence = {
   analysis: EvidenceAnalysis | null;
   createdAt: string;
 };
+
+// ---------------------------------------------------------------------------
+// Knowledge base — cross-project incident library
+// ---------------------------------------------------------------------------
+
+/** A single entry in the global incident library. Written by the orchestrator
+ *  at sufficient_evidence; read by the reasoner to seed the digest. */
+export type KBEntry = {
+  id: string;
+  scope: string;
+  taskType: string;
+  symptomPattern: string;
+  resolution: string;
+  evidenceSignals: string[];
+  toolsUsed: string[];
+  hostContext: string | null;
+  projectCount: number;
+  lastConfirmedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Compact slice injected into the reasoning digest — no full KB row. */
+export type KBDigest = {
+  symptom: string;
+  resolution: string;
+  /** Up to 3 evidence signal summaries. */
+  evidenceSignals: string[];
+  host: string | null;
+};
