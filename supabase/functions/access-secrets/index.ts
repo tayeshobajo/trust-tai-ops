@@ -22,7 +22,7 @@ import { validateWpBinary, validateWpRoot } from "../_shared/wpCliCatalog.ts";
 const fail = (code: string, summary: string, status = 200) =>
   Response.json({ ok: false, code, summary }, { status, headers: corsHeaders });
 
-const SUPPORTED = new Set(["wordpress_admin", "ssh"]);
+const SUPPORTED = new Set(["wordpress_admin", "ssh", "sftp"]);
 
 const AUTH_FAIL_SUMMARY: Record<string, string> = {
   unauthorized: "Please sign in before sharing access.",
@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
   //
   // SSH is stored as a sealed JSON payload holding only secret material. The
   // host, port and paths are non-secret connection details and live beside it.
-  if (accessType === "ssh") {
+  if (accessType === "ssh" || accessType === "sftp") {
     const authz = await authorizeProject(req.headers.get("Authorization"), projectId, authzDeps());
     if (!authz.ok) return fail(authz.code, AUTH_FAIL_SUMMARY[authz.code]);
 
@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
           ok: outcome.ok,
           code: outcome.ok ? null : outcome.code,
           summary: outcome.ok
-            ? "The server accepted that SSH key and WordPress answered. I recorded the server's identity."
+            ? "The server accepted that sign-in and WordPress answered. I recorded the server's identity."
             : outcome.summary,
           data: {
             accessType,
@@ -126,6 +126,15 @@ Deno.serve(async (req) => {
           },
         },
         { headers: corsHeaders },
+      );
+    }
+
+    if (accessType === "sftp") {
+      // Password-based SFTP arrives through secure chat intake, which parses
+      // the host, port, username and password together.
+      return fail(
+        "not_implemented",
+        "Send SFTP details in the project conversation — I'll store them securely from there.",
       );
     }
 
