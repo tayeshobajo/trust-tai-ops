@@ -312,7 +312,7 @@ const real = describeHealth({
 } as never).join(" ");
 check("authenticated health is claimed when a check was read", real.includes("I'm in"));
 const rejected = describeHealth({ data: { authenticatedHealthCode: "unauthorized" } } as never).join(" ");
-check("a rejected credential is reported honestly", rejected.includes("rejected"));
+check("a restricted health endpoint is not called a rejected credential", !rejected.includes("rejected") && rejected.includes("did not authorize"));
 
 // --- reasoner ----------------------------------------------------------------
 

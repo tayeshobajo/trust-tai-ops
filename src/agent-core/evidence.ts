@@ -80,7 +80,7 @@ export const describeHealth = (evidence: AgentEvidence): string[] => {
       `I'm in. I read ${readChecks.length} of the private health checks directly, without changing anything.`,
     );
   } else if (data.authenticatedHealthCode === "unauthorized") {
-    lines.push("WordPress rejected the admin access I have stored, so I could only read the public health signals.");
+    lines.push("WordPress accepted the login, but its private health API did not authorize this read, so I used the public health signals instead.");
   } else if (data.authenticatedHealthCode === "forbidden") {
     lines.push("That WordPress account isn't allowed to read the health report, so I used the public signals instead.");
   } else if (data.credentialsRequired === true) {
