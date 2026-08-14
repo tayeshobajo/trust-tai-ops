@@ -89,6 +89,62 @@ export const REASON_STEPS: Record<string, ReasonStepSpec> = {
     serverResolvedTarget: true,
     purpose: "Read the recent WordPress error log entries, without changing anything.",
   },
+  "wp-cli-core-updates": {
+    toolId: "wordpress.run_wp_cli_readonly",
+    capability: "ssh",
+    serverResolvedTarget: true,
+    commandId: "core.check_update",
+    purpose: "Check whether WordPress itself is behind on updates.",
+  },
+  "wp-cli-plugin-list": {
+    toolId: "wordpress.run_wp_cli_readonly",
+    capability: "ssh",
+    serverResolvedTarget: true,
+    commandId: "plugin.list",
+    purpose: "Read the installed plugins and their update status directly on the server.",
+  },
+  "wp-cli-theme-list": {
+    toolId: "wordpress.run_wp_cli_readonly",
+    capability: "ssh",
+    serverResolvedTarget: true,
+    commandId: "theme.list",
+    purpose: "Read the installed themes and which one is active.",
+  },
+  "wp-cli-cron-events": {
+    toolId: "wordpress.run_wp_cli_readonly",
+    capability: "ssh",
+    serverResolvedTarget: true,
+    commandId: "cron.event_list",
+    purpose: "Read the scheduled jobs, including anything unexpected that was added.",
+  },
+  "wp-cli-maintenance-mode": {
+    toolId: "wordpress.run_wp_cli_readonly",
+    capability: "ssh",
+    serverResolvedTarget: true,
+    commandId: "maintenance_mode.status",
+    purpose: "Check whether the site is stuck in maintenance mode.",
+  },
+  "wp-cli-user-roles": {
+    toolId: "wordpress.run_wp_cli_readonly",
+    capability: "ssh",
+    serverResolvedTarget: true,
+    commandId: "user.list_roles",
+    purpose: "Read the account roles defined on the site.",
+  },
+  "wp-cli-db-size": {
+    toolId: "wordpress.run_wp_cli_readonly",
+    capability: "ssh",
+    serverResolvedTarget: true,
+    commandId: "db.size",
+    purpose: "Read how large the database has grown.",
+  },
+  "wp-cli-debug-log-setting": {
+    toolId: "wordpress.run_wp_cli_readonly",
+    capability: "ssh",
+    serverResolvedTarget: true,
+    commandId: "config.get_debug_log",
+    purpose: "Check whether error logging is switched on before looking for a log.",
+  },
 };
 
 export type ServerReasonPlan = {
