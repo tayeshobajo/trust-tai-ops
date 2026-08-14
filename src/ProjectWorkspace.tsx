@@ -1221,6 +1221,7 @@ export function ProjectWorkspace({
         onWorkspaceUpdate,
         recentMessages: [...messages.filter((message) => message.runId === activeRun.id), savedMessage],
         memory: project.memoryEntries,
+        onStream: setStreamingText,
       });
 
       if (!outcome.spoke) {
@@ -1233,6 +1234,7 @@ export function ProjectWorkspace({
         });
       }
     } finally {
+      setStreamingText("");
       setAgentBusy(false);
     }
   };
