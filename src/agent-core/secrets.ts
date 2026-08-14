@@ -26,9 +26,20 @@ export type SubmitCredentialInput = {
   port?: number;
   wpRoot?: string;
   wpBinary?: string;
+  /** Custom WordPress admin/login address. Non-secret. */
+  loginUrl?: string;
   /** Held only for the duration of this call, like `secret`. */
   passphrase?: string;
 };
+export type CredentialDetails = {
+  exists: boolean;
+  username: string;
+  host: string;
+  port: string;
+  wpRoot: string;
+  loginUrl: string;
+};
+
 
 export type SubmitCredentialResult =
   | { ok: true; secretReference: string; username: string; verificationState: string }
@@ -68,7 +79,7 @@ export const submitCredential = async (input: SubmitCredentialInput): Promise<Su
               wpBinary: input.wpBinary ?? "",
               passphrase: input.passphrase ?? "",
             }
-          : {}),
+          : { loginUrl: input.loginUrl ?? "" }),
       },
     });
     if (error) return UNAVAILABLE;
@@ -94,6 +105,39 @@ export const submitCredential = async (input: SubmitCredentialInput): Promise<Su
   } catch {
     // A transport error can carry URLs and headers; it is never surfaced.
     return UNAVAILABLE;
+  }
+};
+
+/**
+ * Non-secret details for a stored connection, so replacing access shows what
+ * was entered before. Never returns a credential.
+ */
+export const loadCredentialDetails = async (
+  projectId: string,
+  accessType: ExecutableAccessType,
+): Promise<CredentialDetails | null> => {
+  if (!secretSubmissionAvailable()) return null;
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client.functions.invoke("access-secrets", {
+      body: { mode: "details", projectId, accessType },
+    });
+    if (error) return null;
+    const payload = data as { ok?: boolean; data?: Record<string, unknown> } | null;
+    if (!payload?.ok) return null;
+    const detail = (payload.data ?? {}) as Record<string, unknown>;
+    const nested = (detail.details ?? {}) as Record<string, unknown>;
+    const text = (value: unknown) => (typeof value === "string" ? value : "");
+    return {
+      exists: Boolean(detail.exists),
+      username: text(detail.username),
+      host: text(nested.host),
+      port: text(nested.port),
+      wpRoot: text(nested.wpRoot),
+      loginUrl: text(nested.loginUrl),
+    };
+  } catch {
+    return null;
   }
 };
 

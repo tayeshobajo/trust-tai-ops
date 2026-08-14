@@ -162,7 +162,15 @@ console.log("\nverification semantics");
 {
   const okFetch = async () =>
     new Response(JSON.stringify({ id: 1 }), { status: 200, headers: { "content-type": "application/json" } });
-  const rejectFetch = async () => new Response("", { status: 401 });
+  // A 401 from the REST route is not proof on its own: hosts strip the
+  // Authorization header. Rejection is only real when the login form says so.
+  const rejectFetch = async (input: unknown) => {
+    const url = String((input as { url?: string })?.url ?? input);
+    if (url.includes("wp-login.php")) {
+      return new Response('<div id="login_error">Unknown username.</div>', { status: 200 });
+    }
+    return new Response("", { status: 401 });
+  };
   const downFetch = async () => new Response("", { status: 500 });
 
   const noUrl = await verifyStoredWordPressCredential(storeDeps(KEY) as never, "p1", null, okFetch as never);

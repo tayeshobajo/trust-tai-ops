@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AccessType, Organization, Project, ProjectAccessMethod } from "./types";
 import { workspaceRepository } from "./repository";
 import { getProjectInitials } from "./home";
-import { submitCredential, verifyStoredCredential } from "./agent-core/secrets";
+import { loadCredentialDetails, submitCredential, verifyStoredCredential } from "./agent-core/secrets";
 import { adminCredentialLabel, getProjectStack, stackCopy } from "./stacks";
 import type { ProjectStack } from "./types";
 
@@ -58,6 +58,14 @@ const CONNECTION_TYPES: ConnectionDefinition[] = [
         kind: "secret",
         placeholder: "xxxx xxxx xxxx xxxx xxxx xxxx",
         hint: "In WordPress: Users → Profile → Application Passwords. It can be revoked on its own, and your login password is never needed.",
+      },
+      {
+        key: "loginUrl",
+        label: "Custom admin address",
+        kind: "text",
+        optional: true,
+        placeholder: "/wp-admin or /my-secret-login",
+        hint: "Only if this site moved its login away from /wp-login.php. It must be on the same domain.",
       },
     ],
   },
@@ -231,8 +239,43 @@ export function ProjectAccessPanel({
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  // Non-secret details only. A secret is never fetched back into the form.
+  const [prefilling, setPrefilling] = useState(false);
 
   const stack = getProjectStack(project);
+
+  const editingType = editing?.type ?? null;
+  const editingExisting = editing?.existingId ?? null;
+
+  /**
+   * Replacing access shows what was entered before — username, host, paths —
+   * so nothing has to be retyped. The credential itself stays unreadable.
+   */
+  useEffect(() => {
+    if (!editingType || !editingExisting) return;
+    if (editingType !== "wordpress_admin" && editingType !== "ssh") return;
+    let cancelled = false;
+    setPrefilling(true);
+    void loadCredentialDetails(project.id, editingType)
+      .then((details) => {
+        if (cancelled || !details) return;
+        setValues((current) => ({
+          user: current.user ?? details.username,
+          host: current.host ?? details.host,
+          port: current.port ?? details.port,
+          wpRoot: current.wpRoot ?? details.wpRoot,
+          loginUrl: current.loginUrl ?? details.loginUrl,
+          ...current,
+        }));
+      })
+      .finally(() => {
+        if (!cancelled) setPrefilling(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editingType, editingExisting, project.id]);
+
   const copy = stackCopy[stack];
   // Only a stack whose admin credential can genuinely be sealed gets named.
   const adminLabel = adminCredentialLabel(stack);
@@ -320,7 +363,7 @@ export function ProjectAccessPanel({
                 wpRoot: (values.wpRoot ?? "").trim(),
                 passphrase: values.passphrase ?? "",
               }
-            : {}),
+            : { loginUrl: (values.loginUrl ?? "").trim() }),
         });
       } finally {
         // Drop the key and passphrase from component state immediately.
@@ -548,6 +591,7 @@ export function ProjectAccessPanel({
             onClick={(event) => event.stopPropagation()}
           >
             <h2>{editing.existingId ? "Replace" : "Add"} {activeDefinition.label}</h2>
+            {prefilling ? <p className="access-drawer-note">Loading the details you saved before…</p> : null}
             <p className="access-drawer-note">
               {activeDefinition.executable
                 ? activeDefinition.type === "ssh"
