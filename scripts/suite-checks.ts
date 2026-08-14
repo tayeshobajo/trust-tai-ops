@@ -375,6 +375,91 @@ check("every claim cites a source id", snapshot.citations.some((c) => c.id === "
 check("the snapshot carries no secret material", !containsSecretMaterial(snapshot));
 
 console.log("");
+console.log("the temporary suite acceptance harness");
+
+const acceptanceSession = {
+  osAccessToken: TOKEN,
+  osUserId: OS_USER,
+  osEmail: "person@trusttai.com",
+  osOrganizationId: OS_ORG,
+  canonicalProjectId: CANONICAL,
+  expiresAt: 0,
+};
+const linkedProjects = [{ id: "ops-project-1", trustTaiOsProjectId: CANONICAL }];
+
+check(
+  "the control is hidden with no suite session",
+  resolveAcceptanceTarget(null, linkedProjects) === null,
+);
+check(
+  "the control is hidden with no canonical project id",
+  resolveAcceptanceTarget({ ...acceptanceSession, canonicalProjectId: null }, linkedProjects) === null,
+);
+check(
+  "the control is hidden when no Ops project is linked to that canonical project",
+  resolveAcceptanceTarget(acceptanceSession, [{ id: "ops-project-2", trustTaiOsProjectId: null }]) === null,
+);
+
+const acceptanceTarget = resolveAcceptanceTarget(acceptanceSession, linkedProjects);
+check("the control appears for a live session on a linked project", acceptanceTarget?.opsProjectId === "ops-project-1");
+
+const fixture = acceptanceSignal(acceptanceTarget!);
+check(
+  "the acceptance event key is deterministic and canonical-scoped",
+  fixture.opsEventKey === `suite-acceptance-v1:${CANONICAL}` &&
+    fixture.opsEventKey === acceptanceEventKey(CANONICAL) &&
+    acceptanceSignal(acceptanceTarget!).opsEventKey === fixture.opsEventKey,
+);
+
+const fixtureRow = buildSuiteActivity(fixture, "https://ops.trusttai.com", WRITE_CONTEXT);
+check(
+  "the row is clearly marked as a temporary acceptance test",
+  fixtureRow.summary === ACCEPTANCE_SUMMARY &&
+    fixtureRow.summary.includes("TEMPORARY SUITE ACCEPTANCE TEST") &&
+    String(fixtureRow.payload.evidence_summary).includes("Acceptance-only harness event"),
+);
+check(
+  "the fixture row carries the deterministic indexed key and a valid Ops route",
+  fixtureRow.source_event_key === suiteDedupeKey(fixture) &&
+    fixtureRow.payload.destination_route === `https://ops.trusttai.com/project/ops-project-1`,
+);
+check("the fixture row carries no secret material", !containsSecretMaterial(fixtureRow));
+
+const panelSource = read("src/SuiteAcceptancePanel.tsx");
+check(
+  "the control uses the production sync path, not a direct OS insert",
+  panelSource.includes("sendSuiteSignal") && !panelSource.includes("/rest/v1/activities") && !panelSource.includes("fetch("),
+);
+
+let sent = 0;
+const stored = new Set<string>();
+const fakeDeps = {
+  context: WRITE_CONTEXT,
+  findExisting: async (key: string) => (stored.has(key) ? "activity-1" : null),
+  insert: async (row: SuiteActivityRow) => {
+    sent += 1;
+    stored.add(row.source_event_key);
+    return "written" as const;
+  },
+};
+const firstPress = await syncSuiteSignal(fixture, fakeDeps, "https://ops.trusttai.com");
+const secondPress = await syncSuiteSignal(fixture, fakeDeps, "https://ops.trusttai.com");
+check(
+  "pressing twice writes exactly one row",
+  firstPress.status === "written" && secondPress.status === "duplicate" && sent === 1,
+);
+check(
+  "a duplicate is rendered honestly, not as a fresh write",
+  describeSyncResult(secondPress).label === "Duplicate" &&
+    describeSyncResult(secondPress).detail.includes("no second row"),
+);
+check(
+  "a failure is rendered honestly with its reason",
+  describeSyncResult({ status: "failed", reason: "os_activity_write_failed" }).tone === "bad" &&
+    describeSyncResult({ status: "unavailable", reason: "no_os_session" }).detail.includes("no os session"),
+);
+
+console.log("");
 if (failures.length > 0) {
   console.log(`${failures.length} suite integration check(s) failed.`);
   process.exit(1);
