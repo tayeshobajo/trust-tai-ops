@@ -98,9 +98,16 @@ export const setGoal = (plan: RunPlan, goal: string): RunPlan =>
 /** Adds hypotheses the plan has not seen before. Matching is on normalized text. */
 export const addHypotheses = (plan: RunPlan, texts: string[]): RunPlan => {
   const seen = new Set(plan.hypotheses.map((item) => item.text.trim().toLowerCase()));
-  const added = texts
-    .map((text) => text.trim())
-    .filter((text) => text.length > 0 && !seen.has(text.toLowerCase()))
+  const fresh: string[] = [];
+  for (const raw of texts) {
+    const text = raw.trim();
+    // Dedupe within the batch as well: a reasoner that says the same thing
+    // twice in one turn must not create two hypotheses.
+    if (text.length === 0 || seen.has(text.toLowerCase())) continue;
+    seen.add(text.toLowerCase());
+    fresh.push(text);
+  }
+  const added = fresh
     .map<PlanHypothesis>((text, index) => ({
       id: `h${plan.hypotheses.length + index + 1}`,
       text,
