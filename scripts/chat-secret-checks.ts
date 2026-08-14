@@ -131,7 +131,7 @@ const sanitized = sanitizedIntakeMessage({
 });
 const sanitizedText = sanitized.join("\n");
 check("sanitized message names the site", sanitizedText.includes("example.com"));
-check("sanitized message says credentials were shared securely", sanitizedText.includes("shared securely"));
+check("sanitized message says credentials were stored securely", sanitizedText.includes("stored securely"));
 check("sanitized message states the FTP gap", sanitizedText.includes("FTP access was requested"));
 check("sanitized message preserves intent", sanitizedText.includes("share the issue"));
 check("raw secret never appears in the sanitized message", !sanitizedText.includes(FAKE_WP_PASSWORD));
