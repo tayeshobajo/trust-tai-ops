@@ -1243,10 +1243,12 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
 
   async saveAccessMethod(projectId: string, method: ProjectAccessMethod): Promise<Organization> {
     const client = getSupabaseClient();
-    await (client.from("project_access_methods") as never as {
-      upsert: (v: unknown) => Promise<unknown>;
+    const { error } = await (client.from("project_access_methods") as never as {
+      upsert: (v: unknown) => Promise<{ error: { message: string } | null }>;
     }).upsert([{
-      id: method.id,
+      // The column is a uuid. A friendly-looking id would be rejected, so any
+      // non-uuid id is replaced before the write instead of failing silently.
+      id: isUuid(method.id) ? method.id : crypto.randomUUID(),
       project_id: projectId,
       access_type: method.type,
       label: method.label,
@@ -1257,6 +1259,9 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       // A reference, never a value. The secret lives in the server-only store.
       credential_reference: method.credentialReference ?? null,
     }]);
+    // A rejected write must be heard. Reporting success here is what made a
+    // saved connection reappear as "Not connected".
+    if (error) throw new Error(error.message);
     return this.loadWorkspace();
   }
 
