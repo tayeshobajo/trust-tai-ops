@@ -33,6 +33,8 @@ export type AgentStepContext = {
   memory?: MemoryEntry[];
   /** Renders the reply as it is written, before it is persisted. */
   onStream?: (soFar: string) => void;
+  /** Facts this turn observed, for the site-health readout. */
+  onEvidence?: (learned: AgentEvidence[]) => void;
 };
 
 /**
