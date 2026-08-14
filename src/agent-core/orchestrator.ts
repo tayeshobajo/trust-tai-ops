@@ -24,6 +24,7 @@ import { executionGateway } from "./gateway";
 import { safeSummary } from "./safety";
 import { selectReasoner, type AgentReasoner } from "./reasoner";
 import { escalate, routeIsExhausted, classifyFailure } from "./failure";
+import { verifyStep } from "./verify";
 import {
   addHypotheses,
   applyEvidence,
