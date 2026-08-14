@@ -164,6 +164,30 @@ const TypingIndicator = () => (
   </article>
 );
 
+/**
+ * Two sentences that differ only in punctuation, casing or spacing are the
+ * same sentence. Comparing on this signature stops a reworded restatement of
+ * something already said from reaching the thread.
+ */
+const echoSignature = (body: string[]): string =>
+  body
+    .join(" ")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** The reply being written, shown where the finished message will appear. */
+const StreamingMessage = ({ text }: { text: string }) => (
+  <article className="pw-msg pw-msg-agent" aria-live="polite">
+    <span className="pw-msg-who">Engineering Agent</span>
+    <p className="pw-msg-line">
+      {text}
+      <span className="pw-caret" aria-hidden="true" />
+    </p>
+  </article>
+);
+
 export function ProjectWorkspace({
   project,
   canWrite,
