@@ -234,6 +234,27 @@ const splitInlineLabels = (line: string): string[] => {
   return segments;
 };
 
+const TABULAR_LABEL = new RegExp(
+  "^\\s*(" +
+    "app(?:lication)?[ _-]?password|password|passwd|pwd|pass" +
+    "|passphrase|private[ _-]?key" +
+    "|host(?:[ _-]?name)?|server(?:[ _-]?address)?|address|ip(?:[ _-]?address)?" +
+    "|port(?:[ _-]?number)?|protocol" +
+    "|user(?:[ _-]?name)?|username|account" +
+    "|admin(?:[ _-]?(?:url|login|email))?|e-?mail|email|login" +
+    "|site(?:[ _-]?url)?|website|domain|url" +
+    ")\\s{2,}|\\t+",
+  "i",
+);
+
+const convertTabularLine = (line: string): string => {
+  const match = line.match(TABULAR_LABEL);
+  if (!match) return line;
+  const label = match[1];
+  const rest = line.slice(match[0].length).trim();
+  return `${label}: ${rest}`;
+};
+
 /** Run-on credential lines become one labelled field per line. PEM blocks are left alone. */
 export const expandInlineLabels = (input: string): string => {
   const out: string[] = [];
@@ -245,7 +266,8 @@ export const expandInlineLabels = (input: string): string => {
       if (/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(line)) inPem = false;
       continue;
     }
-    out.push(...splitInlineLabels(line));
+    const converted = convertTabularLine(line);
+    out.push(...splitInlineLabels(converted));
   }
   return out.join("\n");
 };
