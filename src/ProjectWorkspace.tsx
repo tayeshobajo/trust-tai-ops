@@ -823,8 +823,9 @@ export function ProjectWorkspace({
       // The raw text is done with. Clear the composer before anything renders.
       setComposerValue("");
 
-      const storedTypes = result.stored.map((item) => item.accessType);
-      const missingTypes = result.missing.map((item) => item.accessType);
+      const missingTypes: AccessType[] = result.missing
+        .map((item) => (item.accessType === "ftp" ? "sftp" : item.accessType))
+        .filter((type): type is AccessType => type !== "ftp");
 
       // If nothing could be stored, surface it immediately and open the
       // dedicated panel so the person isn't left guessing why the paste vanished.
