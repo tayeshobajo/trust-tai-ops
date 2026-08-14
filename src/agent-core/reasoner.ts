@@ -54,10 +54,20 @@ const BROWSER_TASK_TYPES: readonly string[] = [
 /**
  * The catalog inspection each planned WP-CLI action stands for. Named here so
  * the planner can never assemble a command; it only chooses a catalog id.
+ * All read-only catalog entries are listed so the deterministic planner can
+ * reach the same breadth as the server-model reasoner.
  */
 const WP_CLI_ACTION_COMMANDS: Record<string, string> = {
   "wp-cli-core-version": "core.version",
   "wp-cli-core-checksums": "core.verify_checksums",
+  "wp-cli-core-updates": "core.check_update",
+  "wp-cli-plugin-list": "plugin.list",
+  "wp-cli-theme-list": "theme.list",
+  "wp-cli-cron-events": "cron.event_list",
+  "wp-cli-maintenance-mode": "maintenance_mode.status",
+  "wp-cli-user-roles": "user.list_roles",
+  "wp-cli-db-size": "db.size",
+  "wp-cli-debug-log-setting": "config.get_debug_log",
 };
 
 const wpCliArgsFor = (actionId: string): AgentActionArguments | null => {
@@ -189,23 +199,40 @@ class DeterministicReasoner implements AgentReasoner {
         toolId: "wordpress.list_plugins",
         purpose: "Read the installed plugins without changing anything.",
       });
-    } else if (
-      context.capabilities.includes("ssh") &&
-      !hasEvidenceFrom(context, "wordpress.run_wp_cli_readonly")
-    ) {
-      // SSH is available, so the questions the HTTP surface cannot answer —
-      // the real installed version, and whether core files were altered —
-      // become answerable. Both are strictly reads.
-      want.push({
-        id: "wp-cli-core-version",
-        toolId: "wordpress.run_wp_cli_readonly",
-        purpose: "Read the WordPress version directly on the server.",
-      });
-      want.push({
-        id: "wp-cli-core-checksums",
-        toolId: "wordpress.run_wp_cli_readonly",
-        purpose: "Compare the core files against the official checksums.",
-      });
+    } else if (context.capabilities.includes("ssh")) {
+      // SSH is available. Work through the full read-only catalog in task-relevant
+      // order. Each entry is only added when its specific question has not yet
+      // been answered this run, so the planner never re-asks something it knows.
+      const sshWant: Array<{ id: string; purpose: string }> = [];
+
+      // Always read core version + integrity first — they answer the most
+      // fundamental "what is actually running" question.
+      if (!toolFailed(context, "wordpress.run_wp_cli_readonly")) {
+        if (!context.evidence.some((e) => e.data?.commandId === "core.version"))
+          sshWant.push({ id: "wp-cli-core-version", purpose: "Read the WordPress version directly on the server." });
+        if (!context.evidence.some((e) => e.data?.commandId === "core.verify_checksums"))
+          sshWant.push({ id: "wp-cli-core-checksums", purpose: "Compare the core files against the official checksums." });
+        if (!context.evidence.some((e) => e.data?.commandId === "core.check_update"))
+          sshWant.push({ id: "wp-cli-core-updates", purpose: "Check whether WordPress itself is behind on updates." });
+        if (!context.evidence.some((e) => e.data?.commandId === "plugin.list"))
+          sshWant.push({ id: "wp-cli-plugin-list", purpose: "Read the installed plugins and their update status directly on the server." });
+        if (!context.evidence.some((e) => e.data?.commandId === "theme.list"))
+          sshWant.push({ id: "wp-cli-theme-list", purpose: "Read the installed themes and which one is active." });
+        if (!context.evidence.some((e) => e.data?.commandId === "cron.event_list"))
+          sshWant.push({ id: "wp-cli-cron-events", purpose: "Read the scheduled jobs, including anything unexpected that was added." });
+        if (!context.evidence.some((e) => e.data?.commandId === "maintenance_mode.status"))
+          sshWant.push({ id: "wp-cli-maintenance-mode", purpose: "Check whether the site is stuck in maintenance mode." });
+        if (!context.evidence.some((e) => e.data?.commandId === "user.list_roles"))
+          sshWant.push({ id: "wp-cli-user-roles", purpose: "Read the account roles defined on the site." });
+        if (!context.evidence.some((e) => e.data?.commandId === "db.size"))
+          sshWant.push({ id: "wp-cli-db-size", purpose: "Read how large the database has grown." });
+        if (!context.evidence.some((e) => e.data?.commandId === "config.get_debug_log"))
+          sshWant.push({ id: "wp-cli-debug-log-setting", purpose: "Check whether error logging is switched on before looking for a log." });
+      }
+
+      for (const item of sshWant) {
+        want.push({ ...item, toolId: "wordpress.run_wp_cli_readonly" });
+      }
     }
 
     // Runtime errors are worth reading only when the task is the kind that
@@ -339,23 +366,42 @@ export const isValidPlan = (value: unknown): value is AgentPlan => {
  * credential, no header, no raw provider error, no full URL — only what has
  * already been said in plain English and what has already been observed.
  */
-export const reasoningDigest = (context: AgentContext): Record<string, unknown> => ({
-  stack: getProjectStack(context.project),
-  taskType: context.run.taskType,
-  taskTitle: context.run.title ?? "",
-  siteKnown: Boolean(context.environment.primaryUrl),
-  capabilities: context.capabilities,
-  verifiedCapabilities: context.verifiedCapabilities ?? [],
-  evidence: context.evidence.slice(-12).map((item) => ({ toolId: item.toolId, summary: item.summary })),
-  // What already failed, so a model does not keep proposing it.
-  unavailable: (context.failedObservations ?? []).slice(-8).map((item) => ({ toolId: item.toolId, code: item.code })),
-  messages: context.recentMessages
+export const reasoningDigest = (context: AgentContext): Record<string, unknown> => {
+  // Constraints are standing rules the person stated. They go first — before
+  // findings, before history — so the model never plans something that was
+  // explicitly ruled out, regardless of what the evidence suggests.
+  const constraints = context.memory
+    .filter((entry) => entry.type === "constraint")
     .slice(-12)
-    // Persisted messages are already sanitized; redacting again means no
-    // credential-shaped text can reach a model even if one ever slipped in.
-    .map((message) => ({ role: message.role, text: redactSecrets(message.body.join(" ")) })),
-  memory: context.memory.slice(-8).map((entry) => redactSecrets(`${entry.title}: ${entry.content}`)),
-});
+    .map((entry) => redactSecrets(entry.content));
+
+
+
+  return {
+    stack: getProjectStack(context.project),
+    taskType: context.run.taskType,
+    taskTitle: context.run.title ?? "",
+    siteKnown: Boolean(context.environment.primaryUrl),
+    capabilities: context.capabilities,
+    verifiedCapabilities: context.verifiedCapabilities ?? [],
+    // Wider window: 20 evidence items so the agent never loses early findings
+    // that are still relevant mid-investigation.
+    evidence: context.evidence.slice(-20).map((item) => ({ toolId: item.toolId, summary: item.summary })),
+    // Wider failure memory so alternate-route logic does not re-propose dead ends.
+    unavailable: (context.failedObservations ?? []).slice(-16).map((item) => ({ toolId: item.toolId, code: item.code })),
+    // Wider conversation window — 24 messages keeps the agent grounded in the
+    // full exchange, not just the last few turns.
+    messages: context.recentMessages
+      .slice(-24)
+      .map((message) => ({ role: message.role, text: redactSecrets(message.body.join(" ")) })),
+    // Constraints surface first in the memory block so they are never buried.
+    constraints,
+    memory: context.memory
+      .filter((entry) => entry.type !== "constraint")
+      .slice(-10)
+      .map((entry) => redactSecrets(`${entry.title}: ${entry.content}`)),
+  };
+};
 
 /**
  * Server-side model reasoner. The model never runs in the browser and never

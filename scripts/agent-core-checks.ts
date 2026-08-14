@@ -225,7 +225,13 @@ await executeAgentStep({
   onWorkspaceUpdate: () => {},
 } as never);
 const qaText = qaSpoken.flat().join(" ");
-check("qa is reported truthfully, not as passed", qaText.includes("can't verify") && !/all checks/i.test(qaText));
+// The QA turn must speak only what a re-observation actually showed. It must
+// never fabricate a blanket pass, and the kernel's own closeout (verified /
+// recommended / what's left) is legitimate speech, not a fake verdict.
+check(
+  "qa is reported truthfully, not as passed",
+  !/all checks (passed|behaved correctly)/i.test(qaText) && !/(everything is verified|all done)/i.test(qaText),
+);
 
 console.log("");
 if (failures.length > 0) {

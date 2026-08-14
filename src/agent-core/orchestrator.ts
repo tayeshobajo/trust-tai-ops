@@ -702,9 +702,16 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
     }
   }
 
-  // Nothing ends silently. When the agent stops because it has what it needs,
-  // it names what was verified, what it recommends, and what is left to you.
-  if (stopReason === "sufficient_evidence") {
+  // Nothing ends silently. Any terminal stop emits the three-part closeout:
+  // what was verified, what is still recommended, and what the human must decide.
+  // budget_exhausted and safe_stop are just as real as sufficient_evidence —
+  // the person deserves to know where things stand, not silence.
+  const shouldCloseout =
+    stopReason === "sufficient_evidence" ||
+    stopReason === "budget_exhausted" ||
+    (stopReason === "safe_stop" && learned.length > 0);
+
+  if (shouldCloseout) {
     const closeout = buildCloseout(workingPlan, learned, awaiting);
     await say(input, `closeout-${input.run.id}-${workingPlan.revision}`, closeout);
     spoke.push(...closeout);

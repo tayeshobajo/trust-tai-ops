@@ -60,6 +60,8 @@ export type ReasonDigest = {
   evidence: Array<{ toolId: string; summary: string }>;
   messages: Array<{ role: string; text: string }>;
   memory: string[];
+  /** Standing rules the person stated. Hard rules, above all other context. */
+  constraints: string[];
 };
 
 /**
@@ -112,21 +114,22 @@ export const sanitizeDigest = (value: unknown): ReasonDigest => {
     capabilities: list(raw.capabilities, KNOWN_CAPABILITIES),
     verifiedCapabilities: list(raw.verifiedCapabilities, KNOWN_CAPABILITIES),
     evidence: evidence
-      .slice(-12)
+      .slice(-20)
       .map((item) => {
         const entry = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
         return { toolId: line(entry.toolId, 60), summary: line(entry.summary, 300) };
       })
       .filter((item) => item.toolId.length > 0),
     messages: messages
-      .slice(-12)
+      .slice(-24)
       .map((item) => {
         const entry = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
         const role = line(entry.role, 12);
         return { role: role === "agent" ? "agent" : "human", text: line(entry.text, 400) };
       })
       .filter((item) => item.text.length > 0),
-    memory: (Array.isArray(raw.memory) ? raw.memory : []).slice(-8).map((item) => line(item, 200)).filter(Boolean),
+    memory: (Array.isArray(raw.memory) ? raw.memory : []).slice(-10).map((item) => line(item, 200)).filter(Boolean),
+    constraints: (Array.isArray(raw.constraints) ? raw.constraints : []).slice(-12).map((item) => line(item, 300)).filter(Boolean),
   };
 };
 
@@ -139,6 +142,7 @@ export const SYSTEM_PROMPT = [
   "- You may only choose steps from the provided catalog, by their exact id.",
   "- Never invent a tool, a command, an argument, a URL, or an access type.",
   `- Never choose a step whose required access is not already available.`,
+  "- An owner_constraint outranks any finding or hypothesis. If a step would violate one, do not plan it; if the task itself seems to require violating one, set intent to await_human_decision and say so.",
   `- At most ${MAX_STEPS_PER_TURN} steps per turn, and never repeat a step already done.`,
   "- If nothing further can be observed with current access, either request the single most useful access, or report findings.",
   "- If you set intent to request_access, plan zero steps.",

@@ -7,6 +7,7 @@ import { executionGateway } from "./agent-core/gateway";
 import { getProjectStack } from "./stacks";
 import { looksLikeQuestion, replyLines, streamAgentReply, voiceAvailable } from "./agent-core/voice";
 import { hostGuidanceFact } from "./hostGuidance";
+import { detectConstraints, constraintAlreadyStored } from "./agent-core/constraints";
 
 /**
  * Agent executor bridge.
@@ -154,6 +155,29 @@ export const respondToUserMessage = async (
 ): Promise<{ spoke: boolean; awaiting: string | null }> => {
   if (isLegacyRun(context.run)) return { spoke: false, awaiting: null };
 
+  // Lift standing rules out of what the person just said — before thinking
+  // about anything else. A constraint stated once must never need repeating.
+  const latest = (context.recentMessages ?? []).filter((m) => m.role === "user").at(-1);
+  if (latest) {
+    const text = latest.body.join(" ");
+    const found = detectConstraints(text);
+    const existing = context.memory ?? [];
+    for (const candidate of found) {
+      if (constraintAlreadyStored(existing, candidate)) continue;
+      try {
+        await workspaceRepository.addMemoryEntry(context.project.id, {
+          title: candidate.title,
+          content: candidate.content,
+          type: "constraint",
+          importance: candidate.importance,
+          sourceMessageId: latest.id,
+        });
+      } catch {
+        // A failed write must never stop the conversation.
+      }
+    }
+  }
+
   try {
     const turn = await speakTurn(context, "reply");
     return { spoke: turn.spoke, awaiting: turn.awaiting };
@@ -226,21 +250,33 @@ const runAdvanceStep = async (context: AgentStepContext, target: RunState): Prom
 };
 
 /**
- * QA for a real run. Nothing here invents a passing result: if the checks
- * cannot actually be performed yet, the agent says so and the run stays where
- * it is, reflecting only what is genuinely known.
+ * QA for a real run.
+ *
+ * Runs the same investigation kernel used during diagnosis — reading what the
+ * site currently does — so a QA turn is a real re-observation, not a ceremony.
+ * The run stays in `qa` until the kernel has re-observed the site, is not
+ * waiting on the human, and is not blocked. Nothing here invents a passing
+ * verdict: what gets said is exactly what the re-observation showed.
  */
 const runRealQaStep = async (context: AgentStepContext): Promise<AgentStepResult> => {
-  await sayStep(
-    context,
-    "qa-unverified",
-    [
-      "I can't verify this end to end yet — I don't have the access I'd need to re-test the change properly.",
-      "I'd rather leave it open than tell you it's confirmed when it isn't.",
-    ],
-    "status_update",
-  );
-  return { ran: true };
+  const turn = await speakTurn(context, "qa");
+
+  const investigationCompleted =
+    turn.spoke &&
+    !turn.awaiting &&
+    turn.stopReason !== "needs_user_input" &&
+    turn.stopReason !== "needs_access";
+
+  if (investigationCompleted) {
+    try {
+      const next = await workspaceRepository.advanceRun(context.project.id, context.run.id, "recommendations");
+      context.onWorkspaceUpdate(next);
+    } catch {
+      // The phase advance is bookkeeping; the re-observation was already said.
+    }
+  }
+
+  return { ran: turn.spoke };
 };
 
 /**
