@@ -59,10 +59,10 @@ const privateReader = async (projectId: string, canonicalUrl: string) => {
   const loginPath = raw.ok ? loginPathFromConfig(raw.row.config, canonicalUrl) : null;
   const loginOnly = resolved.provider === "wordpress_login_password";
 
-  let session: string | null = null;
+  let session: { cookie: string; nonce: string | null } | null = null;
   let sessionTried = false;
 
-  const openSession = async (): Promise<string | null> => {
+  const openSession = async (): Promise<{ cookie: string; nonce: string | null } | null> => {
     if (sessionTried) return session;
     sessionTried = true;
     const opened = await openWordPressSession(
@@ -71,7 +71,7 @@ const privateReader = async (projectId: string, canonicalUrl: string) => {
       fetch,
       loginPath ?? undefined,
     );
-    session = opened.ok ? opened.cookie : null;
+    session = opened.ok ? { cookie: opened.cookie, nonce: opened.nonce } : null;
     return session;
   };
 
@@ -80,13 +80,13 @@ const privateReader = async (projectId: string, canonicalUrl: string) => {
       const direct = await authenticatedGet(canonicalUrl, path, resolved.credential);
       if (direct.ok || (direct.kind !== "unauthorized" && direct.kind !== "forbidden")) return direct;
     }
-    const cookie = await openSession();
-    if (!cookie) {
+    const signedIn = await openSession();
+    if (!signedIn) {
       return loginOnly
         ? ({ ok: false, kind: "unauthorized", status: 401 } as const)
         : await authenticatedGet(canonicalUrl, path, resolved.credential);
     }
-    return authenticatedGet(canonicalUrl, path, null, fetch, cookie);
+    return authenticatedGet(canonicalUrl, path, null, fetch, signedIn.cookie, signedIn.nonce);
   };
 
   return { ok: true as const, deps, get };
@@ -273,7 +273,9 @@ const authenticatedHealth = async (baseUrl: string, projectId: string) => {
   }
 
   if (unauthorized || forbidden) {
-    await deps.markVerification?.(projectId, "wordpress_admin", "rejected", null);
+    // An individual REST route can be disabled, nonce-protected, or denied by
+    // role even after WordPress accepted the login. It is not a credential
+    // verifier and must never overturn a successful login verification.
     return { available: false as const, code: unauthorized ? "unauthorized" : "forbidden" };
   }
   if (readable.length > 0) {
@@ -344,16 +346,14 @@ const listPlugins = async (projectId: string, canonicalUrl: string | null) => {
   const outcome = await reader.get("/wp-json/wp/v2/plugins");
   if (!outcome.ok) {
     if (outcome.kind === "unauthorized") {
-      await deps.markVerification?.(projectId, "wordpress_admin", "rejected", null);
       return fail(
         "unauthorized",
-        "WordPress wouldn't let me read the plugin list with the stored admin access, either through the API or by signing in. Please replace the WordPress Admin access.",
+        "WordPress accepted the login, but this site's private REST interface would not authorize the plugin-list read. The stored password has not been marked invalid.",
         false,
       );
     }
     if (outcome.kind === "forbidden") {
-      await deps.markVerification?.(projectId, "wordpress_admin", "rejected", null);
-      return fail("forbidden", "That WordPress account is not allowed to read the plugin list.", false);
+      return fail("forbidden", "WordPress accepted the login, but that account or a security rule does not allow the plugin-list read.", false);
     }
     if (outcome.kind === "endpoint_unavailable") {
       return fail("not_implemented", "This WordPress install does not expose the plugins endpoint.", false);

@@ -156,6 +156,16 @@ export const buildAgentContext = async (input: OrchestratorInput): Promise<Agent
   const { project, run } = input;
   const capabilities = await serverCapabilities(project);
   const observations = await loadPriorObservations(project.id, run.id);
+  const adminVerified = capabilities.verified.includes("wordpress_admin");
+  const failedObservations = observations.failed.filter((failure) => {
+    // A permission failure describes the credential state at that moment. Once
+    // WordPress has subsequently accepted the stored login, keeping that old
+    // failure would permanently stop the planner from trying the private read
+    // again and make the conversation contradict current server truth.
+    if (!adminVerified) return true;
+    if (failure.code !== "unauthorized" && failure.code !== "forbidden") return true;
+    return failure.toolId !== "wordpress.list_plugins" && failure.toolId !== "wordpress.read_health";
+  });
   return {
     project,
     run,
@@ -164,7 +174,7 @@ export const buildAgentContext = async (input: OrchestratorInput): Promise<Agent
     capabilities: capabilities.capabilities,
     verifiedCapabilities: capabilities.verified,
     evidence: observations.evidence,
-    failedObservations: observations.failed,
+    failedObservations,
     environment: {
       primaryUrl: primaryUrlFor(project, run),
       executionBackendAvailable: executionGateway().available(),

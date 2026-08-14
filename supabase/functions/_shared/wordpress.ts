@@ -34,6 +34,8 @@ export const authenticatedGet = async (
    * accepts. Read-only by construction: it only ever rides a GET.
    */
   sessionCookie?: string | null,
+  /** Required by WordPress when a REST read authenticates with cookies. */
+  sessionNonce?: string | null,
 ): Promise<WpOutcome> => {
   const base = validatePublicUrl(baseUrl);
   if (!base.ok) return { ok: false, kind: "unsafe", status: null };
@@ -43,10 +45,11 @@ export const authenticatedGet = async (
   const headers: Record<string, string> = { accept: "application/json" };
   if (credential) headers.authorization = basicAuthHeader(credential);
   if (sessionCookie) headers.cookie = sessionCookie;
+  if (sessionNonce) headers["x-wp-nonce"] = sessionNonce;
 
   const attempt = await fetchSafely(
     target.url,
-    { headers, credentialHeaders: ["authorization", "cookie"] },
+    { headers, credentialHeaders: ["authorization", "cookie", "x-wp-nonce"] },
     fetchImpl,
   );
   if ("error" in attempt) {

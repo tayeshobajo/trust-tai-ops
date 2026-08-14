@@ -216,6 +216,7 @@ export const materializeServerPlan = (
     const built = planAction(step.id, spec.toolId, options.runId, args, step.purpose || spec.purpose);
     if ("error" in built) return null;
     if (!built.readOnly) return null; // this layer never plans a change
+    if (step.id === "read-health-authenticated") built.refreshable = true;
     actions.push(built);
   }
 

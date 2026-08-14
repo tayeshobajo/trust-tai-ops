@@ -38,6 +38,7 @@ const { verifyStoredWordPressCredential } = await import("../supabase/functions/
 const { authenticatedGet, basicAuthHeader, normalizeHealthTest, normalizePlugins } = await import(
   "../supabase/functions/_shared/wordpress.ts"
 );
+const { openWordPressSession } = await import("../supabase/functions/_shared/wpSession.ts");
 const { describeHealth, describePlugins } = await import("../src/agent-core/evidence.ts");
 const { deterministicReasoner } = await import("../src/agent-core/reasoner.ts");
 const { TOOL_REGISTRY } = await import("../src/agent-core/registry.ts");
@@ -272,6 +273,45 @@ const networkFail = await authenticatedGet(
 );
 check("a transport failure maps to network", !networkFail.ok && networkFail.kind === "network");
 
+console.log("\nnormal-login session bridge");
+{
+  const seen: Array<{ url: string; headers: Record<string, string> }> = [];
+  let call = 0;
+  const sessionFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = Object.fromEntries(new Headers(init?.headers).entries());
+    seen.push({ url: String(input), headers });
+    call += 1;
+    if (call === 1) {
+      return new Response("", {
+        status: 302,
+        headers: {
+          location: "https://example.com/wp-admin/",
+          "set-cookie": "wordpress_logged_in_a1b2c3=owner%7Csigned; Path=/; Secure; HttpOnly",
+        },
+      });
+    }
+    return new Response('<script>var wpApiSettings = {"root":"/wp-json/","nonce":"nonce_12345"};</script>', {
+      status: 200,
+      headers: { "content-type": "text/html" },
+    });
+  }) as typeof fetch;
+
+  const session = await openWordPressSession(
+    "https://example.com",
+    { username: "owner", password: "correct-password" },
+    sessionFetch,
+  );
+  check("a hashed WordPress login cookie is retained", session.ok && session.cookie.includes("wordpress_logged_in_a1b2c3"));
+  check("the REST nonce is read from the signed-in admin page", session.ok && session.nonce === "nonce_12345");
+  check("the admin nonce request keeps the session on the same origin", seen[1]?.url === "https://example.com/wp-admin/" && seen[1]?.headers.cookie.includes("wordpress_logged_in_a1b2c3"));
+
+  if (session.ok) {
+    const rest = responses([{ status: 200, body: "[]" }]);
+    await authenticatedGet("https://example.com", "/wp-json/wp/v2/plugins", null, rest.impl, session.cookie, session.nonce);
+    check("cookie REST reads carry WordPress's required nonce", rest.seen[0]?.["x-wp-nonce"] === "nonce_12345");
+  }
+}
+
 // --- normalization -----------------------------------------------------------
 
 console.log("\nplugin inventory normalization");
@@ -312,7 +352,7 @@ const real = describeHealth({
 } as never).join(" ");
 check("authenticated health is claimed when a check was read", real.includes("I'm in"));
 const rejected = describeHealth({ data: { authenticatedHealthCode: "unauthorized" } } as never).join(" ");
-check("a rejected credential is reported honestly", rejected.includes("rejected"));
+check("a restricted health endpoint is not called a rejected credential", !rejected.includes("rejected") && rejected.includes("did not authorize"));
 
 // --- reasoner ----------------------------------------------------------------
 

@@ -266,6 +266,11 @@ class DeterministicReasoner implements AgentReasoner {
           message: [built.error],
         });
       }
+      // The public health read and the later authenticated health read share a
+      // safe URL, but they do not answer the same question. Once admin access
+      // becomes available, force a fresh read instead of replaying the earlier
+      // public-only evidence under the same deterministic invocation key.
+      if (item.id === "read-health-authenticated") built.refreshable = true;
       actions.push(built);
     }
 
