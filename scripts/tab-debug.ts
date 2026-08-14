@@ -1,4 +1,4 @@
-import { parseCredentialText } from "../supabase/functions/_shared/credentialText.ts";
+import { expandInlineLabels } from "../supabase/functions/_shared/credentialText.ts";
 
 const input = [
   "SFTP",
@@ -7,4 +7,6 @@ const input = [
   "Password\tFak3-Placeholder-Sftp-02",
 ].join("\n");
 
-console.log(JSON.stringify(parseCredentialText(input), null, 2));
+console.log("--- expanded ---");
+console.log(expandInlineLabels(input));
+console.log("--- end ---");
