@@ -1,3 +1,9 @@
 project_id = "tdqeizrgdasztvbvwanp"
 [functions.qa-session]
 verify_jwt = false
+
+# The caller has no Ops session yet — that is the whole point of the exchange.
+# The Trust Tai OS token in the body is verified against the OS auth service
+# inside the function.
+[functions.os-sso-exchange]
+verify_jwt = false

@@ -58,6 +58,7 @@ type ProjectRow = {
   status: Project["status"];
   environment_health: Project["environmentHealth"];
   deploy_pipeline?: Project["deployPipeline"] | null;
+  trust_tai_os_project_id?: string | null;
 };
 
 type ProjectEnvironmentRow = {
@@ -858,6 +859,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
         primaryDomain: project.primary_domain,
         status: project.status,
         environmentHealth: project.environment_health,
+        trustTaiOsProjectId: project.trust_tai_os_project_id ?? null,
         deployPipeline: project.deploy_pipeline ?? undefined,
         environments: environmentRows
           .filter((environment) => environment.project_id === project.id)

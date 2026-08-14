@@ -16,6 +16,11 @@ export type OpsRuntimeEnv = {
   qaAutoLogin: boolean;
   qaEmail?: string;
   qaPassword?: string;
+  /** Trust Tai OS suite integration (browser-safe values only). */
+  osSupabaseUrl?: string;
+  osSupabasePublicKey?: string;
+  osOriginAllowlistRaw?: string;
+  opsBaseUrl: string;
 };
 
 function runtimeEnv(): RuntimeEnv {
@@ -57,6 +62,10 @@ export function resolveOpsEnv(): OpsRuntimeEnv {
     qaAutoLogin: env.VITE_OPS_QA_AUTOLOGIN === "true",
     qaEmail: env.VITE_OPS_QA_EMAIL,
     qaPassword: env.VITE_OPS_QA_PASSWORD,
+    osSupabaseUrl: env.VITE_OPS_OS_SUPABASE_URL,
+    osSupabasePublicKey: env.VITE_OPS_OS_SUPABASE_PUBLISHABLE_KEY ?? env.VITE_OPS_OS_SUPABASE_ANON_KEY,
+    osOriginAllowlistRaw: env.VITE_OPS_OS_ORIGINS,
+    opsBaseUrl: env.VITE_OPS_BASE_URL ?? "https://ops.trusttai.com",
   };
 }
 
@@ -64,9 +73,21 @@ export function resolveOpsEnv(): OpsRuntimeEnv {
  * Temporary QA affordance while the team validates the agents. Data still moves
  * through a real Supabase session and RLS — the app just signs the shared QA
  * account in for the tester instead of showing a sign-in screen.
+ *
+ * Hard-disabled for production builds. A production bundle must never carry a
+ * QA password, and must never silently sign anyone in.
  */
 export function isQaAutoLoginEnabled(env: OpsRuntimeEnv = resolveOpsEnv()): boolean {
+  if (env.isProductionBuild) return false;
   return env.qaAutoLogin && Boolean(env.qaEmail && env.qaPassword);
+}
+
+/**
+ * Suite sync is optional. Without OS config, Ops still works fully; the
+ * cross-suite surface simply reports itself unavailable.
+ */
+export function isSuiteConfigured(env: OpsRuntimeEnv = resolveOpsEnv()): boolean {
+  return Boolean(env.osSupabaseUrl && env.osSupabasePublicKey);
 }
 
 export function hasSupabasePublicConfig(env: OpsRuntimeEnv): boolean {

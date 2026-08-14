@@ -318,6 +318,11 @@ export type Project = {
   primaryDomain: string;
   status: ProjectStatus;
   environmentHealth: "stable" | "watching" | "at_risk";
+  /**
+   * Canonical Trust Tai OS business project this technical workspace belongs
+   * to. Null is normal: Ops projects created directly are fully valid.
+   */
+  trustTaiOsProjectId?: string | null;
   environments: ProjectEnvironment[];
   deployPipeline?: DeployPipeline;
   accessMethods: ProjectAccessMethod[];

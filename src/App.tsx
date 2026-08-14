@@ -12,6 +12,8 @@ import type { GlobalDestination } from "./GlobalRail";
 import { GlobalActivityPage } from "./GlobalActivityPage";
 import { ApprovalsPage } from "./ApprovalsPage";
 import { SettingsPage } from "./SettingsPage";
+import { SsoLanding } from "./SsoLanding";
+import { isSsoLandingPath } from "./suite/ssoBridge";
 import { countPendingDecisions } from "./globalFeed";
 import { draftFromBrief } from "./conversation";
 import { describeRuntime, describeVersions } from "./stacks";
@@ -63,6 +65,10 @@ function App() {
   const [creatingProject, setCreatingProject] = useState(false);
   const [railOpen, setRailOpen] = useState(false);
   const [fatalError, setFatalError] = useState<string | null>(null);
+  // Suite handoff surface. Read once: the route never changes mid-session.
+  const [ssoLanding, setSsoLanding] = useState(
+    typeof window !== "undefined" && isSsoLandingPath(window.location.pathname),
+  );
   const [workspaceSurface, setWorkspaceSurface] = useState<"conversation" | "access">("conversation");
   const [startInNewTask, setStartInNewTask] = useState(false);
   const [repositoryHealth, setRepositoryHealth] = useState<RepositoryHealth>({
@@ -273,6 +279,30 @@ function App() {
   // A signed-out visitor is the ordinary case, not a failure: the workspace
   // load failing with no session means "sign in", so the gate is checked
   // before any error surface.
+  // The suite handoff surface only ever grants access by completing a
+  // server-verified exchange; a direct visit with no valid handoff falls
+  // through to the normal sign-in state below.
+  if (ssoLanding && !authState.isAuthenticated) {
+    return (
+      <SsoLanding
+        onSignedIn={async () => {
+          const auth = await loadAuthState();
+          setAuthState(auth);
+          setSsoLanding(false);
+          window.history.replaceState(null, "", "/");
+          try {
+            const stored = await workspaceRepository.loadWorkspace();
+            setWorkspace(stored);
+            setSelectedProjectId(stored.projects[0]?.id ?? null);
+            setIsReady(true);
+          } catch (error) {
+            setFatalError(error instanceof Error ? error.message : "Workspace failed to load.");
+          }
+        }}
+      />
+    );
+  }
+
   if (authGateEnabled && !authState.isAuthenticated && authState.status !== "loading") {
     return (
       <AuthScreen
