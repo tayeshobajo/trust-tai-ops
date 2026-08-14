@@ -8,8 +8,9 @@
  * browser reaches it, and the credential never leaves.
  */
 
-import { resolveCredential, type SecretStoreDeps } from "./secretStore.ts";
+import { resolveCredential, resolveRawSecret, type SecretStoreDeps } from "./secretStore.ts";
 import { authenticatedGet } from "./wordpress.ts";
+import { verifyWordPressLogin } from "./wpLogin.ts";
 
 export type VerificationState = "unverified" | "verified" | "rejected";
 
@@ -23,6 +24,34 @@ export type VerificationOutcome = {
 
 /** The cheapest authenticated read that proves an Application Password works. */
 export const VERIFICATION_PATH = "/wp-json/wp/v2/users/me?context=edit";
+
+/**
+ * Same read, addressed without pretty permalinks. Plenty of installs answer
+ * here when `/wp-json/` is rewritten away, blocked, or simply missing.
+ */
+export const VERIFICATION_FALLBACK_PATH = "/?rest_route=/wp/v2/users/me&context=edit";
+
+/**
+ * A custom admin/login address, reduced to a path on the project's own origin.
+ * A URL pointing anywhere else is ignored rather than followed.
+ */
+export const loginPathFromConfig = (config: unknown, canonicalUrl: string): string | null => {
+  const raw = (config as Record<string, unknown> | null | undefined)?.loginUrl;
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let origin: string;
+  try {
+    origin = new URL(canonicalUrl).origin;
+  } catch {
+    return null;
+  }
+  try {
+    const parsed = new URL(raw.trim(), origin);
+    if (parsed.origin !== origin) return null;
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return null;
+  }
+};
 
 export const verifyStoredWordPressCredential = async (
   deps: SecretStoreDeps,
@@ -39,6 +68,10 @@ export const verifyStoredWordPressCredential = async (
     };
   }
 
+  const raw = await resolveRawSecret(deps, projectId, "wordpress_admin");
+  const provider = raw.ok ? raw.row.provider : "";
+  const loginPath = raw.ok ? loginPathFromConfig(raw.row.config, canonicalUrl) : null;
+
   const resolved = await resolveCredential(deps, projectId, "wordpress_admin");
   if (!resolved.ok) {
     return {
@@ -52,7 +85,18 @@ export const verifyStoredWordPressCredential = async (
     };
   }
 
-  const outcome = await authenticatedGet(canonicalUrl, VERIFICATION_PATH, resolved.credential, fetchImpl);
+  // A stored login password can never pass a REST Basic-auth check, so it goes
+  // straight to the login form it actually belongs to.
+  const loginOnly = provider === "wordpress_login_password";
+
+  let outcome = loginOnly
+    ? ({ ok: false, kind: "unauthorized", status: 401 } as const)
+    : await authenticatedGet(canonicalUrl, VERIFICATION_PATH, resolved.credential, fetchImpl);
+
+  // `/wp-json/` missing usually means rewrites, not a bad credential.
+  if (!loginOnly && !outcome.ok && outcome.kind === "endpoint_unavailable") {
+    outcome = await authenticatedGet(canonicalUrl, VERIFICATION_FALLBACK_PATH, resolved.credential, fetchImpl);
+  }
 
   if (outcome.ok) {
     const verifiedAt = new Date().toISOString();
@@ -66,6 +110,36 @@ export const verifyStoredWordPressCredential = async (
   }
 
   if (outcome.kind === "unauthorized" || outcome.kind === "forbidden") {
+    // Before calling it a rejection: plenty of hosts strip the Authorization
+    // header, and plenty of people share their normal login password. One
+    // bounded login attempt against the project's own login form settles it.
+    if (outcome.kind === "unauthorized") {
+      const verdict = await verifyWordPressLogin(
+        loginPath ? new URL(loginPath, canonicalUrl).toString() : canonicalUrl,
+        { username: resolved.credential.username, password: resolved.credential.applicationPassword },
+        fetchImpl,
+        loginPath ?? undefined,
+      );
+      if (verdict.state === "verified") {
+        const verifiedAt = new Date().toISOString();
+        await deps.markVerification?.(projectId, "wordpress_admin", "verified", verifiedAt);
+        return {
+          state: "verified",
+          lastVerifiedAt: verifiedAt,
+          code: null,
+          summary: "WordPress accepted that access at the login page. I can sign in without changing anything.",
+        };
+      }
+      if (verdict.state === "needs_attention" || verdict.state === "unverified") {
+        return {
+          state: "unverified",
+          lastVerifiedAt: null,
+          code: verdict.code,
+          summary: verdict.summary,
+        };
+      }
+    }
+
     // A real rejection. Recorded, but never explained in a way that describes
     // the credential itself.
     await deps.markVerification?.(projectId, "wordpress_admin", "rejected", null);
