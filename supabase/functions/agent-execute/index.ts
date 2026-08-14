@@ -540,6 +540,11 @@ Deno.serve(async (req) => {
         return fail(authz.code, AUTH_FAIL_SUMMARY[authz.code], false);
       }
     }
+    // A real browser is a real cost and a real outbound request. It only ever
+    // runs for a project the caller has proven they can reach.
+    if (toolId === "browser.inspect_page_readonly" && !authorizedProjectId) {
+      return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
+    }
   }
 
   if (mode === "capabilities") {
