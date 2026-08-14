@@ -40,6 +40,7 @@ import {
   MAX_AGENT_ITERATIONS,
   MAX_AGENT_WALL_CLOCK_MS,
   MAX_ITERATIONS_WITHOUT_PROGRESS,
+  MAX_PARALLEL_INVESTIGATIONS,
 } from "./budgets";
 import type {
   AgentAction,
@@ -402,6 +403,8 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
   const learned: AgentEvidence[] = [];
   const spoke: string[] = [];
   const attempted = new Map<string, number>();
+  /** Results of investigations gathered ahead of the iteration that needs them. */
+  const prefetched = new Map<string, ActionOutcome>();
   const startedAt = Date.now();
 
   const alreadyVerified = (context.verifiedCapabilities ?? []).includes("wordpress_admin");
