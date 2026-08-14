@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AccessType, Organization, Project, ProjectAccessMethod } from "./types";
 import { workspaceRepository } from "./repository";
 import { getProjectInitials } from "./home";
-import { submitCredential, verifyStoredCredential } from "./agent-core/secrets";
+import { loadCredentialDetails, submitCredential, verifyStoredCredential } from "./agent-core/secrets";
 import { adminCredentialLabel, getProjectStack, stackCopy } from "./stacks";
 import type { ProjectStack } from "./types";
 
@@ -58,6 +58,14 @@ const CONNECTION_TYPES: ConnectionDefinition[] = [
         kind: "secret",
         placeholder: "xxxx xxxx xxxx xxxx xxxx xxxx",
         hint: "In WordPress: Users → Profile → Application Passwords. It can be revoked on its own, and your login password is never needed.",
+      },
+      {
+        key: "loginUrl",
+        label: "Custom admin address",
+        kind: "text",
+        optional: true,
+        placeholder: "/wp-admin or /my-secret-login",
+        hint: "Only if this site moved its login away from /wp-login.php. It must be on the same domain.",
       },
     ],
   },
