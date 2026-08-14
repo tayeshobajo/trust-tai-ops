@@ -4,6 +4,7 @@ import { workspaceRepository } from "./repository";
 import { getProjectInitials } from "./home";
 import { loadCredentialDetails, submitCredential, verifyStoredCredential } from "./agent-core/secrets";
 import { adminCredentialLabel, getProjectStack, stackCopy } from "./stacks";
+import { hostGuidance } from "./hostGuidance";
 import type { ProjectStack } from "./types";
 
 type Props = {
@@ -411,6 +412,9 @@ export function ProjectAccessPanel({
         return found ? definitionForStack(found, stack) : null;
       })()
     : null;
+
+  // What this particular host requires, when its process differs from the norm.
+  const activeGuidance = activeDefinition ? hostGuidance(project, activeDefinition.type) : null;
 
   /**
    * A real, server-side, read-only check. The browser sends only the project
