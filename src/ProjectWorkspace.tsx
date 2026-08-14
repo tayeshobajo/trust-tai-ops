@@ -687,10 +687,12 @@ export function ProjectWorkspace({
               onWorkspaceUpdate,
               recentMessages: messages.filter((message) => message.runId === run.id),
               memory: project.memoryEntries,
+              onStream: setStreamingText,
             }),
             new Promise((resolve) => window.setTimeout(resolve, 45000)),
           ]);
         } finally {
+          setStreamingText("");
           setAgentBusy(false);
         }
       })();
