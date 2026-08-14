@@ -494,7 +494,33 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
 
     workingPlan = markStep(workingPlan, stepKeyFor(action), "active");
 
-    const outcome = await executeAction(input, context, action);
+    // Reads cannot conflict with each other, so when the plan proposes
+    // several independent observations they are gathered at once rather than
+    // one round-trip at a time. Their results are still consumed one at a
+    // time below, so every outcome goes through the same verification and
+    // failure handling as a lone action would.
+    if (!prefetched.has(action.invocationKey)) {
+      const batch = plan.actions
+        .filter(
+          (candidate) =>
+            candidate.readOnly &&
+            candidate.invocationKey !== action.invocationKey &&
+            !attempted.has(candidate.invocationKey) &&
+            !prefetched.has(candidate.invocationKey),
+        )
+        .slice(0, MAX_PARALLEL_INVESTIGATIONS - 1);
+
+      const gathered = await Promise.all(
+        [action, ...batch].map(async (candidate) => ({
+          key: candidate.invocationKey,
+          outcome: await executeAction(input, context, candidate),
+        })),
+      );
+      for (const entry of gathered) prefetched.set(entry.key, entry.outcome);
+    }
+
+    const outcome = prefetched.get(action.invocationKey)!;
+    prefetched.delete(action.invocationKey);
 
     if (outcome.kind === "blocked") {
       workingPlan = markStep(workingPlan, stepKeyFor(action), "blocked", outcome.reason);
