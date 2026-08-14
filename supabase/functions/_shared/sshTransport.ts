@@ -23,7 +23,9 @@ export type SshTarget = {
   host: string;
   port: number;
   username: string;
-  privateKey: string;
+  /** Either a private key or a password must be present. */
+  privateKey?: string;
+  password?: string;
   passphrase?: string;
 };
 
