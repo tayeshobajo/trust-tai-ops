@@ -460,7 +460,7 @@ export function ProjectWorkspace({
   useEffect(() => {
     if (!messagesLoaded || searching) return;
     threadEndRef.current?.scrollIntoView({ block: "end" });
-  }, [messagesLoaded, visible.length, surface, searching]);
+  }, [messagesLoaded, visible.length, surface, searching, streamingText]);
 
   // Single write path for every message the user actually sees.
   const emit = async (input: NewProjectMessage): Promise<ProjectMessage | null> => {
