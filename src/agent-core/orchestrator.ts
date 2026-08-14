@@ -230,7 +230,9 @@ const buildCloseout = (
   awaiting: AgentTurnResult["awaiting"],
 ): string[] => {
   const verified = plan.steps.filter((step) => step.status === "done");
-  const blocked = plan.steps.filter((step) => step.status === "blocked");
+  const blocked = plan.steps.filter(
+    (step) => step.status === "blocked" || step.status === "unverified",
+  );
   const open = plan.hypotheses.filter((item) => item.status === "open");
 
   const lines: string[] = [];
