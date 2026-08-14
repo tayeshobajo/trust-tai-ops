@@ -22,7 +22,7 @@ import { ProjectPipelineSummary } from "./ProjectPipelineSummary";
 import { validateAdvance } from "./operations";
 import { projectHasUsableAccess } from "./agent";
 import { composeReply } from "./reply";
-import { agentStepIdentity, executeAgentStep } from "./agentExecutor";
+import { agentStepIdentity, executeAgentStep, respondToUserMessage } from "./agentExecutor";
 import { ProjectAccessPanel } from "./ProjectAccessPanel";
 import type { AccessEvent } from "./ProjectAccessPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
@@ -1111,6 +1111,7 @@ export function ProjectWorkspace({
 
     setBusy(true);
     const stamp = Date.now();
+    let savedMessage: ProjectMessage | null = null;
     try {
       const saved = await emit({
         runId: activeRun.id,
@@ -1121,6 +1122,7 @@ export function ProjectWorkspace({
       });
 
       if (!saved) return;
+      savedMessage = saved;
 
       setComposerValue("");
 
@@ -1131,16 +1133,37 @@ export function ProjectWorkspace({
       }
 
       if (value) await captureConstraints(value, activeRun.id, saved.id);
-
-      await emit({
-        runId: activeRun.id,
-        role: "agent",
-        kind: "message",
-        body: composeReply(project, activeRun, value),
-        dedupeKey: `ack-${activeRun.id}-${stamp}`,
-      });
     } finally {
       setBusy(false);
+    }
+
+    if (!savedMessage) return;
+
+    // What the person just said is thought about, not acknowledged. The kernel
+    // reads it in context, revises the plan, and investigates for real. The
+    // composed reply is only a fallback for when it had nothing to say.
+    setAgentBusy(true);
+    try {
+      const outcome = await respondToUserMessage({
+        project,
+        run: activeRun,
+        emit,
+        onWorkspaceUpdate,
+        recentMessages: [...messages.filter((message) => message.runId === activeRun.id), savedMessage],
+        memory: project.memoryEntries,
+      });
+
+      if (!outcome.spoke) {
+        await emit({
+          runId: activeRun.id,
+          role: "agent",
+          kind: "message",
+          body: composeReply(project, activeRun, value),
+          dedupeKey: `ack-${activeRun.id}-${stamp}`,
+        });
+      }
+    } finally {
+      setAgentBusy(false);
     }
   };
 
