@@ -8,6 +8,8 @@
 import type { AgentAction, AgentContext, Capability, RiskClass, ToolId } from "./types";
 import { getProjectStack, stackCopy } from "../stacks";
 import { checkReadBeforeWrite } from "./precondition";
+import { writeTargetFor } from "./precondition";
+import { constraintsTouching } from "./constraints";
 
 const RISK_BY_TOOL: Record<ToolId, RiskClass> = {
   "public_http.inspect_site": "read_only",
@@ -47,6 +49,25 @@ const hasCapability = (context: AgentContext, capability: Capability) =>
 const requireReadFirst = (action: AgentAction, context: AgentContext): PolicyVerdict => {
   const check = checkReadBeforeWrite(action, context.evidence);
   return check.ok ? { executable: true } : { executable: false, requires: "read_first", reason: check.reason };
+};
+
+/**
+ * A rule the person has stated outranks anything the reasoner proposes. If a
+ * change touches something they told the agent to leave alone, it stops and
+ * asks — even when every other gate is satisfied.
+ */
+const respectConstraints = (action: AgentAction, context: AgentContext): PolicyVerdict => {
+  const target = writeTargetFor(action.toolId, action.arguments);
+  if (!target) return { executable: true };
+
+  const rules = constraintsTouching(context.project.memoryEntries, target);
+  if (rules.length === 0) return { executable: true };
+
+  return {
+    executable: false,
+    requires: "approval",
+    reason: `You've told me: "${rules[0].content}" This step touches that, so I won't do it without you saying otherwise.`,
+  };
 };
 
 /**
