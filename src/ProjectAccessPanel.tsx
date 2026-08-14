@@ -239,8 +239,43 @@ export function ProjectAccessPanel({
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  // Non-secret details only. A secret is never fetched back into the form.
+  const [prefilling, setPrefilling] = useState(false);
 
   const stack = getProjectStack(project);
+
+  const editingType = editing?.type ?? null;
+  const editingExisting = editing?.existingId ?? null;
+
+  /**
+   * Replacing access shows what was entered before — username, host, paths —
+   * so nothing has to be retyped. The credential itself stays unreadable.
+   */
+  useEffect(() => {
+    if (!editingType || !editingExisting) return;
+    if (editingType !== "wordpress_admin" && editingType !== "ssh") return;
+    let cancelled = false;
+    setPrefilling(true);
+    void loadCredentialDetails(project.id, editingType)
+      .then((details) => {
+        if (cancelled || !details) return;
+        setValues((current) => ({
+          user: current.user ?? details.username,
+          host: current.host ?? details.host,
+          port: current.port ?? details.port,
+          wpRoot: current.wpRoot ?? details.wpRoot,
+          loginUrl: current.loginUrl ?? details.loginUrl,
+          ...current,
+        }));
+      })
+      .finally(() => {
+        if (!cancelled) setPrefilling(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editingType, editingExisting, project.id]);
+
   const copy = stackCopy[stack];
   // Only a stack whose admin credential can genuinely be sealed gets named.
   const adminLabel = adminCredentialLabel(stack);
@@ -328,7 +363,7 @@ export function ProjectAccessPanel({
                 wpRoot: (values.wpRoot ?? "").trim(),
                 passphrase: values.passphrase ?? "",
               }
-            : {}),
+            : { loginUrl: (values.loginUrl ?? "").trim() }),
         });
       } finally {
         // Drop the key and passphrase from component state immediately.
