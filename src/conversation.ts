@@ -12,6 +12,14 @@ export type ThreadCard = {
   items: ThreadCardItem[];
 };
 
+/** A before/after shown alongside an approval, so the change is reviewable. */
+export type ThreadDiff = {
+  target: string;
+  before: string;
+  after: string;
+  irreversible?: string;
+};
+
 export type DecisionKind = "access" | "backup" | "approval" | null;
 
 export type ThreadMessage = {
@@ -19,6 +27,7 @@ export type ThreadMessage = {
   role: "user" | "agent";
   body: string[];
   card?: ThreadCard;
+  diff?: ThreadDiff;
   decision?: DecisionKind;
 };
 
