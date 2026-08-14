@@ -49,9 +49,12 @@ type ProjectRow = {
 // ---------------------------------------------------------------------------
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const MONITOR_SECRET = Deno.env.get("MONITOR_SECRET") ?? "";
 const FUNCTION_BASE = SUPABASE_URL.replace("/rest/v1", "").replace(/\/$/, "");
+
+// Read these per-request so new env vars picked up after deploy take effect
+// without waiting for a cold-start cycle.
+const getServiceRoleKey = () => Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const getMonitorSecret = () => Deno.env.get("MONITOR_SECRET") ?? "";
 
 const MONITOR_PROMPT = `You are performing a rapid automated health check on a WordPress site.
 Check the following areas and return a JSON object:
@@ -80,13 +83,16 @@ Be conservative — only flag real issues, not warnings you cannot verify.`;
 // ---------------------------------------------------------------------------
 
 const authorized = (req: Request): boolean => {
+  const secret = getMonitorSecret();
+  const svcKey = getServiceRoleKey();
+
   // Accept MONITOR_SECRET header
   const monitorToken = req.headers.get("x-monitor-token");
-  if (MONITOR_SECRET && monitorToken === MONITOR_SECRET) return true;
+  if (secret && monitorToken === secret) return true;
 
   // Accept Supabase service-role Authorization header
   const authHeader = req.headers.get("authorization") ?? "";
-  if (SERVICE_ROLE_KEY && authHeader === `Bearer ${SERVICE_ROLE_KEY}`) return true;
+  if (svcKey && authHeader === `Bearer ${svcKey}`) return true;
 
   // Accept Supabase anon key JWT (for internal function-to-function calls)
   // The actual verification happens via RLS — this is just a gate
@@ -98,7 +104,7 @@ const authorized = (req: Request): boolean => {
 // ---------------------------------------------------------------------------
 
 const serviceDb = () =>
-  createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+  createClient(SUPABASE_URL, getServiceRoleKey(), {
     auth: { persistSession: false },
   });
 
@@ -151,7 +157,7 @@ const callAgentReason = async (projectId: string, domain: string): Promise<Reaso
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        Authorization: `Bearer ${getServiceRoleKey()}`,
       },
       body: JSON.stringify({
         mode: "monitor",
@@ -242,7 +248,7 @@ const attemptAutoFix = async (projectId: string, domain: string): Promise<"succe
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        Authorization: `Bearer ${getServiceRoleKey()}`,
       },
       body: JSON.stringify({
         project_id: projectId,
