@@ -29,6 +29,11 @@ export const authenticatedGet = async (
   path: string,
   credential: WpCredential | null,
   fetchImpl: typeof fetch = fetch,
+  /**
+   * A signed-in session cookie, when Basic auth is not what this install
+   * accepts. Read-only by construction: it only ever rides a GET.
+   */
+  sessionCookie?: string | null,
 ): Promise<WpOutcome> => {
   const base = validatePublicUrl(baseUrl);
   if (!base.ok) return { ok: false, kind: "unsafe", status: null };
@@ -37,10 +42,11 @@ export const authenticatedGet = async (
 
   const headers: Record<string, string> = { accept: "application/json" };
   if (credential) headers.authorization = basicAuthHeader(credential);
+  if (sessionCookie) headers.cookie = sessionCookie;
 
   const attempt = await fetchSafely(
     target.url,
-    { headers, credentialHeaders: ["authorization"] },
+    { headers, credentialHeaders: ["authorization", "cookie"] },
     fetchImpl,
   );
   if ("error" in attempt) {

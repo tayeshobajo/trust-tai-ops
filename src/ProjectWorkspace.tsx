@@ -440,6 +440,11 @@ export function ProjectWorkspace({
   const emit = async (input: NewProjectMessage): Promise<ProjectMessage | null> => {
     const key = input.dedupeKey ?? null;
     if (key && emitRef.current.has(key)) return null;
+    // The agent repeating itself word for word is noise, never news. The same
+    // sentence from the agent is said once per session, whatever produced it.
+    const echo = input.role === "agent" ? `echo:${input.body.join("\n")}` : null;
+    if (echo && emitRef.current.has(echo)) return null;
+    if (echo) emitRef.current.add(echo);
     if (key) emitRef.current.add(key);
 
     // A single hiccup on the wire should never look like a lost message, so
@@ -468,6 +473,7 @@ export function ProjectWorkspace({
     }
 
     if (key) emitRef.current.delete(key);
+    if (echo) emitRef.current.delete(echo);
     const detail =
       lastError && typeof lastError === "object" && "message" in lastError
         ? String((lastError as { message?: unknown }).message ?? "")

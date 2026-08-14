@@ -14,7 +14,9 @@ import { authorizeProject } from "../_shared/authz.ts";
 import { authzDeps, executionContextConfigured, secretStoreDeps, stackDeps } from "../_shared/clients.ts";
 import { authorizeToolForStack, isWordPressTool } from "../_shared/stackGuard.ts";
 import { fetchSafely, readBounded, redact, safeHeaders, validatePublicUrl } from "../_shared/net.ts";
-import { capabilityTruth, resolveCredential } from "../_shared/secretStore.ts";
+import { capabilityTruth, resolveCredential, resolveRawSecret } from "../_shared/secretStore.ts";
+import { loginPathFromConfig } from "../_shared/verification.ts";
+import { openWordPressSession } from "../_shared/wpSession.ts";
 import { authenticatedGet, normalizeHealthTest, normalizePlugins } from "../_shared/wordpress.ts";
 import { runReadOnlyWpCli } from "../_shared/wpCli.ts";
 import { denoSftpTransport, denoSshTransport } from "../_shared/sshTransport.ts";
@@ -38,6 +40,57 @@ const PRIVATE_TOOLS = new Set([
 
 /** Every access type whose credential the server can actually resolve. */
 const EXECUTABLE_ACCESS_TYPES = ["wordpress_admin", "ssh"];
+
+/**
+ * One authenticated reader for the whole request.
+ *
+ * It tries REST Basic auth first, and — when WordPress answers 401 because the
+ * host strips Authorization or because the stored credential is a normal login
+ * password — falls back to a real signed-in session opened against the site's
+ * own login form. Only when both paths refuse is the access genuinely rejected,
+ * so the agent stops contradicting an access panel that says "verified".
+ */
+const privateReader = async (projectId: string, canonicalUrl: string) => {
+  const deps = secretStoreDeps();
+  const resolved = await resolveCredential(deps, projectId, "wordpress_admin");
+  if (!resolved.ok) return { ok: false as const, code: resolved.code, deps };
+
+  const raw = await resolveRawSecret(deps, projectId, "wordpress_admin");
+  const loginPath = raw.ok ? loginPathFromConfig(raw.row.config, canonicalUrl) : null;
+  const loginOnly = resolved.provider === "wordpress_login_password";
+
+  let session: string | null = null;
+  let sessionTried = false;
+
+  const openSession = async (): Promise<string | null> => {
+    if (sessionTried) return session;
+    sessionTried = true;
+    const opened = await openWordPressSession(
+      canonicalUrl,
+      { username: resolved.credential.username, password: resolved.credential.applicationPassword },
+      fetch,
+      loginPath ?? undefined,
+    );
+    session = opened.ok ? opened.cookie : null;
+    return session;
+  };
+
+  const get = async (path: string) => {
+    if (!loginOnly) {
+      const direct = await authenticatedGet(canonicalUrl, path, resolved.credential);
+      if (direct.ok || (direct.kind !== "unauthorized" && direct.kind !== "forbidden")) return direct;
+    }
+    const cookie = await openSession();
+    if (!cookie) {
+      return loginOnly
+        ? ({ ok: false, kind: "unauthorized", status: 401 } as const)
+        : await authenticatedGet(canonicalUrl, path, resolved.credential);
+    }
+    return authenticatedGet(canonicalUrl, path, null, fetch, cookie);
+  };
+
+  return { ok: true as const, deps, get };
+};
 
 // --- public inspections (unchanged behaviour) -------------------------------
 
@@ -194,9 +247,9 @@ const SITE_HEALTH_TESTS = [
 
 /** Authenticated Site Health. Only claims what a 200 response actually proved. */
 const authenticatedHealth = async (baseUrl: string, projectId: string) => {
-  const deps = secretStoreDeps();
-  const resolved = await resolveCredential(deps, projectId, "wordpress_admin");
-  if (!resolved.ok) return { available: false as const, code: resolved.code };
+  const reader = await privateReader(projectId, baseUrl);
+  if (!reader.ok) return { available: false as const, code: reader.code };
+  const deps = reader.deps;
 
   const readable: Array<{ id: string; label: string; status: string | null }> = [];
   let unauthorized = false;
@@ -204,11 +257,7 @@ const authenticatedHealth = async (baseUrl: string, projectId: string) => {
   let reachable = false;
 
   for (const test of SITE_HEALTH_TESTS) {
-    const outcome = await authenticatedGet(
-      baseUrl,
-      `/wp-json/wp-site-health/v1/tests/${test}`,
-      resolved.credential,
-    );
+    const outcome = await reader.get(`/wp-json/wp-site-health/v1/tests/${test}`);
     if (outcome.ok) {
       reachable = true;
       try {
@@ -280,23 +329,27 @@ const listPlugins = async (projectId: string, canonicalUrl: string | null) => {
     return fail("execution_context_unavailable", "I don't have a confirmed site address for this project.", false);
   }
 
-  const deps = secretStoreDeps();
-  const resolved = await resolveCredential(deps, projectId, "wordpress_admin");
-  if (!resolved.ok) {
+  const reader = await privateReader(projectId, canonicalUrl);
+  if (!reader.ok) {
     return fail(
-      resolved.code,
-      resolved.code === "secret_store_unavailable"
+      reader.code,
+      reader.code === "secret_store_unavailable"
         ? "The secure credential store isn't available, so I won't attempt a private read."
         : "I don't have usable WordPress admin access stored for this project yet.",
       false,
     );
   }
+  const deps = reader.deps;
 
-  const outcome = await authenticatedGet(canonicalUrl, "/wp-json/wp/v2/plugins", resolved.credential);
+  const outcome = await reader.get("/wp-json/wp/v2/plugins");
   if (!outcome.ok) {
     if (outcome.kind === "unauthorized") {
       await deps.markVerification?.(projectId, "wordpress_admin", "rejected", null);
-      return fail("unauthorized", "WordPress did not accept that Application Password. Please replace the WordPress Admin access.", false);
+      return fail(
+        "unauthorized",
+        "WordPress wouldn't let me read the plugin list with the stored admin access, either through the API or by signing in. Please replace the WordPress Admin access.",
+        false,
+      );
     }
     if (outcome.kind === "forbidden") {
       await deps.markVerification?.(projectId, "wordpress_admin", "rejected", null);
