@@ -6,6 +6,7 @@ import type { AgentEvidence } from "./agent-core/types";
 import { executionGateway } from "./agent-core/gateway";
 import { getProjectStack } from "./stacks";
 import { looksLikeQuestion, replyLines, streamAgentReply, voiceAvailable } from "./agent-core/voice";
+import { hostGuidanceFact } from "./hostGuidance";
 
 /**
  * Agent executor bridge.
@@ -122,7 +123,10 @@ const speakTurn = async (
           .filter((message) => message.role === "agent")
           .slice(-4)
           .map((message) => message.body.join(" ")),
-        memory: (context.memory ?? []).slice(-6).map((entry) => `${entry.title}: ${entry.content}`),
+        memory: [
+          ...(context.memory ?? []).slice(-5).map((entry) => `${entry.title}: ${entry.content}`),
+          hostGuidanceFact(context.project) ?? "",
+        ].filter(Boolean),
       },
       context.onStream,
     );

@@ -72,7 +72,7 @@ export const sanitizeReplyFacts = (value: unknown): ReplyFacts => {
     kernelLines: lines(raw.kernelLines, 14),
     awaiting: AWAITING.includes(awaitingClaim) ? awaitingClaim : "",
     recentAgentLines: lines(raw.recentAgentLines, 8, 240),
-    memory: lines(raw.memory, 6, 200),
+    memory: lines(raw.memory, 6, 320),
   };
 };
 

@@ -4,6 +4,7 @@ import { workspaceRepository } from "./repository";
 import { getProjectInitials } from "./home";
 import { loadCredentialDetails, submitCredential, verifyStoredCredential } from "./agent-core/secrets";
 import { adminCredentialLabel, getProjectStack, stackCopy } from "./stacks";
+import { hostGuidance } from "./hostGuidance";
 import type { ProjectStack } from "./types";
 
 type Props = {
@@ -412,6 +413,9 @@ export function ProjectAccessPanel({
       })()
     : null;
 
+  // What this particular host requires, when its process differs from the norm.
+  const activeGuidance = activeDefinition ? hostGuidance(project, activeDefinition.type) : null;
+
   /**
    * A real, server-side, read-only check. The browser sends only the project
    * id: it cannot choose the address, and it cannot write the outcome.
@@ -592,6 +596,35 @@ export function ProjectAccessPanel({
           >
             <h2>{editing.existingId ? "Replace" : "Add"} {activeDefinition.label}</h2>
             {prefilling ? <p className="access-drawer-note">Loading the details you saved before…</p> : null}
+            {activeGuidance ? (
+              <div className="access-host-guide">
+                <strong>{activeGuidance.host}</strong>
+                <p>{activeGuidance.summary}</p>
+                <ol>
+                  {activeGuidance.steps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
+                {activeGuidance.hints ? (
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() =>
+                      setValues((current) => ({
+                        ...current,
+                        ...Object.fromEntries(
+                          Object.entries(activeGuidance.hints ?? {}).filter(
+                            ([key]) => !(current[key] ?? "").trim(),
+                          ),
+                        ),
+                      }))
+                    }
+                  >
+                    Fill in the {activeGuidance.host} details
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             <p className="access-drawer-note">
               {activeDefinition.executable
                 ? activeDefinition.type === "ssh"

@@ -4456,6 +4456,45 @@ button:focus-visible {
   gap: 6px;
 }
 
+.access-host-guide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2, 8px);
+  padding: var(--tt-space-3, 12px) var(--tt-space-4, 16px);
+  border: 1px solid var(--tt-line, rgba(1, 5, 27, 0.12));
+  border-left: 2px solid var(--tt-signal, #2f6bff);
+  border-radius: 10px;
+  background: rgba(47, 107, 255, 0.04);
+}
+
+.access-host-guide strong {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tt-signal, #2f6bff);
+}
+
+.access-host-guide p {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.access-host-guide ol {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--tt-muted, #6a7280);
+}
+
+.access-host-guide button {
+  align-self: flex-start;
+}
+
 .access-field span {
   font-size: 0.82rem;
   color: var(--tt-ink);
