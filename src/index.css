@@ -5650,7 +5650,7 @@ p, li {
 
 /* Working plan — the agent's current understanding, readable at a glance. */
 .pw-plan-goal {
-  font-family: var(--tt-font-display, inherit);
+  font-family: var(--tt-font-display);
   color: var(--tt-ink);
   margin: 0 0 var(--tt-space-4);
 }
@@ -5674,7 +5674,7 @@ p, li {
   align-items: start;
   font-size: 0.85rem;
   line-height: 1.45;
-  color: var(--tt-ink-soft, var(--tt-ink));
+  color: var(--tt-muted);
 }
 
 .pw-plan-mark {
@@ -5682,25 +5682,25 @@ p, li {
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 50%;
-  border: 1px solid var(--tt-edge);
+  border: 1px solid var(--tt-rule);
   background: transparent;
 }
 
 .pw-plan-item.is-active .pw-plan-mark,
 .pw-plan-item.is-open .pw-plan-mark {
-  border-color: var(--tt-signal, var(--tt-ink));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tt-signal, var(--tt-ink)) 14%, transparent);
+  border-color: var(--tt-royal);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tt-royal) 14%, transparent);
 }
 
 .pw-plan-item.is-done .pw-plan-mark,
 .pw-plan-item.is-supported .pw-plan-mark {
-  background: var(--tt-signal, var(--tt-ink));
-  border-color: var(--tt-signal, var(--tt-ink));
+  background: var(--tt-royal);
+  border-color: var(--tt-royal);
 }
 
 .pw-plan-item.is-blocked .pw-plan-mark {
-  background: var(--tt-warn, #b4531f);
-  border-color: var(--tt-warn, #b4531f);
+  background: var(--tt-warning);
+  border-color: var(--tt-warning);
 }
 
 .pw-plan-item.is-ruled_out,
