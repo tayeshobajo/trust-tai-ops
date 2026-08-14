@@ -57,7 +57,7 @@ const requireReadFirst = (action: AgentAction, context: AgentContext): PolicyVer
  * asks — even when every other gate is satisfied.
  */
 const respectConstraints = (action: AgentAction, context: AgentContext): PolicyVerdict => {
-  const target = writeTargetFor(action.toolId, action.arguments);
+  const target = writeTargetFor(action.toolId, action.args);
   if (!target) return { executable: true };
 
   const rules = constraintsTouching(context.project.memoryEntries, target);
@@ -110,12 +110,12 @@ export const evaluateAction = (action: AgentAction, context: AgentContext): Poli
       if (!hasBackup(context)) {
         return { executable: false, requires: "backup", reason: "A safe restore point is needed first." };
       }
-      return requireReadFirst(action, context);
+      return firstBlocker(respectConstraints(action, context), requireReadFirst(action, context));
     case "medium_risk_change":
       if (!hasBackup(context)) {
         return { executable: false, requires: "backup", reason: "A safe restore point is needed first." };
       }
-      return requireReadFirst(action, context);
+      return firstBlocker(respectConstraints(action, context), requireReadFirst(action, context));
     case "high_risk_change":
       if (!hasBackup(context)) {
         return { executable: false, requires: "backup", reason: "A safe restore point is needed first." };
@@ -123,7 +123,7 @@ export const evaluateAction = (action: AgentAction, context: AgentContext): Poli
       if (!hasApproval(context)) {
         return { executable: false, requires: "approval", reason: "This needs the owner's go-ahead first." };
       }
-      return requireReadFirst(action, context);
+      return firstBlocker(respectConstraints(action, context), requireReadFirst(action, context));
     default:
       return { executable: false, requires: "approval", reason: "Unclassified action." };
   }
