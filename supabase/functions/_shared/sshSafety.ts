@@ -15,13 +15,16 @@ export const WP_CLI_MAX_TIMEOUT_MS = 45_000;
 export const WP_CLI_MAX_OUTPUT_BYTES = 64_000;
 
 /**
- * Ciphers and MACs proven to work under Deno's `node:crypto`. AES-GCM is
- * excluded deliberately: the runtime cannot drive it through `ssh2`, and a
- * silent fallback to something weaker is never acceptable, so the list is
- * pinned rather than negotiated freely.
+ * Ciphers and MACs supported by the Edge runtime's `node:crypto` bridge.
+ *
+ * The deployed runtime currently advertises CTR through `getCiphers()` but
+ * rejects it when ssh2 initializes the negotiated stream ("Unknown cipher
+ * aes-256-ctr"). OpenSSH AES-GCM uses the runtime-supported AEAD path and is
+ * also offered by WP Engine's gateway. Keep this list pinned so negotiation
+ * cannot silently fall back to a legacy cipher.
  */
 export const SSH_ALGORITHMS = {
-  cipher: ["aes256-ctr", "aes192-ctr", "aes128-ctr"],
+  cipher: ["aes256-gcm@openssh.com", "aes128-gcm@openssh.com"],
   hmac: ["hmac-sha2-256", "hmac-sha2-512"],
   serverHostKey: ["ssh-ed25519", "ecdsa-sha2-nistp256", "rsa-sha2-512", "rsa-sha2-256"],
 } as const;

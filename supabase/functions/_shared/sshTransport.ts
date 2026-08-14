@@ -2,10 +2,9 @@
  * The SSH transport. The only file in the SSH path that opens a socket.
  *
  * Feasibility was established empirically before this existed: `ssh2` runs
- * under Deno through `node:net` and `node:crypto`, provided the cipher list is
- * pinned to CTR modes. Deno's `node:crypto` cannot drive AES-GCM the way
- * `ssh2` needs, so GCM is excluded in `SSH_ALGORITHMS` rather than left to
- * negotiation. A handshake, a host-key fingerprint identical to
+ * under Deno through `node:net` and `node:crypto`, with the cipher list pinned
+ * to the runtime-compatible OpenSSH AES-GCM modes. A handshake, a host-key
+ * fingerprint identical to
  * `ssh-keygen -lf`, public-key auth and a real `exec` with an exit code were
  * all confirmed against a live sshd before any of this was wired up.
  *
@@ -144,6 +143,14 @@ const clientFailure = (error: SshClientError, presented: string | null): SshExec
 
   if (/key|passphrase|decrypt|decode|parse|base64|malformed|unsupported|OPENSSH|PEM/i.test(message)) {
     return connectFailure(error, presented);
+  }
+  if (/unknown cipher/i.test(message)) {
+    return {
+      ok: false,
+      kind: "protocol_error",
+      fingerprint: presented,
+      detail: "The secure SSH connection could not start because this server and the connection runtime could not agree on encryption.",
+    };
   }
   if (level.includes("authentication") || /authentication|all configured authentication methods failed/i.test(message)) {
     return {
