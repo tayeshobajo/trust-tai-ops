@@ -24,6 +24,7 @@ import { executionGateway } from "./gateway";
 import { safeSummary } from "./safety";
 import { selectReasoner, type AgentReasoner } from "./reasoner";
 import { escalate, routeIsExhausted, classifyFailure } from "./failure";
+import { verifyStep } from "./verify";
 import {
   addHypotheses,
   applyEvidence,
@@ -39,6 +40,7 @@ import {
   MAX_AGENT_ITERATIONS,
   MAX_AGENT_WALL_CLOCK_MS,
   MAX_ITERATIONS_WITHOUT_PROGRESS,
+  MAX_PARALLEL_INVESTIGATIONS,
 } from "./budgets";
 import type {
   AgentAction,
@@ -215,7 +217,7 @@ const describe = (evidence: AgentEvidence): string[] => {
 
 export type ActionOutcome =
   | { kind: "evidence"; evidence: AgentEvidence[] }
-  | { kind: "blocked"; requires: "access" | "backup" | "approval" | "backend"; reason: string }
+  | { kind: "blocked"; requires: "access" | "backup" | "approval" | "backend" | "read_first"; reason: string }
   | { kind: "failed"; code: ToolFailureCode; retryable: boolean }
   | { kind: "in_flight" };
 
@@ -229,7 +231,9 @@ const buildCloseout = (
   awaiting: AgentTurnResult["awaiting"],
 ): string[] => {
   const verified = plan.steps.filter((step) => step.status === "done");
-  const blocked = plan.steps.filter((step) => step.status === "blocked");
+  const blocked = plan.steps.filter(
+    (step) => step.status === "blocked" || step.status === "unverified",
+  );
   const open = plan.hypotheses.filter((item) => item.status === "open");
 
   const lines: string[] = [];
@@ -399,6 +403,8 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
   const learned: AgentEvidence[] = [];
   const spoke: string[] = [];
   const attempted = new Map<string, number>();
+  /** Results of investigations gathered ahead of the iteration that needs them. */
+  const prefetched = new Map<string, ActionOutcome>();
   const startedAt = Date.now();
 
   const alreadyVerified = (context.verifiedCapabilities ?? []).includes("wordpress_admin");
@@ -491,7 +497,36 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
 
     workingPlan = markStep(workingPlan, stepKeyFor(action), "active");
 
-    const outcome = await executeAction(input, context, action);
+    // Reads cannot conflict with each other, so when the plan proposes
+    // several independent observations they are gathered at once rather than
+    // one round-trip at a time. Their results are still consumed one at a
+    // time below, so every outcome goes through the same verification and
+    // failure handling as a lone action would.
+    if (!prefetched.has(action.invocationKey)) {
+      const batch = plan.actions
+        .filter(
+          (candidate) =>
+            candidate.readOnly &&
+            candidate.invocationKey !== action.invocationKey &&
+            !attempted.has(candidate.invocationKey) &&
+            !prefetched.has(candidate.invocationKey) &&
+            // A private read is never pulled forward before the person has
+            // been told their stored access is about to be used.
+            (!PRIVATE_TOOLS.has(candidate.toolId) || announcedStoredAccess || alreadyVerified),
+        )
+        .slice(0, MAX_PARALLEL_INVESTIGATIONS - 1);
+
+      const gathered = await Promise.all(
+        [action, ...batch].map(async (candidate) => ({
+          key: candidate.invocationKey,
+          outcome: await executeAction(input, context, candidate),
+        })),
+      );
+      for (const entry of gathered) prefetched.set(entry.key, entry.outcome);
+    }
+
+    const outcome = prefetched.get(action.invocationKey)!;
+    prefetched.delete(action.invocationKey);
 
     if (outcome.kind === "blocked") {
       workingPlan = markStep(workingPlan, stepKeyFor(action), "blocked", outcome.reason);
@@ -501,6 +536,15 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
       } else if (outcome.requires === "backup" || outcome.requires === "approval") {
         awaiting = outcome.requires;
         stopReason = "approval_required";
+      } else if (outcome.requires === "read_first") {
+        // Not a human's problem. The agent owes itself a read, so it keeps
+        // going and lets the next iteration plan one.
+        stallCount += 1;
+        if (stallCount >= MAX_ITERATIONS_WITHOUT_PROGRESS) {
+          stopReason = "safe_stop";
+          break;
+        }
+        continue;
       } else {
         stopReason = "tool_unavailable";
       }
@@ -563,13 +607,34 @@ export const runAgentTurn = async (input: OrchestratorInput): Promise<AgentTurnR
     }
 
     stallCount = 0;
+    // Verify-after-act: the step is judged on its own evidence before the
+    // loop is allowed to treat it as progress.
+    const verification = verifyStep(action, outcome.evidence);
     workingPlan = markStep(
       workingPlan,
       stepKeyFor(action),
-      "done",
-      outcome.evidence[0]?.summary ?? "",
+      verification.verdict === "verified" ? "done" : "unverified",
+      verification.note,
       outcome.evidence[0]?.id ?? null,
     );
+
+    if (verification.verdict !== "verified") {
+      // A step that did not answer its own question is not progress, however
+      // successfully the tool returned.
+      context = {
+        ...context,
+        failedObservations: [
+          ...(context.failedObservations ?? []),
+          { toolId: action.toolId, code: "tool_unavailable" as ToolFailureCode },
+        ],
+      };
+      stallCount += 1;
+      if (stallCount >= MAX_ITERATIONS_WITHOUT_PROGRESS) {
+        stopReason = "safe_stop";
+        break;
+      }
+    }
+
     for (const item of outcome.evidence) {
       learned.push(item);
       workingPlan = applyEvidence(workingPlan, item);

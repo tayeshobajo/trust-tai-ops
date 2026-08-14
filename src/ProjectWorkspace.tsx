@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AccessType, NewProjectMessage, Organization, Project, ProjectMessage, Run, RunDraft } from "./types";
 import { buildThread, draftFromBrief } from "./conversation";
-import type { DecisionKind, ThreadCard, ThreadMessage } from "./conversation";
+import type { DecisionKind, ThreadCard, ThreadDiff, ThreadMessage } from "./conversation";
 import {
   dayLabel,
   findHitsOutsideRun,
@@ -98,6 +98,7 @@ type ViewItem = {
   body: string[];
   createdAt: string | null;
   card?: ThreadCard;
+  diff?: ThreadDiff;
   decision?: DecisionKind;
 };
 
@@ -354,6 +355,7 @@ export function ProjectWorkspace({
           body: message.body,
           createdAt: null,
           card: message.card,
+          diff: message.diff,
           decision: message.decision,
         })),
         ...runMessages.map((message) => ({
@@ -374,6 +376,7 @@ export function ProjectWorkspace({
         body: message.body,
         createdAt: message.createdAt,
         card: source?.card,
+        diff: source?.diff,
         decision: source?.decision,
       };
     });
@@ -388,6 +391,7 @@ export function ProjectWorkspace({
         body: message.body,
         createdAt: null,
         card: message.card,
+        diff: message.diff,
         decision: message.decision,
       });
     }
@@ -1526,6 +1530,24 @@ export function ProjectWorkspace({
                           </li>
                         ))}
                       </ul>
+                    </div>
+                  ) : null}
+                  {message.diff ? (
+                    <div className="pw-diff">
+                      <h4>Proposed change to {message.diff.target}</h4>
+                      <div className="pw-diff-panes">
+                        <div className="pw-diff-pane pw-diff-before">
+                          <span className="pw-diff-label">Now</span>
+                          <pre>{message.diff.before}</pre>
+                        </div>
+                        <div className="pw-diff-pane pw-diff-after">
+                          <span className="pw-diff-label">After</span>
+                          <pre>{message.diff.after}</pre>
+                        </div>
+                      </div>
+                      {message.diff.irreversible ? (
+                        <p className="pw-diff-warn">Cannot be undone by reverting: {message.diff.irreversible}</p>
+                      ) : null}
                     </div>
                   ) : null}
                   {evidenceForMessage(message.key).length > 0 ? (

@@ -7,6 +7,7 @@
 
 import type { AgentAction, AgentContext, Capability, RiskClass, ToolId } from "./types";
 import { getProjectStack, stackCopy } from "../stacks";
+import { checkReadBeforeWrite } from "./precondition";
 
 const RISK_BY_TOOL: Record<ToolId, RiskClass> = {
   "public_http.inspect_site": "read_only",
@@ -27,7 +28,7 @@ export const classifyRisk = (toolId: ToolId): RiskClass => RISK_BY_TOOL[toolId];
 
 export type PolicyVerdict =
   | { executable: true }
-  | { executable: false; requires: "access" | "backup" | "approval" | "backend"; reason: string };
+  | { executable: false; requires: "access" | "backup" | "approval" | "backend" | "read_first"; reason: string };
 
 const hasBackup = (context: AgentContext) => context.run.backupStatus !== "unconfirmed";
 
@@ -38,6 +39,15 @@ const hasApproval = (context: AgentContext) =>
 
 const hasCapability = (context: AgentContext, capability: Capability) =>
   context.capabilities.includes(capability);
+
+/**
+ * No change runs against something the agent has not read in this run. This
+ * is what makes a rollback a fact rather than a hope.
+ */
+const requireReadFirst = (action: AgentAction, context: AgentContext): PolicyVerdict => {
+  const check = checkReadBeforeWrite(action, context.evidence);
+  return check.ok ? { executable: true } : { executable: false, requires: "read_first", reason: check.reason };
+};
 
 /**
  * Tools that only make sense on WordPress. A Meteor project must never be
@@ -76,14 +86,15 @@ export const evaluateAction = (action: AgentAction, context: AgentContext): Poli
       return { executable: true };
     case "low_risk_change":
       // Small changes still require the run to be past the safety gate.
-      return hasBackup(context)
-        ? { executable: true }
-        : { executable: false, requires: "backup", reason: "A safe restore point is needed first." };
+      if (!hasBackup(context)) {
+        return { executable: false, requires: "backup", reason: "A safe restore point is needed first." };
+      }
+      return requireReadFirst(action, context);
     case "medium_risk_change":
       if (!hasBackup(context)) {
         return { executable: false, requires: "backup", reason: "A safe restore point is needed first." };
       }
-      return { executable: true };
+      return requireReadFirst(action, context);
     case "high_risk_change":
       if (!hasBackup(context)) {
         return { executable: false, requires: "backup", reason: "A safe restore point is needed first." };
@@ -91,7 +102,7 @@ export const evaluateAction = (action: AgentAction, context: AgentContext): Poli
       if (!hasApproval(context)) {
         return { executable: false, requires: "approval", reason: "This needs the owner's go-ahead first." };
       }
-      return { executable: true };
+      return requireReadFirst(action, context);
     default:
       return { executable: false, requires: "approval", reason: "Unclassified action." };
   }

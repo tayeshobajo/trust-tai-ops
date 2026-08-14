@@ -21,7 +21,7 @@ export type PlanHypothesis = {
   note: string;
 };
 
-export type PlanStepStatus = "pending" | "active" | "done" | "blocked" | "skipped";
+export type PlanStepStatus = "pending" | "active" | "done" | "unverified" | "blocked" | "skipped";
 
 export type PlanStep = {
   id: string;
