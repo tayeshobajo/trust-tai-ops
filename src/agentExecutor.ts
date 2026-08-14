@@ -239,14 +239,7 @@ const runRealQaStep = async (context: AgentStepContext): Promise<AgentStepResult
  * execute server-side, and the agent reports only what they observed.
  */
 const runInvestigationStep = async (context: AgentStepContext): Promise<AgentStepResult> => {
-  const turn = await runAgentTurn({
-    project: context.project,
-    run: context.run,
-    recentMessages: context.recentMessages ?? [],
-    memory: context.memory ?? [],
-    emit: context.emit,
-    onWorkspaceUpdate: context.onWorkspaceUpdate,
-  });
+  const turn = await speakTurn(context, "step");
 
   // Waiting on the human (access, backup, approval) is a real stop, not a step.
   if (turn.awaiting) return { ran: true };
@@ -255,7 +248,7 @@ const runInvestigationStep = async (context: AgentStepContext): Promise<AgentSte
   if (turn.stopReason === "needs_user_input") return { ran: true };
 
   const target = autoAdvanceTarget(context.project, context.run);
-  if (!target) return { ran: turn.acted };
+  if (!target) return { ran: turn.spoke };
   return runAdvanceStep(context, target);
 };
 
