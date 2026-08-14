@@ -2,6 +2,7 @@ import type { MemoryEntry, NewProjectMessage, Organization, Project, ProjectMess
 import { autoAdvanceTarget, simulateQa, workingNarration } from "./agent";
 import { workspaceRepository } from "./repository";
 import { runAgentTurn } from "./agent-core/orchestrator";
+import type { AgentEvidence } from "./agent-core/types";
 import { executionGateway } from "./agent-core/gateway";
 import { getProjectStack } from "./stacks";
 import { looksLikeQuestion, replyLines, streamAgentReply, voiceAvailable } from "./agent-core/voice";
