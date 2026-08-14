@@ -329,23 +329,27 @@ const listPlugins = async (projectId: string, canonicalUrl: string | null) => {
     return fail("execution_context_unavailable", "I don't have a confirmed site address for this project.", false);
   }
 
-  const deps = secretStoreDeps();
-  const resolved = await resolveCredential(deps, projectId, "wordpress_admin");
-  if (!resolved.ok) {
+  const reader = await privateReader(projectId, canonicalUrl);
+  if (!reader.ok) {
     return fail(
-      resolved.code,
-      resolved.code === "secret_store_unavailable"
+      reader.code,
+      reader.code === "secret_store_unavailable"
         ? "The secure credential store isn't available, so I won't attempt a private read."
         : "I don't have usable WordPress admin access stored for this project yet.",
       false,
     );
   }
+  const deps = reader.deps;
 
-  const outcome = await authenticatedGet(canonicalUrl, "/wp-json/wp/v2/plugins", resolved.credential);
+  const outcome = await reader.get("/wp-json/wp/v2/plugins");
   if (!outcome.ok) {
     if (outcome.kind === "unauthorized") {
       await deps.markVerification?.(projectId, "wordpress_admin", "rejected", null);
-      return fail("unauthorized", "WordPress did not accept that Application Password. Please replace the WordPress Admin access.", false);
+      return fail(
+        "unauthorized",
+        "WordPress wouldn't let me read the plugin list with the stored admin access, either through the API or by signing in. Please replace the WordPress Admin access.",
+        false,
+      );
     }
     if (outcome.kind === "forbidden") {
       await deps.markVerification?.(projectId, "wordpress_admin", "rejected", null);
