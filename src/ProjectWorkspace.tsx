@@ -525,8 +525,50 @@ export function ProjectWorkspace({
     });
   };
 
-  const advanceTo = async (run: Run, target: Run["state"]) => {
+  // A rule the person states is a rule from then on. It is lifted out of the
+  // message into project memory immediately, and acknowledged so they can see
+  // it landed rather than hoping it did.
+  const captureConstraints = async (text: string, runId: string | null, sourceMessageId: string | null) => {
+    if (!canWrite) return;
+    const candidates = detectConstraints(text).filter(
+      (candidate) => !constraintAlreadyStored(project.memoryEntries, candidate),
+    );
+    if (candidates.length === 0) return;
 
+    try {
+      let next: Organization | null = null;
+      for (const candidate of candidates) {
+        next = await workspaceRepository.addMemoryEntry(project.id, {
+          title: candidate.title,
+          type: "constraint",
+          importance: candidate.importance,
+          content: candidate.content,
+          sourceRunId: runId,
+          sourceMessageId,
+        });
+      }
+      if (next) onWorkspaceUpdate(next);
+
+      const lines =
+        candidates.length === 1
+          ? [`Noted as a standing rule for this project: ${candidates[0].content} I'll apply that from now on, including in future tasks.`]
+          : [
+              "I've saved these as standing rules for this project and I'll apply them in future tasks too:",
+              ...candidates.map((candidate) => `• ${candidate.content}`),
+            ];
+      await emit({
+        runId,
+        role: "agent",
+        kind: "status_update",
+        body: lines,
+        dedupeKey: `constraint-${runId ?? "project"}-${candidates.map((item) => item.dedupeKey).join("|")}`,
+      });
+    } catch {
+      // Remembering a rule must never break the conversation it came from.
+    }
+  };
+
+  const advanceTo = async (run: Run, target: Run["state"]) => {
     if (!validateAdvance(run, target).ok) return;
     await apply(() => workspaceRepository.advanceRun(project.id, run.id, target));
   };
