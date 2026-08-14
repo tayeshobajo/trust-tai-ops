@@ -36,6 +36,7 @@ columns. `id` and `created_at` are left to the database.
 | `summary` | redacted one-line summary |
 | `payload` | `ops_project_id`, `canonical_project_id`, `ops_run_id`, `evidence_ref`, `evidence_summary`, `destination_route` (required) |
 | `provenance` | `source_app: "ops"`, `source: "trust-tai-ops"`, `ops_event_key`, `dedupe_key`, `ops_project_id` (required) |
+| `source_event_key` | same deterministic value as `provenance.dedupe_key`; unique per `(organization_id, app_key, source_event_key)` |
 | `occurred_at` | the real event time; stamped at emission only when unknown (required) |
 
 There is no `activity_type`, `project_id`, or `metadata` column, and Ops never
@@ -43,11 +44,15 @@ sends one. Raw logs, command output, and credential material never cross.
 
 ### Idempotency
 
-Dedupe is a read-before-write on `provenance->>dedupe_key` (PostgREST JSON
-path filter), scoped to `app_key=eq.ops`. Read-before-write alone is
-race-prone. The writer already treats a `409` unique violation as a duplicate,
-so when the OS adds a unique index or dedicated idempotency key on
-`provenance->>dedupe_key`, the race closes with no Ops change.
+DB-level race-safe idempotency is **active**. The OS migration
+`ops_activity_idempotency` added top-level `public.activities.source_event_key`
+with a unique partial index on `(organization_id, app_key, source_event_key)`.
+Ops sets `source_event_key` to `suiteDedupeKey(signal)` — the same
+deterministic invariant still mirrored in `provenance.dedupe_key` for
+traceability. The read-before-write now filters the indexed
+`source_event_key=eq.<key>` column scoped to `app_key=eq.ops` as a fast path,
+and a `409` unique violation is the authoritative duplicate answer, so retries
+cannot create a second row.
 
 ## Deployment status
 
