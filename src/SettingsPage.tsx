@@ -112,6 +112,7 @@ export function SettingsPage({ workspace, authState, repositoryHealth, onSignOut
 
       <section className="set-block">
         <h2>About</h2>
+        {null}
         <dl className="set-rows">
           <div className="set-row">
             <dt>Environment</dt>
