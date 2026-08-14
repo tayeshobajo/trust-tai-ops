@@ -240,6 +240,9 @@ export function ProjectAccessPanel({
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  // Anything that goes wrong while the drawer is open must be said inside the
+  // drawer — the page-level notice sits behind the scrim and is never seen.
+  const [drawerNotice, setDrawerNotice] = useState("");
   // Non-secret details only. A secret is never fetched back into the form.
   const [prefilling, setPrefilling] = useState(false);
 
@@ -300,8 +303,8 @@ export function ProjectAccessPanel({
 
   const methodFor = (type: AccessType) => project.accessMethods.find((method) => method.type === type) ?? null;
 
-  const run = async (work: () => Promise<Organization>, message: string, event?: AccessEvent) => {
-    if (!canWrite || busy) return;
+  const run = async (work: () => Promise<Organization>, message: string, event?: AccessEvent): Promise<boolean> => {
+    if (!canWrite || busy) return false;
     setBusy(true);
     try {
       onWorkspaceUpdate(await work());
@@ -315,6 +318,12 @@ export function ProjectAccessPanel({
           // Ignored on purpose.
         }
       }
+      return true;
+    } catch (error) {
+      const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
+      setNotice(`I couldn't save that connection${detail}. Nothing was changed.`);
+      setDrawerNotice(`I couldn't save that connection${detail}. Nothing was changed.`);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -324,6 +333,7 @@ export function ProjectAccessPanel({
     if (!editing) return;
     const definition = CONNECTION_TYPES.find((item) => item.type === editing.type);
     if (!definition) return;
+    setDrawerNotice("");
 
     const existing = editing.existingId ? project.accessMethods.find((item) => item.id === editing.existingId) : null;
     const detail = [values.host, values.user].filter(Boolean).join(" · ");
@@ -337,7 +347,7 @@ export function ProjectAccessPanel({
       const isSsh = definition.type === "ssh";
 
       if (!username || secret.trim().length < 8) {
-        setNotice(
+        setDrawerNotice(
           isSsh
             ? "I need the SSH username and the whole private key."
             : "I need the WordPress username and a complete Application Password.",
@@ -345,7 +355,7 @@ export function ProjectAccessPanel({
         return;
       }
       if (isSsh && !(values.host ?? "").trim()) {
-        setNotice("I need the server address before I can store SSH access.");
+        setDrawerNotice("I need the server address before I can store SSH access.");
         return;
       }
 
@@ -366,14 +376,19 @@ export function ProjectAccessPanel({
               }
             : { loginUrl: (values.loginUrl ?? "").trim() }),
         });
-      } finally {
-        // Drop the key and passphrase from component state immediately.
+      } catch (error) {
+        const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
         setValues({});
         setBusy(false);
+        setDrawerNotice(`I couldn't reach the secure store${detail}, so nothing was stored.`);
+        return;
       }
+      // Drop the key and passphrase from component state immediately.
+      setValues({});
+      setBusy(false);
 
       if (!stored.ok) {
-        setNotice(stored.summary);
+        setDrawerNotice(stored.summary);
         return;
       }
       credentialReference = stored.secretReference;
@@ -392,7 +407,7 @@ export function ProjectAccessPanel({
       ...(credentialReference ? { credentialReference } : {}),
     };
 
-    await run(
+    const saved = await run(
       () => workspaceRepository.saveAccessMethod(project.id, method),
       definition.executable
         ? definition.type === "ssh"
@@ -401,9 +416,11 @@ export function ProjectAccessPanel({
         : `${definition.label} connection details saved.`,
       { type: definition.type, label: definition.label, action: existing ? "replaced" : "added" },
     );
+    if (!saved) return;
 
     setValues({});
     setEditing(null);
+    setDrawerNotice("");
   };
 
   const activeDefinition = editing
@@ -531,6 +548,7 @@ export function ProjectAccessPanel({
                       disabled={!canWrite || busy}
                       onClick={() => {
                         setValues({});
+                        setDrawerNotice("");
                         setEditing({ type: definition.type, existingId: method.id });
                       }}
                     >
@@ -558,6 +576,7 @@ export function ProjectAccessPanel({
                     disabled={!canWrite || busy}
                     onClick={() => {
                       setValues({});
+                      setDrawerNotice("");
                       setEditing({ type: definition.type });
                     }}
                   >
@@ -595,6 +614,7 @@ export function ProjectAccessPanel({
             onClick={(event) => event.stopPropagation()}
           >
             <h2>{editing.existingId ? "Replace" : "Add"} {activeDefinition.label}</h2>
+            {drawerNotice ? <p className="access-notice">{drawerNotice}</p> : null}
             {prefilling ? <p className="access-drawer-note">Loading the details you saved before…</p> : null}
             {activeGuidance ? (
               <div className="access-host-guide">
@@ -673,11 +693,15 @@ export function ProjectAccessPanel({
             </p>
 
             <div className="access-drawer-actions">
-              <button className="ghost-button" type="button" onClick={() => { setEditing(null); setValues({}); }}>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => { setEditing(null); setValues({}); setDrawerNotice(""); }}
+              >
                 Cancel
               </button>
               <button className="primary-button" type="button" disabled={!canWrite || busy} onClick={() => void submitConnection()}>
-                Save connection
+                {busy ? "Saving…" : "Save connection"}
               </button>
             </div>
           </div>
