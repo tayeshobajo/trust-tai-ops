@@ -30,6 +30,7 @@ import {
   type RetrievedConversation,
 } from "../_shared/reasonPrompt.ts";
 import type { ReasonDigest, ServerEvidence } from "../_shared/reasonPrompt.ts";
+import { REPLY_SYSTEM_PROMPT, replyUserPrompt, sanitizeReplyFacts } from "../_shared/replyPrompt.ts";
 import { MEETING_PROMPT_VERSION, MEETING_SYSTEM_PROMPT, meetingUserPrompt } from "../_shared/meetingPrompt.ts";
 import { candidateKeyFor, taskKeyFor, validateMeetingAnalysis } from "../_shared/meetingSchema.ts";
 import { mergeMeetingAnalyses } from "../_shared/meetingMerge.ts";
@@ -42,6 +43,7 @@ const ANTHROPIC = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 const TIMEOUT_MS = 20_000;
 const MAX_OUTPUT_TOKENS = 1200;
+const REPLY_MAX_OUTPUT_TOKENS = 400;
 const MEETING_TIMEOUT_MS = 90_000;
 const MEETING_MAX_OUTPUT_TOKENS = 8_000;
 
@@ -106,6 +108,93 @@ const planCall = (
   retrieved: RetrievedConversation[] = [],
 ): ProviderCall =>
   buildCall(model, apiKey, SYSTEM_PROMPT, userPromptWithRecall(digest, attachments, retrieved), MAX_OUTPUT_TOKENS);
+
+/**
+ * The spoken reply, streamed.
+ *
+ * Words reach the person as the model produces them, so the conversation feels
+ * alive instead of arriving in one silent lump. Both provider dialects are
+ * normalized to one tiny event shape the browser understands, and a transport
+ * failure ends the stream honestly rather than inventing a sentence.
+ */
+const streamReply = async (model: ReasonModel, apiKey: string, facts: unknown): Promise<Response> => {
+  const call = buildCall(model, apiKey, REPLY_SYSTEM_PROMPT, replyUserPrompt(sanitizeReplyFacts(facts)), REPLY_MAX_OUTPUT_TOKENS);
+  const body = { ...(call.body as Record<string, unknown>), stream: true };
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(call.url, { method: "POST", headers: call.headers, body: JSON.stringify(body) });
+  } catch {
+    return fail("reasoner_unavailable", "I couldn't reach my reasoning service just now.", true);
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    const detail = await upstream.text().catch(() => "");
+    console.error(`agent-reason reply stream failed [${upstream.status}]: ${detail.slice(0, 300)}`);
+    const code =
+      upstream.status === 429 ? "rate_limited" : upstream.status === 402 ? "payment_required" : "reasoner_unavailable";
+    return fail(code, "I couldn't put that into words just now.", upstream.status >= 500 || upstream.status === 429);
+  }
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const reader = upstream.body.getReader();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let buffer = "";
+      const push = (text: string) => {
+        if (text) controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`));
+      };
+      try {
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          const parts = buffer.split("\n");
+          buffer = parts.pop() ?? "";
+          for (const raw of parts) {
+            const trimmed = raw.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const payload = trimmed.slice(5).trim();
+            if (!payload || payload === "[DONE]") continue;
+            try {
+              const event = JSON.parse(payload) as Record<string, unknown>;
+              if (model.provider === "anthropic") {
+                const delta = (event.delta ?? {}) as Record<string, unknown>;
+                if (typeof delta.text === "string") push(delta.text);
+              } else {
+                const choices = Array.isArray(event.choices) ? event.choices : [];
+                const first = (choices[0] ?? {}) as Record<string, unknown>;
+                const delta = (first.delta ?? {}) as Record<string, unknown>;
+                if (typeof delta.content === "string") push(delta.content);
+              }
+            } catch {
+              // A malformed frame is skipped; the rest of the reply still lands.
+            }
+          }
+        }
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      } catch {
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      } finally {
+        controller.close();
+      }
+    },
+    cancel(reason?: unknown) {
+      return reader.cancel(reason);
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+};
 
 
 const AUTH_FAIL_SUMMARY: Record<string, string> = {
