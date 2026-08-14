@@ -66,7 +66,7 @@ if ("error" in action) throw new Error("fixture action failed to build");
 let working = plan.emptyPlan(seedProject.id, run.id, "");
 check("a fresh plan is empty", plan.isPlanEmpty(working));
 working = plan.setGoal(working, "Find why the site is slow");
-check("a goal makes the plan real", !plan.isPlanEmpty(working) === false ? false : true);
+check("stating a goal makes the plan real", !plan.isPlanEmpty(working));
 working = plan.reconcileSteps(working, [action]);
 check("planned actions become steps", working.steps.length === 1);
 check("a step is keyed by its invocation key", working.steps[0].id === plan.stepKeyFor(action));

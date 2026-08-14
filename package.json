@@ -25,7 +25,8 @@
     "check:continuity": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/continuity-checks.ts",
     "check:production": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/production-readiness-checks.ts",
     "check:continuity-e2e": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/continuity-e2e.ts",
-    "check:all": "npm run check:agent && npm run check:autonomy && npm run check:browser && npm run check:private && npm run check:wpcli && npm run check:logs && npm run check:reasoner && npm run check:meetings && npm run check:migrations && npm run check:stacks && npm run check:chat-secrets && npm run check:evidence && npm run check:continuity && npm run check:continuity-e2e && npm run check:production"
+    "check:all": "npm run check:agent && npm run check:autonomy && npm run check:browser && npm run check:private && npm run check:wpcli && npm run check:logs && npm run check:reasoner && npm run check:meetings && npm run check:migrations && npm run check:stacks && npm run check:chat-secrets && npm run check:evidence && npm run check:continuity && npm run check:continuity-e2e && npm run check:system-thinking && npm run check:production",
+    "check:system-thinking": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-loader.mjs scripts/system-thinking-checks.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.0",
