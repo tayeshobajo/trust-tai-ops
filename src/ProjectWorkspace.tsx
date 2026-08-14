@@ -287,6 +287,47 @@ export function ProjectWorkspace({
   }, []);
   const healthMetrics = useMemo(() => buildSiteHealth(healthEvidence), [healthEvidence]);
 
+  /**
+   * The plan is a working document, not a log. Reasoner revisions restate the
+   * same intent in slightly different words, so near-duplicates are folded and
+   * the rail shows only the few items that are still live.
+   */
+  const { planHypotheses, planSteps, planHidden } = useMemo(() => {
+    const normalize = (text: string) =>
+      text
+        .toLowerCase()
+        .replace(/[^a-z0-9 ]/g, " ")
+        .split(/\s+/)
+        .filter((word) => word.length > 3)
+        .sort()
+        .join(" ");
+    const trim = <T extends { id: string }>(items: T[], text: (item: T) => string, limit: number) => {
+      const seen = new Set<string>();
+      const kept: T[] = [];
+      for (const item of items) {
+        const key = normalize(text(item));
+        if (seen.has(key)) continue;
+        seen.add(key);
+        kept.push(item);
+      }
+      return { kept: kept.slice(0, limit), hidden: Math.max(0, kept.length - limit) };
+    };
+
+    if (!runPlan) return { planHypotheses: [], planSteps: [], planHidden: 0 };
+    const liveSteps = runPlan.steps.filter((step) => step.status !== "skipped");
+    const hypotheses = trim(
+      runPlan.hypotheses.filter((item) => item.status !== "ruled_out"),
+      (item) => item.text,
+      3,
+    );
+    const steps = trim(liveSteps, (step) => step.label, 5);
+    return {
+      planHypotheses: hypotheses.kept,
+      planSteps: steps.kept,
+      planHidden: hypotheses.hidden + steps.hidden,
+    };
+  }, [runPlan]);
+
   const thread = useMemo<ThreadMessage[]>(
     () => (activeRun ? buildThread(project, activeRun) : []),
     [project, activeRun],
