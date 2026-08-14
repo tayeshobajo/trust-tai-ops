@@ -27,13 +27,14 @@ import {
 import { canLinkProject, decideCanonicalLink } from "../src/suite/canonicalLink.ts";
 import {
   OPS_SUITE_EVENTS,
+  OPS_APP_KEY,
   buildSuiteActivity,
   containsSecretMaterial,
   sanitizeSummary,
   suiteDedupeKey,
   syncSuiteSignal,
 } from "../src/suite/osActivity.ts";
-import type { OpsSuiteSignal, SuiteActivityRow } from "../src/suite/osActivity.ts";
+import type { OpsSuiteSignal, SuiteActivityRow, SuiteWriteContext } from "../src/suite/osActivity.ts";
 import { buildOpsSnapshot } from "../src/suite/snapshot.ts";
 import { isQaAutoLoginEnabled, resolveOpsEnv } from "../src/env.ts";
 import type { Project } from "../src/types.ts";
@@ -53,9 +54,12 @@ const read = (relative: string) => readFileSync(join(root, relative), "utf8");
 const OS_ORIGIN = "https://id-preview--65944e34-ede5-4757-befb-870e1ff97444.lovable.app";
 const ALLOWLIST = parseOriginAllowlist(`${OS_ORIGIN}, https://os.trusttai.com`);
 const TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcyJ9.c2lnbmF0dXJl";
+const OS_ORG = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+const OS_USER = "77777777-8888-4999-8aaa-bbbbbbbbbbbb";
+const WRITE_CONTEXT: SuiteWriteContext = { organizationId: OS_ORG, actorUserId: OS_USER };
 const handoff = (extra: Record<string, unknown> = {}) => ({
   origin: OS_ORIGIN,
-  data: { type: SSO_MESSAGE_TYPE, accessToken: TOKEN, ...extra },
+  data: { type: SSO_MESSAGE_TYPE, accessToken: TOKEN, organizationId: OS_ORG, ...extra },
 });
 
 console.log("\norigins are matched exactly, never by pattern");
@@ -79,6 +83,20 @@ check("a message without a token is rejected", !readHandoffMessage({ origin: OS_
 check("a non-JWT token shape is rejected", !readHandoffMessage(handoff({ accessToken: "not-a-token" }), ALLOWLIST).ok);
 check("a non-uuid canonical project id is rejected", !readHandoffMessage(handoff({ canonicalProjectId: "acme" }), ALLOWLIST).ok);
 check("an unrelated message is ignored", !readHandoffMessage({ origin: OS_ORIGIN, data: { type: "other" } }, ALLOWLIST).ok);
+
+const missingOrg = readHandoffMessage(handoff({ organizationId: undefined }), ALLOWLIST);
+check("a handoff without an organization fails closed", !missingOrg.ok && missingOrg.reason === "missing_organization_id");
+const badOrg = readHandoffMessage(handoff({ organizationId: "acme-org" }), ALLOWLIST);
+check("a malformed organization id fails closed", !badOrg.ok && badOrg.reason === "malformed_organization_id");
+const goodHandoff = readHandoffMessage(handoff(), ALLOWLIST);
+check("a valid handoff carries the organization", goodHandoff.ok && goodHandoff.handoff.organizationId === OS_ORG);
+check(
+  "the organization is context, never authorization",
+  read("src/suite/ssoBridge.ts").includes("never as an authorization claim") &&
+    read("supabase/functions/os-sso-exchange/index.ts").includes("stand in for token verification"),
+);
+check("the exchange validates the organization id shape", read("supabase/functions/os-sso-exchange/index.ts").includes("invalid_os_organization_id"));
+check("the organization is held only in the in-memory suite session", read("src/suite/osToken.ts").includes("osOrganizationId"));
 
 console.log("\nno token in the URL, no token in localStorage");
 
