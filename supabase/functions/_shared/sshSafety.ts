@@ -74,8 +74,24 @@ const KEY_HEADERS = [
   "-----BEGIN ENCRYPTED PRIVATE KEY-----",
 ];
 
+/**
+ * Repairs a key whose line breaks were lost on the way in (chat copy, a form
+ * that collapsed whitespace, a single-line paste). The armour lines are put
+ * back and the base64 body is re-wrapped at 70 characters, which is what every
+ * SSH key parser expects. Key material is never altered — only its layout.
+ */
+const repairKeyLayout = (key: string): string => {
+  if (key.includes("\n")) return key;
+  const match = key.match(/^(-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)([\s\S]*?)(-----END [A-Z0-9 ]*PRIVATE KEY-----)$/);
+  if (!match) return key;
+  const [, begin, rawBody, end] = match;
+  const body = rawBody.replace(/[^A-Za-z0-9+/=]/g, "");
+  const lines = body.match(/.{1,70}/g) ?? [];
+  return [begin, ...lines, end].join("\n");
+};
+
 export const validatePrivateKey = (raw: string): { ok: true; key: string } | { ok: false; reason: string } => {
-  const key = String(raw ?? "").replace(/\r\n/g, "\n").trim();
+  const key = repairKeyLayout(String(raw ?? "").replace(/\r\n/g, "\n").trim());
   if (key.length < 100 || key.length > 32_000) {
     return { ok: false, reason: "That private key doesn't look complete." };
   }
