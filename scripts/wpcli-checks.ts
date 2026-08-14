@@ -164,8 +164,10 @@ check(
   validatePrivateKey(`-----BEGIN OPENSSH PRIVATE KEY-----\n${"b3BlbnNzaC1rZXktdjEAAAAA".repeat(6)}\n-----END OPENSSH PRIVATE KEY-----`).ok === true,
 );
 
-check("GCM ciphers are not offered", !SSH_ALGORITHMS.cipher.some((name) => name.includes("gcm")));
-check("only CTR ciphers are offered", SSH_ALGORITHMS.cipher.every((name) => name.endsWith("-ctr")));
+// ssh2 cannot drive CTR streams in the edge runtime, so the offer is pinned to
+// the AEAD ciphers that do work there. Legacy ciphers stay off the list.
+check("only GCM ciphers are offered", SSH_ALGORITHMS.cipher.every((name) => name.endsWith("gcm@openssh.com")));
+check("no legacy cipher can be negotiated", !SSH_ALGORITHMS.cipher.some((name) => /cbc|arcfour|3des/.test(name)));
 
 // --- host identity pinning -----------------------------------------------------
 
