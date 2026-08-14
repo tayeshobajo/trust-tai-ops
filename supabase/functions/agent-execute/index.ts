@@ -479,10 +479,16 @@ const inspectPage = async (args: Record<string, unknown>, clientUrl: string, can
   if (!url) return fail("invalid_input", "That request was missing the page address.", false);
 
   const viewport = isBrowserViewport(args.viewport) ? args.viewport : "desktop";
+  // Browserless is the connected service by default; a self-hosted renderer
+  // overrides the address without any code change.
+  const token = Deno.env.get("BROWSER_INSPECT_TOKEN") ?? null;
+  const endpoint =
+    Deno.env.get("BROWSER_INSPECT_ENDPOINT") ??
+    (token ? "https://production-sfo.browserless.io/function" : null);
   const outcome = await runBrowserInspection(
     {
-      endpoint: Deno.env.get("BROWSER_INSPECT_ENDPOINT") ?? null,
-      token: Deno.env.get("BROWSER_INSPECT_TOKEN") ?? null,
+      endpoint,
+      token,
     },
     { url, viewport, allowedUrl: canonicalUrl },
   );

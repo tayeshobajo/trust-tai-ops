@@ -160,6 +160,35 @@ const offSite = await runBrowserInspection(
 check("an unrelated domain never reaches the service", !offSite.ok && offSite.code === "unsafe_destination");
 
 console.log("");
+// --- browserless dialect -----------------------------------------------------
+
+console.log("\nbrowserless dialect");
+{
+  let seen: { url: string; body: any } | null = null;
+  const fetchImpl = (async (url: string, init: RequestInit) => {
+    seen = { url: String(url), body: JSON.parse(String(init.body)) };
+    return new Response(
+      JSON.stringify({ data: { finalUrl: "https://example.com/", status: 200, loadEventMs: 1200, consoleErrors: [], failedRequests: [] }, type: "application/json" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as unknown as typeof fetch;
+
+  const outcome = await runBrowserInspection(
+    { endpoint: "https://production-sfo.browserless.io/function", token: "tok-123" },
+    { url: "https://example.com/", viewport: "desktop", allowedUrl: "https://example.com" },
+    fetchImpl,
+  );
+
+  check("a browserless report unwraps and normalizes", outcome.ok === true);
+  check("the token travels as a query parameter, never a header", seen!.url.includes("token=tok-123"));
+  check("the page script is sent as code with a bounded context", typeof seen!.body.code === "string" && seen!.body.context.url === "https://example.com/");
+  const code: string = seen!.body.code;
+  check(
+    "the page script only navigates and reads",
+    !/page\.click\(|page\.type\(|keyboard|setContent|page\.select\(|page\.tap\(/.test(code),
+  );
+}
+
 if (failures.length > 0) {
   console.error(`${failures.length} check(s) failed:\n - ${failures.join("\n - ")}`);
   process.exit(1);
