@@ -23,7 +23,9 @@ export type SshTarget = {
   host: string;
   port: number;
   username: string;
-  privateKey: string;
+  /** Either a private key or a password must be present. */
+  privateKey?: string;
+  password?: string;
   passphrase?: string;
 };
 
@@ -167,7 +169,7 @@ export const denoSshTransport = (): SshTransport => ({
             ok: false,
             kind: "auth_failed",
             fingerprint: presented,
-            detail: "The server did not accept that SSH key.",
+            detail: "The server did not accept that SSH sign-in.",
           });
           return;
         }
@@ -188,8 +190,11 @@ export const denoSshTransport = (): SshTransport => ({
           host: target.host,
           port: target.port,
           username: target.username,
-          privateKey: target.privateKey,
-          passphrase: target.passphrase || undefined,
+          // Key auth when a key is stored; password auth otherwise. Password
+          // auth is what most managed hosts (WP Engine SFTP) actually issue.
+          ...(target.privateKey
+            ? { privateKey: target.privateKey, passphrase: target.passphrase || undefined }
+            : { password: target.password ?? "", tryKeyboard: false }),
           readyTimeout: SSH_CONNECT_TIMEOUT_MS,
           keepaliveInterval: 0,
           algorithms: {
@@ -382,7 +387,7 @@ export const denoSftpTransport = (): SftpTransport => ({
         const level = String(error?.level ?? "");
         const message = String(error?.message ?? "");
         if (level.includes("authentication") || /authentication/i.test(message)) {
-          finish({ ok: false, kind: "auth_failed", fingerprint: presented, detail: "The server did not accept that SSH key." });
+          finish({ ok: false, kind: "auth_failed", fingerprint: presented, detail: "The server did not accept that SSH sign-in." });
           return;
         }
         if (/host key|hostkey/i.test(message)) {
@@ -402,8 +407,11 @@ export const denoSftpTransport = (): SftpTransport => ({
           host: target.host,
           port: target.port,
           username: target.username,
-          privateKey: target.privateKey,
-          passphrase: target.passphrase || undefined,
+          // Key auth when a key is stored; password auth otherwise. Password
+          // auth is what most managed hosts (WP Engine SFTP) actually issue.
+          ...(target.privateKey
+            ? { privateKey: target.privateKey, passphrase: target.passphrase || undefined }
+            : { password: target.password ?? "", tryKeyboard: false }),
           readyTimeout: SSH_CONNECT_TIMEOUT_MS,
           keepaliveInterval: 0,
           algorithms: {

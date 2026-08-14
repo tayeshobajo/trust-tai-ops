@@ -260,7 +260,7 @@ console.log("\nD. FTP / SFTP / SSH truth\n");
 
 check(
   "a password-based server credential is never claimed as verified",
-  intakeSource.includes('verification: keyBased ? "unverified" : "unsupported"'),
+  intakeSource.includes('verification: "unverified"') && !/verification:\s*"verified"/.test(intakeSource.split("storeServerAccess")[1] ?? ""),
 );
 check("plain FTP is refused rather than faked", intakeSource.includes("can't store or verify plain FTP yet"));
 check("only key-based server access reaches the existing verifier", intakeSource.includes("validatePrivateKey"));

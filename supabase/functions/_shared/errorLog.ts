@@ -76,6 +76,7 @@ export const readWordPressErrorLog = async (
       port: access.access.port,
       username: access.access.username,
       privateKey: access.access.privateKey,
+      password: access.access.password,
       passphrase: access.access.passphrase,
     },
     {
