@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AccessType, NewProjectMessage, Organization, Project, ProjectMessage, Run, RunDraft } from "./types";
 import { buildThread, draftFromBrief } from "./conversation";
-import type { DecisionKind, ThreadCard, ThreadMessage } from "./conversation";
+import type { DecisionKind, ThreadCard, ThreadDiff, ThreadMessage } from "./conversation";
 import {
   dayLabel,
   findHitsOutsideRun,
