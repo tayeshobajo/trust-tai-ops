@@ -728,7 +728,7 @@ export function ProjectAccessPanel({
               <button
                 className="ghost-button"
                 type="button"
-                onClick={() => { setEditing(null); setValues({}); setDrawerNotice(""); }}
+                onClick={() => { setEditing(null); setValues({}); setDrawerNotice(null); }}
               >
                 Cancel
               </button>
