@@ -101,3 +101,37 @@ export const constraintAlreadyStored = (entries: MemoryEntry[], candidate: Detec
   entries.some(
     (entry) => entry.type === "constraint" && normalise(entry.content) === candidate.dedupeKey,
   );
+
+/** Words too common to prove a rule is about a particular target. */
+const STOP_WORDS = new Set([
+  "never", "always", "dont", "do", "not", "the", "a", "an", "on", "in", "to", "of", "and", "or",
+  "please", "make", "sure", "be", "you", "your", "my", "our", "it", "is", "are", "with", "for",
+  "touch", "change", "modify", "edit", "delete", "remove", "update", "run", "install", "ask",
+  "check", "tell", "confirm", "must", "should", "cannot", "cant", "shouldnt", "only", "any",
+  "site", "website", "page", "file", "before", "after", "without", "me", "us", "that", "this",
+]);
+
+/**
+ * Standing rules that mention the thing this action is about to change.
+ *
+ * Matching is intentionally blunt: a distinctive word shared between the rule
+ * and the target is enough to stop and ask. False positives cost one
+ * approval click; a false negative breaks something the person explicitly
+ * told the agent to leave alone.
+ */
+export const constraintsTouching = (entries: MemoryEntry[], target: string): MemoryEntry[] => {
+  const targetTokens = new Set(
+    normalise(target)
+      .split(" ")
+      .filter((token) => token.length > 3 && !STOP_WORDS.has(token)),
+  );
+  if (targetTokens.size === 0) return [];
+
+  return entries.filter((entry) => {
+    if (entry.type !== "constraint") return false;
+    const words = normalise(entry.content)
+      .split(" ")
+      .filter((token) => token.length > 3 && !STOP_WORDS.has(token));
+    return words.some((token) => targetTokens.has(token));
+  });
+};
