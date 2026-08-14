@@ -442,19 +442,36 @@ export function ProjectWorkspace({
     if (key && emitRef.current.has(key)) return null;
     if (key) emitRef.current.add(key);
 
-    try {
-      const saved = await workspaceRepository.addProjectMessage(project.id, input);
-      setMessages((current) => (current.some((item) => item.id === saved.id) ? current : sortMessages([...current, saved])));
-      setPersistError(null);
-      // A labelled choice becomes referenceable the moment it is said, so
-      // "option B" still means something months later.
-      if (saved.role === "agent" && continuityAvailable()) void indexConversationAnchors(project.id, saved.id);
-      return saved;
-    } catch {
-      if (key) emitRef.current.delete(key);
-      setPersistError("I couldn't save that to the conversation history. The work itself is unaffected — you can try again.");
-      return null;
+    // A single hiccup on the wire should never look like a lost message, so
+    // the write is attempted a few times before anyone is told about it.
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const saved = await workspaceRepository.addProjectMessage(project.id, input);
+        setMessages((current) => (current.some((item) => item.id === saved.id) ? current : sortMessages([...current, saved])));
+        setPersistError(null);
+        // A labelled choice becomes referenceable the moment it is said, so
+        // "option B" still means something months later.
+        if (saved.role === "agent" && continuityAvailable()) void indexConversationAnchors(project.id, saved.id);
+        return saved;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+      }
     }
+
+    if (key) emitRef.current.delete(key);
+    const detail =
+      lastError && typeof lastError === "object" && "message" in lastError
+        ? String((lastError as { message?: unknown }).message ?? "")
+        : "";
+    console.error("[conversation] failed to persist message", lastError);
+    setPersistError(
+      detail
+        ? `I couldn't save that to the conversation history (${detail}). The work itself is unaffected — you can try again.`
+        : "I couldn't save that to the conversation history. The work itself is unaffected — you can try again.",
+    );
+    return null;
   };
 
   // Bridge: once a task has a real conversation record, keep it complete.
