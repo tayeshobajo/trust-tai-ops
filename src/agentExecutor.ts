@@ -2,6 +2,9 @@ import type { MemoryEntry, NewProjectMessage, Organization, Project, ProjectMess
 import { autoAdvanceTarget, simulateQa, workingNarration } from "./agent";
 import { workspaceRepository } from "./repository";
 import { runAgentTurn } from "./agent-core/orchestrator";
+import { executionGateway } from "./agent-core/gateway";
+import { getProjectStack } from "./stacks";
+import { looksLikeQuestion, replyLines, streamAgentReply, voiceAvailable } from "./agent-core/voice";
 
 /**
  * Agent executor bridge.
@@ -28,6 +31,8 @@ export type AgentStepContext = {
   /** Conversation so far for this run. Used as reasoning context. */
   recentMessages?: ProjectMessage[];
   memory?: MemoryEntry[];
+  /** Renders the reply as it is written, before it is persisted. */
+  onStream?: (soFar: string) => void;
 };
 
 /**
@@ -40,6 +45,91 @@ const LEGACY_RUN_IDS = new Set(["run-epay-speed", "run-bluehole-qa"]);
 const isLegacyRun = (run: Run) => LEGACY_RUN_IDS.has(run.id);
 
 export type AgentStepResult = { ran: boolean };
+
+/**
+ * One turn, spoken in the agent's own voice.
+ *
+ * The kernel's own sentences are correct but robotic, so they are collected
+ * rather than said: they become the facts sheet a model writes the actual
+ * reply from. If the model is unreachable, the collected sentences are said
+ * exactly as before — terse, never wrong.
+ */
+const speakTurn = async (
+  context: AgentStepContext,
+  keyPrefix: string,
+): Promise<{ spoke: boolean; awaiting: string | null; stopReason: string | null }> => {
+  const collected: string[] = [];
+  const collect: AgentEmit = async (input) => {
+    if (input.role === "agent") {
+      collected.push(...input.body);
+      return null;
+    }
+    return context.emit(input);
+  };
+
+  const turn = await runAgentTurn({
+    project: context.project,
+    run: context.run,
+    recentMessages: context.recentMessages ?? [],
+    memory: context.memory ?? [],
+    emit: voiceAvailable() ? collect : context.emit,
+    onWorkspaceUpdate: context.onWorkspaceUpdate,
+  });
+
+  if (!voiceAvailable()) {
+    return { spoke: turn.acted, awaiting: turn.awaiting, stopReason: turn.stopReason ?? null };
+  }
+
+  const say = async (body: string[]) => {
+    const lines = body.filter((line) => line.trim().length > 0);
+    if (lines.length === 0) return false;
+    await context.emit({
+      runId: context.run.id,
+      role: "agent",
+      kind: "message",
+      body: lines,
+      dedupeKey: `${keyPrefix}-${context.run.id}-${collected.length}-${lines.join(" ").length}`,
+    });
+    return true;
+  };
+
+  const recent = (context.recentMessages ?? []).filter((message) => message.role === "user");
+  const latest = recent[recent.length - 1]?.body.join(" ") ?? "";
+  const capabilities = await executionGateway().projectCapabilities(context.project.id);
+
+  let written = "";
+  try {
+    written = await streamAgentReply(
+      context.project.id,
+      {
+        stack: getProjectStack(context.project),
+        taskTitle: context.run.title ?? "",
+        taskType: context.run.taskType,
+        siteKnown: Boolean(context.project.primaryDomain),
+        question: latest,
+        isQuestion: looksLikeQuestion(latest),
+        storedAccess: capabilities.stored,
+        verifiedAccess: capabilities.verified,
+        observations: turn.learned.map((item) => item.summary),
+        kernelLines: collected,
+        awaiting: turn.awaiting,
+        recentAgentLines: (context.recentMessages ?? [])
+          .filter((message) => message.role === "agent")
+          .slice(-4)
+          .map((message) => message.body.join(" ")),
+        memory: (context.memory ?? []).slice(-6).map((entry) => `${entry.title}: ${entry.content}`),
+      },
+      context.onStream,
+    );
+  } catch {
+    written = "";
+  }
+
+  const lines = replyLines(written);
+  const spoke = lines.length > 0 ? await say(lines) : collected.length > 0 ? await say(collected) : false;
+
+  return { spoke: spoke || turn.acted, awaiting: turn.awaiting, stopReason: turn.stopReason ?? null };
+};
 
 /**
  * A message from a person is a reason to think, not a reason to acknowledge.
@@ -56,15 +146,8 @@ export const respondToUserMessage = async (
   if (isLegacyRun(context.run)) return { spoke: false, awaiting: null };
 
   try {
-    const turn = await runAgentTurn({
-      project: context.project,
-      run: context.run,
-      recentMessages: context.recentMessages ?? [],
-      memory: context.memory ?? [],
-      emit: context.emit,
-      onWorkspaceUpdate: context.onWorkspaceUpdate,
-    });
-    return { spoke: turn.acted, awaiting: turn.awaiting };
+    const turn = await speakTurn(context, "reply");
+    return { spoke: turn.spoke, awaiting: turn.awaiting };
   } catch {
     // The kernel failing must never swallow the person's message.
     return { spoke: false, awaiting: null };
@@ -156,14 +239,7 @@ const runRealQaStep = async (context: AgentStepContext): Promise<AgentStepResult
  * execute server-side, and the agent reports only what they observed.
  */
 const runInvestigationStep = async (context: AgentStepContext): Promise<AgentStepResult> => {
-  const turn = await runAgentTurn({
-    project: context.project,
-    run: context.run,
-    recentMessages: context.recentMessages ?? [],
-    memory: context.memory ?? [],
-    emit: context.emit,
-    onWorkspaceUpdate: context.onWorkspaceUpdate,
-  });
+  const turn = await speakTurn(context, "step");
 
   // Waiting on the human (access, backup, approval) is a real stop, not a step.
   if (turn.awaiting) return { ran: true };
@@ -172,7 +248,7 @@ const runInvestigationStep = async (context: AgentStepContext): Promise<AgentSte
   if (turn.stopReason === "needs_user_input") return { ran: true };
 
   const target = autoAdvanceTarget(context.project, context.run);
-  if (!target) return { ran: turn.acted };
+  if (!target) return { ran: turn.spoke };
   return runAdvanceStep(context, target);
 };
 

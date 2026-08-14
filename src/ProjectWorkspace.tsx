@@ -164,6 +164,30 @@ const TypingIndicator = () => (
   </article>
 );
 
+/**
+ * Two sentences that differ only in punctuation, casing or spacing are the
+ * same sentence. Comparing on this signature stops a reworded restatement of
+ * something already said from reaching the thread.
+ */
+const echoSignature = (body: string[]): string =>
+  body
+    .join(" ")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** The reply being written, shown where the finished message will appear. */
+const StreamingMessage = ({ text }: { text: string }) => (
+  <article className="pw-msg pw-msg-agent" aria-live="polite">
+    <span className="pw-msg-who">Engineering Agent</span>
+    <p className="pw-msg-line">
+      {text}
+      <span className="pw-caret" aria-hidden="true" />
+    </p>
+  </article>
+);
+
 export function ProjectWorkspace({
   project,
   canWrite,
@@ -186,6 +210,8 @@ export function ProjectWorkspace({
   // Keep the typing indicator visible for a short beat after the agent starts
   // working so the cue doesn't flicker on fast replies.
   const [typingUntil, setTypingUntil] = useState(0);
+  // The reply as it is being written, rendered in place of the typing dots.
+  const [streamingText, setStreamingText] = useState("");
   const [mobilePane, setMobilePane] = useState<"tasks" | "chat" | "context">("chat");
   const [surface, setSurface] = useState<"conversation" | "tasks" | "access" | "memory" | "activity">(initialSurface);
   const [accessFocus, setAccessFocus] = useState<AccessType[]>([]);
@@ -434,7 +460,7 @@ export function ProjectWorkspace({
   useEffect(() => {
     if (!messagesLoaded || searching) return;
     threadEndRef.current?.scrollIntoView({ block: "end" });
-  }, [messagesLoaded, visible.length, surface, searching]);
+  }, [messagesLoaded, visible.length, surface, searching, streamingText]);
 
   // Single write path for every message the user actually sees.
   const emit = async (input: NewProjectMessage): Promise<ProjectMessage | null> => {
@@ -442,7 +468,8 @@ export function ProjectWorkspace({
     if (key && emitRef.current.has(key)) return null;
     // The agent repeating itself word for word is noise, never news. The same
     // sentence from the agent is said once per session, whatever produced it.
-    const echo = input.role === "agent" ? `echo:${input.body.join("\n")}` : null;
+    // Wording that only differs by punctuation or casing is the same sentence.
+    const echo = input.role === "agent" ? `echo:${echoSignature(input.body)}` : null;
     if (echo && emitRef.current.has(echo)) return null;
     if (echo) emitRef.current.add(echo);
     if (key) emitRef.current.add(key);
@@ -660,10 +687,12 @@ export function ProjectWorkspace({
               onWorkspaceUpdate,
               recentMessages: messages.filter((message) => message.runId === run.id),
               memory: project.memoryEntries,
+              onStream: setStreamingText,
             }),
             new Promise((resolve) => window.setTimeout(resolve, 45000)),
           ]);
         } finally {
+          setStreamingText("");
           setAgentBusy(false);
         }
       })();
@@ -1194,6 +1223,7 @@ export function ProjectWorkspace({
         onWorkspaceUpdate,
         recentMessages: [...messages.filter((message) => message.runId === activeRun.id), savedMessage],
         memory: project.memoryEntries,
+        onStream: setStreamingText,
       });
 
       if (!outcome.spoke) {
@@ -1206,6 +1236,7 @@ export function ProjectWorkspace({
         });
       }
     } finally {
+      setStreamingText("");
       setAgentBusy(false);
     }
   };
@@ -1688,7 +1719,9 @@ export function ProjectWorkspace({
             );
           })}
 
-          {(busy || agentBusy || Date.now() < typingUntil) && !uploading ? <TypingIndicator /> : null}
+          {streamingText ? <StreamingMessage text={streamingText} /> : null}
+
+          {!streamingText && (busy || agentBusy || Date.now() < typingUntil) && !uploading ? <TypingIndicator /> : null}
 
           {persistError ? (
             <p className="pw-persist-error" role="status">

@@ -349,6 +349,48 @@ check(
   check("anthropic call pins an API version", fn.includes('"anthropic-version"'));
 }
 
+// The voice layer: a model may phrase the reply, but never source a fact.
+{
+  const { sanitizeReplyFacts, replyUserPrompt, REPLY_SYSTEM_PROMPT } = await import(
+    "../supabase/functions/_shared/replyPrompt.ts"
+  );
+
+  const facts = sanitizeReplyFacts({
+    stack: "wordpress",
+    taskTitle: "Site is slow",
+    question: "the password is hunter2, can you log in?",
+    isQuestion: true,
+    storedAccess: ["wordpress_admin", "rootkit"],
+    verifiedAccess: ["public_internet"],
+    observations: ["Homepage answered in 2.1s."],
+    kernelLines: ["exec-run-1 finished"],
+    recentAgentLines: ["I'm verifying it with a read-only check."],
+    awaiting: "pwned",
+  });
+
+  check("a pasted credential never survives into the facts sheet", !/hunter2/i.test(JSON.stringify(facts)));
+  check("an unknown access name is dropped", !facts.storedAccess.includes("rootkit"));
+  check("an unknown waiting state is dropped", facts.awaiting === "");
+
+  const prompt = replyUserPrompt(facts);
+  check("the facts sheet separates proven access from stored access", prompt.includes("Access proven working:"));
+  check("what was already said is carried so it is not repeated", prompt.includes("do not repeat it"));
+  check("a direct question is answered first", prompt.includes("first sentence"));
+  check(
+    "the voice may only speak from the facts sheet",
+    REPLY_SYSTEM_PROMPT.includes("only state things that appear in the FACTS"),
+  );
+  check(
+    "stored access is never spoken as working access",
+    REPLY_SYSTEM_PROMPT.includes("stored is NOT access that works"),
+  );
+  check("credentials and internals are never spoken", REPLY_SYSTEM_PROMPT.includes("Never mention tools"));
+
+  const fn = readFileSync("supabase/functions/agent-reason/index.ts", "utf8");
+  check("the reply mode streams rather than buffering", fn.includes("text/event-stream"));
+  check("the reply mode runs behind the same project authorization", fn.indexOf("authorizeProject") < fn.indexOf('mode === "compose_reply"'));
+}
+
 console.log("");
 if (failures.length > 0) {
   console.log(`${failures.length} check(s) failed`);
