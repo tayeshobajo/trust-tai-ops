@@ -41,6 +41,15 @@ const hasCapability = (context: AgentContext, capability: Capability) =>
   context.capabilities.includes(capability);
 
 /**
+ * No change runs against something the agent has not read in this run. This
+ * is what makes a rollback a fact rather than a hope.
+ */
+const requireReadFirst = (action: AgentAction, context: AgentContext): PolicyVerdict => {
+  const check = checkReadBeforeWrite(action, context.evidence);
+  return check.ok ? { executable: true } : { executable: false, requires: "read_first", reason: check.reason };
+};
+
+/**
  * Tools that only make sense on WordPress. A Meteor project must never be
  * routed into them, no matter what a reasoner proposes.
  */
