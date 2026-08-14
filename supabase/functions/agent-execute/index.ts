@@ -247,9 +247,9 @@ const SITE_HEALTH_TESTS = [
 
 /** Authenticated Site Health. Only claims what a 200 response actually proved. */
 const authenticatedHealth = async (baseUrl: string, projectId: string) => {
-  const deps = secretStoreDeps();
-  const resolved = await resolveCredential(deps, projectId, "wordpress_admin");
-  if (!resolved.ok) return { available: false as const, code: resolved.code };
+  const reader = await privateReader(projectId, baseUrl);
+  if (!reader.ok) return { available: false as const, code: reader.code };
+  const deps = reader.deps;
 
   const readable: Array<{ id: string; label: string; status: string | null }> = [];
   let unauthorized = false;
@@ -257,11 +257,7 @@ const authenticatedHealth = async (baseUrl: string, projectId: string) => {
   let reachable = false;
 
   for (const test of SITE_HEALTH_TESTS) {
-    const outcome = await authenticatedGet(
-      baseUrl,
-      `/wp-json/wp-site-health/v1/tests/${test}`,
-      resolved.credential,
-    );
+    const outcome = await reader.get(`/wp-json/wp-site-health/v1/tests/${test}`);
     if (outcome.ok) {
       reachable = true;
       try {
