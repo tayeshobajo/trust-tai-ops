@@ -5,6 +5,7 @@ import {
   writeReasonModelId,
 } from "./agent-core/reasonModels";
 import type { AuthState, Organization, RepositoryHealth } from "./types";
+import { SuiteAcceptancePanel } from "./SuiteAcceptancePanel";
 
 type Props = {
   workspace: Organization;
@@ -126,6 +127,8 @@ export function SettingsPage({ workspace, authState, repositoryHealth, onSignOut
           </div>
         </dl>
       </section>
+
+      <SuiteAcceptancePanel workspace={workspace} />
     </div>
   );
 }
