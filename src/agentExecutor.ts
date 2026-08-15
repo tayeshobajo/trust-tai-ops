@@ -176,12 +176,11 @@ const speakTurn = async (
             `${fixPlan.rationale}`,
             ...fixPlan.steps.map((s, i) => `${i + 1}. ${s.label}`),
             `Risk level: ${fixPlan.risk}.`,
-            fixPlan.requiresConfirmation ?? fixPlan.risk !== "low"
+            !fixPlan.canAutoExecute || fixPlan.risk !== "low"
               ? "This requires your approval before I proceed."
               : "I can run this automatically if you\'d like.",
           ],
           dedupeKey: `fix-plan-${context.run.id}`,
-          metadata: { fix_plan: fixPlan },
         });
 
         // Store the fix plan as pending evidence so the orchestrator can
@@ -194,8 +193,8 @@ const speakTurn = async (
           JSON.stringify(fixPlan).slice(0, 2000),
         );
 
-        // Advance run to approval_required state so the UI shows the card.
-        await workspaceRepository.advanceRun(context.project.id, context.run.id, "approval_required").catch(() => undefined);
+        // Advance the run to the plan state so the UI shows the approval card.
+        await workspaceRepository.advanceRun(context.project.id, context.run.id, "plan").catch(() => undefined);
       }
     } catch {
       // Fix planning is an enhancement. The diagnosis already closed out.
@@ -450,7 +449,7 @@ const executeFixPlan = async (context: AgentStepContext): Promise<AgentStepResul
       actionId: step.stepId,
       toolId: step.toolId as GatewayRequest["toolId"],
       invocationKey: `exec-${run.id}-${step.stepId}`,
-      args: step.args,
+      args: step.args as GatewayRequest["args"],
     };
 
     let result: Awaited<ReturnType<typeof gateway.invoke>>;
