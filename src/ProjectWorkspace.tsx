@@ -113,8 +113,6 @@ const agentStateLabel = (run: Run | null) => {
   switch (run.state) {
     case "execution":
       return "Applying fix";
-    case "approval_required":
-      return "Awaiting approval";
     case "qa":
       return "Running final checks";
     case "recommendations":
@@ -1764,7 +1762,7 @@ export function ProjectWorkspace({
                   {message.kind === "fix_plan" ? (() => {
                     // Parse the structured fix-plan body:
                     // [0] header, [1] rationale, [2..N-2] numbered steps, [N-1] risk line, [N] approval prompt
-                    const riskLine = message.body.findLast?.((l) => l.startsWith("Risk level:")) ?? "";
+                    const riskLine = [...message.body].reverse().find((l: string) => l.startsWith("Risk level:")) ?? "";
                     const riskMatch = riskLine.match(/Risk level:\s*(\w+)/i);
                     const riskLevel = riskMatch?.[1]?.toLowerCase() ?? "medium";
                     const riskTone = riskLevel === "low" ? "good" : riskLevel === "high" || riskLevel === "critical" ? "bad" : "warn";
