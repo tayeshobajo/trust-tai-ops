@@ -449,7 +449,7 @@ const executeFixPlan = async (context: AgentStepContext): Promise<AgentStepResul
       actionId: step.stepId,
       toolId: step.toolId as GatewayRequest["toolId"],
       invocationKey: `exec-${run.id}-${step.stepId}`,
-      args: step.args,
+      args: step.args as GatewayRequest["args"],
     };
 
     let result: Awaited<ReturnType<typeof gateway.invoke>>;
