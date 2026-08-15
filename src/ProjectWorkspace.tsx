@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildSiteHealth } from "./health";
 import type { AgentEvidence } from "./agent-core/types";
-import type { AccessType, NewProjectMessage, Organization, Project, ProjectMessage, Run, RunDraft } from "./types";
+import type { AccessType, MessageKind, NewProjectMessage, Organization, Project, ProjectMessage, Run, RunDraft } from "./types";
 import { buildThread, draftFromBrief } from "./conversation";
 import type { DecisionKind, ThreadCard, ThreadDiff, ThreadMessage } from "./conversation";
 import { constraintAlreadyStored, detectConstraints } from "./agent-core/constraints";
@@ -98,6 +98,7 @@ type ProjectWorkspaceProps = {
 type ViewItem = {
   key: string;
   role: "user" | "agent" | "system";
+  kind?: MessageKind;
   body: string[];
   createdAt: string | null;
   card?: ThreadCard;
@@ -112,6 +113,8 @@ const agentStateLabel = (run: Run | null) => {
   switch (run.state) {
     case "execution":
       return "Applying fix";
+    case "approval_required":
+      return "Awaiting approval";
     case "qa":
       return "Running final checks";
     case "recommendations":
@@ -422,6 +425,7 @@ export function ProjectWorkspace({
       return runMessages.map((message) => ({
         key: message.id,
         role: message.role,
+        kind: message.kind,
         body: message.body,
         createdAt: message.createdAt,
       }));
@@ -433,6 +437,7 @@ export function ProjectWorkspace({
         ...thread.map((message) => ({
           key: message.id,
           role: message.role,
+          kind: kindForThreadMessage(message),
           body: message.body,
           createdAt: null,
           card: message.card,
@@ -442,6 +447,7 @@ export function ProjectWorkspace({
         ...runMessages.map((message) => ({
           key: message.id,
           role: message.role,
+          kind: message.kind,
           body: message.body,
           createdAt: message.createdAt,
         })),
@@ -454,11 +460,12 @@ export function ProjectWorkspace({
       return {
         key: message.id,
         role: message.role,
+        kind: message.kind,
         body: message.body,
         createdAt: message.createdAt,
         card: source?.card,
         diff: source?.diff,
-        decision: source?.decision,
+        decision: source?.decision ?? (message.kind === "fix_plan" ? "approval" : undefined),
       };
     });
 
@@ -469,6 +476,7 @@ export function ProjectWorkspace({
       items.push({
         key: `pending-${message.id}`,
         role: message.role,
+        kind: kindForThreadMessage(message),
         body: message.body,
         createdAt: null,
         card: message.card,
@@ -1753,7 +1761,34 @@ export function ProjectWorkspace({
                       {message.createdAt ? <time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time> : null}
                     </span>
                   ) : null}
-                  {message.body.map((paragraph, index) => (
+                  {message.kind === "fix_plan" ? (() => {
+                    // Parse the structured fix-plan body:
+                    // [0] header, [1] rationale, [2..N-2] numbered steps, [N-1] risk line, [N] approval prompt
+                    const riskLine = message.body.findLast?.((l) => l.startsWith("Risk level:")) ?? "";
+                    const riskMatch = riskLine.match(/Risk level:\s*(\w+)/i);
+                    const riskLevel = riskMatch?.[1]?.toLowerCase() ?? "medium";
+                    const riskTone = riskLevel === "low" ? "good" : riskLevel === "high" || riskLevel === "critical" ? "bad" : "warn";
+                    const steps = message.body.filter((l) => /^\d+\./.test(l));
+                    const rationale = message.body[1] ?? "";
+                    return (
+                      <>
+                        <p>{searching ? <Highlight text={message.body[0] ?? ""} query={query} /> : message.body[0]}</p>
+                        {rationale ? <p className="pw-fixplan-rationale">{rationale}</p> : null}
+                        {steps.length > 0 ? (
+                          <ol className="pw-fixplan-steps">
+                            {steps.map((step, i) => (
+                              <li key={i}>{step.replace(/^\d+\.\s*/, "")}</li>
+                            ))}
+                          </ol>
+                        ) : null}
+                        {riskLine ? (
+                          <p className={`pw-fixplan-risk tone-${riskTone}`}>
+                            <strong>Risk:</strong> {riskLevel}
+                          </p>
+                        ) : null}
+                      </>
+                    );
+                  })() : message.body.map((paragraph, index) => (
                     <p key={index}>{searching ? <Highlight text={paragraph} query={query} /> : paragraph}</p>
                   ))}
                   {message.card ? (

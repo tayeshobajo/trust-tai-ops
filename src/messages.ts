@@ -29,6 +29,7 @@ export const contentSignature = (role: string, body: string[]): string =>
 export const kindForThreadMessage = (message: ThreadMessage): MessageKind => {
   if (message.decision) return "decision_request";
   if (isVolatile(message.id)) return "status_update";
+  if (message.id.startsWith("fix-plan-")) return "fix_plan";
   return "message";
 };
 

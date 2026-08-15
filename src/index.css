@@ -3845,6 +3845,44 @@ button:focus-visible {
   box-shadow: var(--tt-shadow-sm);
 }
 
+/* Fix-plan message block */
+.pw-fixplan-rationale {
+  color: var(--tt-ink-soft);
+  font-size: 0.88rem;
+  margin-top: var(--tt-space-2);
+  margin-bottom: var(--tt-space-2);
+}
+
+.pw-fixplan-steps {
+  margin: var(--tt-space-3) 0;
+  padding-left: var(--tt-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+}
+
+.pw-fixplan-steps li {
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.pw-fixplan-risk {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  margin-top: var(--tt-space-2);
+  background: var(--tt-surface);
+  border: 1px solid currentColor;
+}
+
+.pw-fixplan-risk.tone-good { color: var(--tt-success); }
+.pw-fixplan-risk.tone-warn { color: var(--tt-warning); }
+.pw-fixplan-risk.tone-bad { color: var(--tt-danger); }
+
 .pw-diff {
   margin-top: var(--tt-space-3);
   border: 1px solid var(--tt-rule);

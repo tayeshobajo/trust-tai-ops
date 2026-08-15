@@ -219,6 +219,14 @@ export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
         messages.push({ id: `${run.id}-plan-working`, role: "agent", body: ["I'll carry on and apply the fix now."] });
       }
       break;
+    case "approval_required":
+      messages.push({
+        id: `fix-plan-${run.id}`,
+        role: "agent",
+        body: ["I've put together a fix plan for this. Review the steps below and approve when you're ready."],
+        decision: "approval",
+      });
+      break;
     case "qa":
       messages.push({
         id: `${run.id}-qa-working`,
