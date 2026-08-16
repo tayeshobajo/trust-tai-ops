@@ -194,16 +194,41 @@ export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
         decision: "backup",
       });
       break;
-    case "plan":
+    case "plan": {
       if (run.approvalRequired) {
         const pending = run.approvals.find(
           (approval) => approval.type === "high_risk_execution" && approval.status === "pending",
         );
+        // Fallback diff: pull the first fix-plan step preview out of the
+        // fix_plan artifact (stored as FixPlanResult JSON in its summary)
+        // when the pending approval carries no preview of its own.
+        let fixPlanDiff: ThreadDiff | undefined;
+        const fixPlanArtifact = run.artifacts.find((a) => a.type === "fix_plan");
+        if (!pending?.preview && fixPlanArtifact?.summary) {
+          try {
+            const fp = JSON.parse(fixPlanArtifact.summary) as {
+              steps?: Array<{ preview?: { target: string; before: string; after: string; irreversible?: string } }>;
+            };
+            const firstPreview = fp.steps?.find((s) => s.preview)?.preview;
+            if (firstPreview) {
+              fixPlanDiff = {
+                target: firstPreview.target,
+                before: firstPreview.before,
+                after: firstPreview.after,
+                irreversible: firstPreview.irreversible,
+              };
+            }
+          } catch {
+            // Malformed JSON in artifact summary — skip the diff, still show approval.
+          }
+        }
         messages.push({
           id: `${run.id}-decision-approval`,
           role: "agent",
           body: [
-            "If you're happy with that approach, I'll apply it now and verify the result. If anything looks wrong afterwards I'll roll it straight back.",
+            fixPlanArtifact
+              ? "I've put together a fix plan for this. Review the steps below and approve when you're ready."
+              : "If you're happy with that approach, I'll apply it now and verify the result. If anything looks wrong afterwards I'll roll it straight back.",
           ],
           diff: pending?.preview
             ? {
@@ -212,43 +237,12 @@ export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
                 after: pending.preview.after,
                 irreversible: pending.preview.irreversible,
               }
-            : undefined,
+            : fixPlanDiff,
           decision: "approval",
         });
       } else {
         messages.push({ id: `${run.id}-plan-working`, role: "agent", body: ["I'll carry on and apply the fix now."] });
       }
-      break;
-    case "approval_required": {
-      // Attach a diff preview from the first fix-plan step that has one.
-      // The fix_plan artifact stores the FixPlanResult as JSON in its summary.
-      let approvalDiff: ThreadDiff | undefined;
-      const fixPlanArtifact = run.artifacts.find((a) => a.type === "fix_plan");
-      if (fixPlanArtifact?.summary) {
-        try {
-          const fp = JSON.parse(fixPlanArtifact.summary) as {
-            steps?: Array<{ preview?: { target: string; before: string; after: string; irreversible?: string } }>;
-          };
-          const firstPreview = fp.steps?.find((s) => s.preview)?.preview;
-          if (firstPreview) {
-            approvalDiff = {
-              target: firstPreview.target,
-              before: firstPreview.before,
-              after: firstPreview.after,
-              irreversible: firstPreview.irreversible,
-            };
-          }
-        } catch {
-          // Malformed JSON in artifact summary — skip the diff, still show approval.
-        }
-      }
-      messages.push({
-        id: `fix-plan-${run.id}`,
-        role: "agent",
-        body: ["I've put together a fix plan for this. Review the steps below and approve when you're ready."],
-        diff: approvalDiff,
-        decision: "approval",
-      });
       break;
     }
     case "qa": {
