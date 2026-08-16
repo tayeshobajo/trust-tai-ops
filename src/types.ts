@@ -218,7 +218,7 @@ export type RunAction = {
 
 export type RunArtifact = {
   id: string;
-  type: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report" | "fix_plan";
+  type: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report" | "fix_plan" | "execution_failed";
   title: string;
   summary: string;
 };

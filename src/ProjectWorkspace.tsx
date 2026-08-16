@@ -1506,6 +1506,49 @@ export function ProjectWorkspace({
       );
     }
 
+    if (kind === "rollback") {
+      return (
+        <div className="decision-actions">
+          <button
+            className="danger-button"
+            type="button"
+            disabled={!canWrite || busy}
+            onClick={async () => {
+              const claim = `decision-rollback-${run.id}`;
+              if (decisionRef.current.has(claim)) return;
+              decisionRef.current.add(claim);
+              try {
+                await apply(
+                  () => workspaceRepository.rollbackRun(project.id, run.id, "Owner requested rollback after failed fix execution."),
+                  "Rolling back to the last known-good state now.",
+                  `decision-rollback-confirm-${run.id}`,
+                );
+              } catch (error) {
+                decisionRef.current.delete(claim);
+                throw error;
+              }
+              await emit({
+                runId: run.id,
+                role: "user",
+                kind: "decision_response",
+                body: ["Roll back to the last known-good state."],
+                dedupeKey: claim,
+              });
+            }}
+          >
+            Roll back now
+          </button>
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => composerRef.current?.focus()}
+          >
+            Wait for assessment
+          </button>
+        </div>
+      );
+    }
+
     return null;
   };
 

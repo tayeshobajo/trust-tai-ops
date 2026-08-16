@@ -500,6 +500,20 @@ const executeFixPlan = async (context: AgentStepContext): Promise<AgentStepResul
 
   await sayStep(context, "execute-done", [summaryLine], "status_update");
 
+  // If any step failed, record a marker so the QA phase can surface the
+  // rollback decision card. Best-effort: never blocks the advance.
+  if (!allOk) {
+    await workspaceRepository
+      .addEvidence(
+        project.id,
+        run.id,
+        "execution_failed",
+        "Fix execution had failures",
+        "One or more fix steps did not complete successfully. Review the site and decide whether to roll back.",
+      )
+      .catch(() => undefined);
+  }
+
   // Advance to QA regardless of outcome — the re-observation tells the truth.
   try {
     const next = await workspaceRepository.advanceRun(project.id, run.id, "qa");

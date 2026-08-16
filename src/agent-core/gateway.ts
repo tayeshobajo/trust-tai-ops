@@ -70,6 +70,13 @@ export type FixStep = {
   risk: "low" | "medium" | "high";
   backupFirst: boolean;
   requiresConfirmation: boolean;
+  /** Optional before/after diff the reasoner inferred from evidence. */
+  preview?: {
+    target: string;
+    before: string;
+    after: string;
+    irreversible?: string;
+  };
 };
 
 export type FixPlanResult = {

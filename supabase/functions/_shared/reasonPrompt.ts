@@ -452,6 +452,18 @@ export type FixStep = {
   backupFirst: boolean;
   /** True if this step needs explicit human approval before running */
   requiresConfirmation: boolean;
+  /**
+   * Optional diff preview for this step. Present when the reasoner can infer
+   * a before/after from the diagnosis evidence (e.g. disabling a plugin,
+   * changing a wp_option value). Omit when the change cannot be predicted
+   * without a live read — the executor will note the gap.
+   */
+  preview?: {
+    target: string;
+    before: string;
+    after: string;
+    irreversible?: string;
+  };
 };
 
 export type FixPlan = {
@@ -483,7 +495,8 @@ export const FIX_PLAN_SYSTEM_PROMPT = [
   "4. Mark backupFirst: true for any step that modifies a file or REST resource.",
   "5. Mark requiresConfirmation: true for any step that is irreversible or high-risk.",
   "6. Keep the plan minimal: fix the root cause, not every symptom.",
-  "7. Return ONLY valid JSON matching the schema. No explanation outside the JSON.",
+  "7. For each step, add a \"preview\" object when you can infer the before/after from evidence (e.g. disabling a plugin: before=\"active\", after=\"deactivated\"). Omit preview when you cannot predict the current state without a live read.",
+  "8. Return ONLY valid JSON matching the schema. No explanation outside the JSON.",
   "",
   "Respond with a JSON object matching this exact schema:",
   "{",
@@ -497,7 +510,8 @@ export const FIX_PLAN_SYSTEM_PROMPT = [
   "      \"args\": {},",
   "      \"risk\": \"low\",",
   "      \"backupFirst\": false,",
-  "      \"requiresConfirmation\": false",
+  "      \"requiresConfirmation\": false,",
+  "      \"preview\": { \"target\": \"LiteSpeed cache\", \"before\": \"cache populated\", \"after\": \"cache cleared\" }",
   "    }",
   "  ],",
   "  \"verificationGoal\": \"What to check after the fix to confirm it worked.\",",
@@ -594,6 +608,25 @@ export const parseFixPlan = (content: string): FixPlan | null => {
       if (!ALLOWED_WRITE_TOOL_IDS.has(toolId)) continue;
       if (stepId && !ALLOWED_STEP_IDS.has(stepId)) continue;
       const risk = ["low", "medium", "high"].includes(String(step.risk)) ? (String(step.risk) as FixStep["risk"]) : "medium";
+      // Parse optional diff preview. Only scalar strings accepted — never
+      // objects that might carry nested secrets from the diagnosis context.
+      let preview: FixStep["preview"] | undefined;
+      if (step.preview && typeof step.preview === "object") {
+        const p = step.preview as Record<string, unknown>;
+        const target = safeStr(p.target, 120);
+        const before = safeStr(p.before, 400);
+        const after = safeStr(p.after, 400);
+        if (target && (before || after)) {
+          preview = {
+            target,
+            before: before || "(unknown)",
+            after: after || "(unchanged)",
+            ...(typeof p.irreversible === "string" && p.irreversible
+              ? { irreversible: p.irreversible.slice(0, 200) }
+              : {}),
+          };
+        }
+      }
       steps.push({
         stepId: stepId || "fix-via-wp-cli",
         toolId,
@@ -602,6 +635,7 @@ export const parseFixPlan = (content: string): FixPlan | null => {
         risk,
         backupFirst: step.backupFirst === true,
         requiresConfirmation: step.requiresConfirmation === true || risk === "high",
+        ...(preview ? { preview } : {}),
       });
     }
     if (steps.length === 0) return null;

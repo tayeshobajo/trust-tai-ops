@@ -20,7 +20,7 @@ export type ThreadDiff = {
   irreversible?: string;
 };
 
-export type DecisionKind = "access" | "backup" | "approval" | null;
+export type DecisionKind = "access" | "backup" | "approval" | "rollback" | null;
 
 export type ThreadMessage = {
   id: string;
@@ -219,13 +219,61 @@ export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
         messages.push({ id: `${run.id}-plan-working`, role: "agent", body: ["I'll carry on and apply the fix now."] });
       }
       break;
-    case "qa":
+    case "approval_required": {
+      // Attach a diff preview from the first fix-plan step that has one.
+      // The fix_plan artifact stores the FixPlanResult as JSON in its summary.
+      let approvalDiff: ThreadDiff | undefined;
+      const fixPlanArtifact = run.artifacts.find((a) => a.type === "fix_plan");
+      if (fixPlanArtifact?.summary) {
+        try {
+          const fp = JSON.parse(fixPlanArtifact.summary) as {
+            steps?: Array<{ preview?: { target: string; before: string; after: string; irreversible?: string } }>;
+          };
+          const firstPreview = fp.steps?.find((s) => s.preview)?.preview;
+          if (firstPreview) {
+            approvalDiff = {
+              target: firstPreview.target,
+              before: firstPreview.before,
+              after: firstPreview.after,
+              irreversible: firstPreview.irreversible,
+            };
+          }
+        } catch {
+          // Malformed JSON in artifact summary — skip the diff, still show approval.
+        }
+      }
       messages.push({
-        id: `${run.id}-qa-working`,
+        id: `fix-plan-${run.id}`,
         role: "agent",
-        body: ["Give me a moment while I confirm the site is behaving properly, then I'll write up the result."],
+        body: ["I've put together a fix plan for this. Review the steps below and approve when you're ready."],
+        diff: approvalDiff,
+        decision: "approval",
       });
       break;
+    }
+    case "qa": {
+      // If execution had failures, surface a rollback decision alongside the
+      // normal re-observation so the user can choose immediately.
+      const hasFailedExecution = run.artifacts.some((a) => a.type === "execution_failed");
+      if (hasFailedExecution) {
+        messages.push({
+          id: `${run.id}-qa-rollback`,
+          role: "agent",
+          body: [
+            "One or more fix steps didn't complete successfully. I'm re-observing the site now to assess the actual state.",
+            "You can roll back to the last known-good state while I finish checking, or wait for my full assessment.",
+          ],
+          decision: "rollback",
+        });
+      } else {
+        messages.push({
+          id: `${run.id}-qa-working`,
+          role: "agent",
+          body: ["Give me a moment while I confirm the site is behaving properly, then I'll write up the result."],
+        });
+      }
+      break;
+    }
     case "complete":
       messages.push({
         id: `${run.id}-complete`,
