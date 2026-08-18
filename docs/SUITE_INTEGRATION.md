@@ -19,6 +19,42 @@ technical operational state. Nothing was migrated in either direction.
 | server-side token exchange | `supabase/functions/os-sso-exchange/index.ts` |
 | Ops-side link columns | `db/migrations/20260834_os_suite_link.sql` |
 | acceptance checks | `scripts/suite-checks.ts` (`npm run check:suite`) |
+| Core-facing project read projection | `src/suite/projection.ts`, writer in `src/suite/client.ts` |
+| Core-side DDL Core must apply | `db/core-contract/ops_project_projection.sql` |
+
+## The Core project read projection (`public.ops_project_projection`)
+
+Ops stays the canonical owner of Ops projects. Core receives a synchronized
+read projection so `cmd.trusttai.com` can list real Ops projects and open them,
+without a competing editable copy.
+
+- **Table (in Core):** `public.ops_project_projection` — DDL in
+  `db/core-contract/ops_project_projection.sql`. **Core must apply it**; Ops has
+  no schema access to the Core project.
+- **Upsert key:** `(organization_id, ops_project_id)` —
+  `?on_conflict=organization_id,ops_project_id` with
+  `Prefer: resolution=merge-duplicates`, so replays never duplicate.
+- **Who writes:** the Ops browser, with the Core publishable key plus the
+  signed-in Core user's bearer token. Core RLS is the boundary; cross-org
+  writes are impossible by construction.
+- **Columns:** `ops_project_id`, `organization_id`, `canonical_project_id`,
+  `client_label`, `project_name`, `primary_domain`, `status`,
+  `lifecycle_state` (`active|archived|removed`), `health`, `needs_attention`,
+  `owner`, `open_issues`, `open_approvals`, `open_recommendations`,
+  `open_risks`, `last_activity_at`, `ops_path`, `ops_url`,
+  `source_updated_at`, `synced_at`.
+- **Unknown stays unknown:** any count Ops has not loaded is `NULL`. Core must
+  render `NULL` as "unknown", never as `0`.
+- **Deep link:** `ops_path` is `/projects/<ops_project_id>` and is exactly what
+  Core should pass as `targetPath` in the SSO handoff; `ops_url` is the same
+  destination as an absolute URL for a new tab.
+- **Lifecycle:** archive and removal are projected (`lifecycle_state`), never
+  silently dropped. There is no delete policy.
+- **Activity:** real Ops movement continues to flow into `public.activities`
+  through the existing signal path. No event is fabricated.
+
+Until Core applies the DDL, the writer reports
+`{ status: "unavailable", reason: "contract_missing" }` and Ops is unaffected.
 
 ## The live OS activities contract
 
