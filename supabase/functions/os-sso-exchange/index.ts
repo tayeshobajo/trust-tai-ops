@@ -84,7 +84,10 @@ Deno.serve(async (req) => {
     }
 
     const osUser = await verifyOsToken(osAccessToken);
-    if (!osUser) return json({ error: "os_token_rejected" }, 401);
+    if (!osUser) {
+      console.log("sso_refused os_token_rejected");
+      return json({ error: "os_token_rejected" }, 401);
+    }
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -167,7 +170,10 @@ Deno.serve(async (req) => {
     });
 
     const tokenHash = link?.properties?.hashed_token;
-    if (linkError || !tokenHash) return json({ error: "session_bootstrap_failed" }, 500);
+    if (linkError || !tokenHash) {
+      console.log("sso_failed session_bootstrap_failed", JSON.stringify({ email }));
+      return json({ error: "session_bootstrap_failed", email }, 500);
+    }
 
     return json({
       ok: true,
