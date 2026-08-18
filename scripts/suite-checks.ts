@@ -18,6 +18,8 @@ import { join } from "node:path";
 
 import {
   isAllowedOrigin,
+  sanitizeTargetPath,
+  projectIdFromTargetPath,
   locationCarriesToken,
   parseOriginAllowlist,
   readHandoffMessage,
@@ -43,7 +45,7 @@ import {
   describeSyncResult,
   resolveAcceptanceTarget,
 } from "../src/suite/acceptance.ts";
-import { isQaAutoLoginEnabled, resolveOpsEnv } from "../src/env.ts";
+import { isQaAutoLoginEnabled, osOriginSourceForBuild, resolveOpsEnv, OS_PRODUCTION_ORIGIN } from "../src/env.ts";
 import type { Project } from "../src/types.ts";
 
 const failures: string[] = [];
@@ -459,7 +461,93 @@ check(
     describeSyncResult({ status: "unavailable", reason: "no_os_session" }).detail.includes("no os session"),
 );
 
+console.log("\nproduction Core origin is trusted, preview origins stay out of production");
+
+const PROD_ORIGIN = "https://cmd.trusttai.com";
+const PREVIEW_ORIGIN = "https://id-preview--65944e34-ede5-4757-befb-870e1ff97444.lovable.app";
+const baseEnv = resolveOpsEnv();
+const prodEnv = {
+  ...baseEnv,
+  isProductionBuild: true,
+  osOriginAllowlistRaw: PREVIEW_ORIGIN,
+  osProductionOriginsRaw: PROD_ORIGIN,
+};
+const devEnv = { ...prodEnv, isProductionBuild: false };
+const prodAllow = parseOriginAllowlist(osOriginSourceForBuild(prodEnv));
+const devAllow = parseOriginAllowlist(osOriginSourceForBuild(devEnv));
+
+check("the production Core origin constant is cmd.trusttai.com", OS_PRODUCTION_ORIGIN === PROD_ORIGIN);
+check("a production build trusts the production Core origin", prodAllow.includes(PROD_ORIGIN));
+check("a production build does not trust preview origins", !prodAllow.includes(PREVIEW_ORIGIN));
+check("a production build trusts nothing else", prodAllow.length === 1);
+check("a preview build still trusts its preview origin", devAllow.includes(PREVIEW_ORIGIN));
+check("a preview build also accepts the real production Core origin", devAllow.includes(PROD_ORIGIN));
+check(
+  "a production handoff from Core is accepted",
+  readHandoffMessage({ ...handoff(), origin: PROD_ORIGIN }, prodAllow).ok,
+);
+check(
+  "a malicious lookalike of the production origin is rejected",
+  !readHandoffMessage({ ...handoff(), origin: "https://cmd.trusttai.com.attacker.test" }, prodAllow).ok &&
+    !readHandoffMessage({ ...handoff(), origin: "http://cmd.trusttai.com" }, prodAllow).ok,
+);
+check(
+  "the landing surface reads the environment-separated allowlist",
+  read("src/SsoLanding.tsx").includes("osOriginSourceForBuild"),
+);
+
+console.log("\ntargetPath deep links stay inside this app");
+
+check("a project deep link is accepted", sanitizeTargetPath("/project/" + OS_ORG) === "/project/" + OS_ORG);
+check("an absolute external url is refused", sanitizeTargetPath("https://evil.test/x") === null);
+check("a protocol-relative path is refused", sanitizeTargetPath("//evil.test/x") === null);
+check("a javascript scheme is refused", sanitizeTargetPath("/\tjavascript:alert(1)") === null);
+check("a backslash escape is refused", sanitizeTargetPath("/\\evil.test") === null);
+check("traversal is refused", sanitizeTargetPath("/project/../../admin") === null);
+check("an encoded escape is refused", sanitizeTargetPath("/%2f%2fevil.test") === null);
+check("a non-string is refused", sanitizeTargetPath(undefined) === null && sanitizeTargetPath(42) === null);
+check("landing back on the handoff surface is refused", sanitizeTargetPath("/sso") === null);
+check(
+  "a handoff carries its sanitized target path",
+  (readHandoffMessage(handoff({ targetPath: "/project/" + OS_ORG }), ALLOWLIST) as { handoff: { targetPath: string | null } }).handoff.targetPath ===
+    "/project/" + OS_ORG,
+);
+check(
+  "a hostile target path is dropped without rejecting the handoff",
+  (() => {
+    const result = readHandoffMessage(handoff({ targetPath: "https://evil.test" }), ALLOWLIST);
+    return result.ok && result.handoff.targetPath === null;
+  })(),
+);
+check("a project id is read from a sanitized path", projectIdFromTargetPath("/project/" + OS_ORG) === OS_ORG);
+check("no project id is invented from an unrelated path", projectIdFromTargetPath("/settings") === null);
+check(
+  "the app only deep links to a project the session can actually see",
+  read("src/App.tsx").includes("projectIdFromTargetPath") && read("src/App.tsx").includes("stored.projects.some"),
+);
+
+console.log("\nthe exchange proves identity server-side and fails closed");
+
+const exchangeSource = read("supabase/functions/os-sso-exchange/index.ts");
+check("Core tokens are verified against the OS auth service", exchangeSource.includes("/auth/v1/user"));
+check("an unverified token is rejected before any identity decision", exchangeSource.includes("os_token_rejected"));
+check("a caller with no Ops membership is refused", exchangeSource.includes("no_ops_membership"));
+check("a disabled Ops account is refused", exchangeSource.includes("ops_access_disabled"));
+check(
+  "membership is resolved exactly, never fuzzily",
+  exchangeSource.includes('.eq("trust_tai_os_user_id"') && exchangeSource.includes('.eq("email"') && !exchangeSource.includes(".ilike("),
+);
+check(
+  "the browser receives a single-use OTP hash, never a service key",
+  exchangeSource.includes("hashed_token") && !exchangeSource.includes("return json({ ok: true, serviceRole"),
+);
+check(
+  "the Ops session is minted through the normal Supabase client",
+  read("src/suite/client.ts").includes("verifyOtp"),
+);
+
 console.log("");
+
 if (failures.length > 0) {
   console.log(`${failures.length} suite integration check(s) failed.`);
   process.exit(1);
