@@ -7,6 +7,7 @@ type LandingState =
   | { phase: "waiting" }
   | { phase: "exchanging" }
   | { phase: "ready"; email: string }
+  | { phase: "timed_out" }
   | { phase: "failed"; detail: string };
 
 const FAILURE_COPY: Record<string, string> = {
@@ -18,6 +19,10 @@ const FAILURE_COPY: Record<string, string> = {
   ops_access_disabled: "Ops access for this account is disabled.",
   os_not_configured: "The suite connection is not configured for this deployment.",
 };
+
+/** How long to keep announcing readiness before saying plainly that nothing arrived. */
+const READY_PING_INTERVAL_MS = 400;
+const HANDOFF_TIMEOUT_MS = 12000;
 
 /**
  * The /sso landing state. It waits for a postMessage from an exactly-matched
@@ -46,8 +51,12 @@ export function SsoLanding({ onSignedIn }: { onSignedIn: (targetPath: string | n
       if (done) return;
 
       // Only the window that opened us (or embeds us) may hand over a session.
-      const expectedSource = window.opener ?? window.parent;
+      // `window.parent === window` for a normal tab, which is not a real
+      // relationship, so it is not treated as an expected source.
+      const parent = window.parent !== window ? window.parent : null;
+      const expectedSource = window.opener ?? parent;
       if (expectedSource && event.source !== expectedSource) return;
+      if (!expectedSource) return;
 
       const read = readHandoffMessage({ origin: event.origin, data: event.data }, allowlist);
       if (!read.ok) {
@@ -74,17 +83,43 @@ export function SsoLanding({ onSignedIn }: { onSignedIn: (targetPath: string | n
     window.addEventListener("message", handler);
 
     // Tell the opener we are listening. Posted to each allowed origin
-    // individually so no wildcard target is ever used.
-    const opener = window.opener ?? window.parent;
-    for (const origin of allowlist) {
-      try {
-        opener?.postMessage({ type: SSO_READY_TYPE }, origin);
-      } catch {
-        // A closed or cross-origin-restricted opener is not an error.
+    // individually so no wildcard target is ever used, and repeated for a
+    // short while: Core may attach its listener after Ops finishes loading,
+    // and a single ping lost to that race is what leaves a signed-in Core
+    // user staring at the Ops sign-in screen.
+    const opener = window.opener ?? (window.parent !== window ? window.parent : null);
+    const announce = () => {
+      for (const origin of allowlist) {
+        try {
+          opener?.postMessage({ type: SSO_READY_TYPE }, origin);
+        } catch {
+          // A closed or cross-origin-restricted opener is not an error.
+        }
       }
-    }
+    };
 
-    return () => window.removeEventListener("message", handler);
+    announce();
+    const pinger = window.setInterval(() => {
+      if (done) {
+        window.clearInterval(pinger);
+        return;
+      }
+      announce();
+    }, READY_PING_INTERVAL_MS);
+
+    // Never hang silently. If nothing arrives, say so explicitly rather than
+    // dropping the visitor into an unexplained sign-in screen.
+    const timer = window.setTimeout(() => {
+      if (done) return;
+      done = true;
+      setState({ phase: "timed_out" });
+    }, HANDOFF_TIMEOUT_MS);
+
+    return () => {
+      window.removeEventListener("message", handler);
+      window.clearInterval(pinger);
+      window.clearTimeout(timer);
+    };
   }, [onSignedIn]);
 
   return (
@@ -98,11 +133,13 @@ export function SsoLanding({ onSignedIn }: { onSignedIn: (targetPath: string | n
             {state.phase === "waiting" && "Waiting for Trust Tai OS to hand over your session."}
             {state.phase === "exchanging" && "Confirming who you are with Trust Tai OS."}
             {state.phase === "ready" && `Signed in as ${state.email}. Taking you to your projects.`}
+            {state.phase === "timed_out" &&
+              "Trust Tai OS did not hand over a session. Open Ops again from Trust Tai OS, or sign in to Ops directly."}
             {state.phase === "failed" && state.detail}
           </p>
         </div>
 
-        {state.phase === "failed" && (
+        {(state.phase === "failed" || state.phase === "timed_out") && (
           <button type="button" className="primary-button" onClick={() => { window.location.href = "/"; }}>
             Sign in to Ops directly
           </button>
