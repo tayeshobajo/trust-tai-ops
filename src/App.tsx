@@ -435,6 +435,7 @@ function App() {
           workspace={workspace}
           authState={authState}
           repositoryHealth={repositoryHealth}
+          onOpenAdminAccess={() => setWorkspaceView("admin_access")}
           onSignOut={async () => {
             await signOutIfSupported();
             setAuthState({
