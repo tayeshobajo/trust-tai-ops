@@ -111,7 +111,7 @@ Deno.serve(async (req) => {
       const byEmail = await admin
         .from("users")
         .select("id, organization_id, email, role, status, auth_user_id, trust_tai_os_user_id")
-        .ilike("email", normalizedEmail)
+        .eq("email", normalizedEmail)
         .maybeSingle();
       member = byEmail.data ?? null;
     }
