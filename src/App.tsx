@@ -14,6 +14,7 @@ import { ApprovalsPage } from "./ApprovalsPage";
 import { SettingsPage } from "./SettingsPage";
 import { SsoLanding } from "./SsoLanding";
 import { isSsoLandingPath, projectIdFromTargetPath } from "./suite/ssoBridge";
+import { syncProjectProjection } from "./suite/client";
 import { countPendingDecisions } from "./globalFeed";
 import { draftFromBrief } from "./conversation";
 import { describeRuntime, describeVersions } from "./stacks";
@@ -207,6 +208,9 @@ function App() {
       setActiveTab("active_run");
       setProjectDraft(starterProjectDraft());
       setSaveMessage(`Project created for ${nextProject?.name ?? "the new site"}.`);
+      // Keep the Core-facing read projection current on create. Fail-quiet:
+      // Core being unreachable never blocks project creation in Ops.
+      void syncProjectProjection(nextWorkspace.projects);
     } catch (error) {
       setSaveMessage(
         `Could not create the project: ${error instanceof Error ? error.message : "unknown error"}`,
@@ -293,6 +297,9 @@ function App() {
           try {
             const stored = await workspaceRepository.loadWorkspace();
             setWorkspace(stored);
+            // Backfill every Ops project this session can see into the
+            // Core-facing read projection, right after a verified handoff.
+            void syncProjectProjection(stored.projects);
             // Deep link only to a project this session can actually see.
             const requested = projectIdFromTargetPath(targetPath);
             const deepLinked = requested && stored.projects.some((p) => p.id === requested) ? requested : null;
