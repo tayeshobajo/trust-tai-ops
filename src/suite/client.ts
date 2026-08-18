@@ -24,7 +24,34 @@ import type { Project } from "../types";
 
 export type SsoExchangeResult =
   | { ok: true; email: string; role: string; canonicalProjectId: string | null }
-  | { ok: false; error: string };
+  | { ok: false; error: string; email?: string | null };
+
+/**
+ * `functions.invoke` reports every non-2xx answer as an error with `data`
+ * null, which would otherwise collapse an explicit authorization refusal into
+ * an anonymous failure. The function's own JSON body is the only place the
+ * real reason lives, so it is read back off the error context.
+ */
+async function readFunctionErrorBody(
+  error: unknown,
+): Promise<{ error?: string; email?: string | null } | null> {
+  const context = (error as { context?: unknown } | null)?.context as
+    | { json?: () => Promise<unknown>; clone?: () => Response }
+    | undefined;
+  if (!context || typeof context.json !== "function") return null;
+  try {
+    const body = (await (context.clone ? context.clone().json() : context.json())) as {
+      error?: unknown;
+      email?: unknown;
+    };
+    return {
+      error: typeof body?.error === "string" ? body.error : undefined,
+      email: typeof body?.email === "string" ? body.email : null,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Exchanges a verified-by-the-server OS token for a local Ops session.
@@ -45,7 +72,10 @@ export async function exchangeOsHandoff(handoff: SsoHandoff): Promise<SsoExchang
       },
     });
 
-    if (error) return { ok: false, error: "sso_exchange_failed" };
+    if (error) {
+      const body = await readFunctionErrorBody(error);
+      return { ok: false, error: body?.error ?? "sso_exchange_failed", email: body?.email ?? null };
+    }
 
     const payload = data as {
       ok?: boolean;
