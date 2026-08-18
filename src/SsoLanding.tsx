@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { exchangeOsHandoff } from "./suite/client";
 import { readHandoffMessage, parseOriginAllowlist, SSO_READY_TYPE, locationCarriesToken } from "./suite/ssoBridge";
-import { resolveOpsEnv } from "./env";
+import { osOriginSourceForBuild, resolveOpsEnv } from "./env";
 
 type LandingState =
   | { phase: "waiting" }
@@ -24,12 +24,14 @@ const FAILURE_COPY: Record<string, string> = {
  * Trust Tai OS origin, hands the token straight to the server for
  * verification, and never puts it in the address bar or in storage.
  */
-export function SsoLanding({ onSignedIn }: { onSignedIn: () => void }) {
+export function SsoLanding({ onSignedIn }: { onSignedIn: (targetPath: string | null) => void }) {
   const [state, setState] = useState<LandingState>({ phase: "waiting" });
 
   useEffect(() => {
     const env = resolveOpsEnv();
-    const allowlist = parseOriginAllowlist(env.osOriginAllowlistRaw);
+    // Production bundles trust only the production Core origin; preview
+    // origins are separated by environment, never merged into production.
+    const allowlist = parseOriginAllowlist(osOriginSourceForBuild(env));
     let done = false;
 
     if (locationCarriesToken(window.location.href)) {
@@ -54,11 +56,12 @@ export function SsoLanding({ onSignedIn }: { onSignedIn: () => void }) {
       done = true;
       setState({ phase: "exchanging" });
 
+      const targetPath = read.handoff.targetPath;
       const result = await exchangeOsHandoff(read.handoff);
 
       if (result.ok) {
         setState({ phase: "ready", email: result.email });
-        onSignedIn();
+        onSignedIn(targetPath);
       } else {
         setState({ phase: "failed", detail: FAILURE_COPY[result.error] ?? "The secure handoff could not be completed." });
       }

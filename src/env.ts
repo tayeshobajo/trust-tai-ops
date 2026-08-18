@@ -20,8 +20,16 @@ export type OpsRuntimeEnv = {
   osSupabaseUrl?: string;
   osSupabasePublicKey?: string;
   osOriginAllowlistRaw?: string;
+  /**
+   * Production-only Trust Tai Core origins. Production builds trust these and
+   * nothing else; preview/dev origins are never trusted by a production bundle.
+   */
+  osProductionOriginsRaw?: string;
   opsBaseUrl: string;
 };
+
+/** The Trust Tai Core (OS) production origin. Exact, no wildcard, no preview host. */
+export const OS_PRODUCTION_ORIGIN = "https://cmd.trusttai.com";
 
 function runtimeEnv(): RuntimeEnv {
   const viteEnv = import.meta.env as RuntimeEnv | undefined;
@@ -65,8 +73,22 @@ export function resolveOpsEnv(): OpsRuntimeEnv {
     osSupabaseUrl: env.VITE_OPS_OS_SUPABASE_URL,
     osSupabasePublicKey: env.VITE_OPS_OS_SUPABASE_PUBLISHABLE_KEY ?? env.VITE_OPS_OS_SUPABASE_ANON_KEY,
     osOriginAllowlistRaw: env.VITE_OPS_OS_ORIGINS,
+    osProductionOriginsRaw: env.VITE_OPS_OS_PRODUCTION_ORIGINS ?? OS_PRODUCTION_ORIGIN,
     opsBaseUrl: env.VITE_OPS_BASE_URL ?? "https://ops.trusttai.com",
   };
+}
+
+/**
+ * The raw origin allowlist for this build, separated by environment.
+ *
+ * A production bundle trusts only the production Core origin(s). A
+ * preview/dev bundle trusts the configured preview origins, plus the
+ * production origin so a real Core session can be exercised against preview.
+ */
+export function osOriginSourceForBuild(env: OpsRuntimeEnv = resolveOpsEnv()): string {
+  const production = env.osProductionOriginsRaw ?? OS_PRODUCTION_ORIGIN;
+  if (env.isProductionBuild) return production;
+  return [env.osOriginAllowlistRaw ?? "", production].filter((part) => part.length > 0).join(",");
 }
 
 /**

@@ -13,7 +13,7 @@ import { GlobalActivityPage } from "./GlobalActivityPage";
 import { ApprovalsPage } from "./ApprovalsPage";
 import { SettingsPage } from "./SettingsPage";
 import { SsoLanding } from "./SsoLanding";
-import { isSsoLandingPath } from "./suite/ssoBridge";
+import { isSsoLandingPath, projectIdFromTargetPath } from "./suite/ssoBridge";
 import { countPendingDecisions } from "./globalFeed";
 import { draftFromBrief } from "./conversation";
 import { describeRuntime, describeVersions } from "./stacks";
@@ -285,7 +285,7 @@ function App() {
   if (ssoLanding && !authState.isAuthenticated) {
     return (
       <SsoLanding
-        onSignedIn={async () => {
+        onSignedIn={async (targetPath) => {
           const auth = await loadAuthState();
           setAuthState(auth);
           setSsoLanding(false);
@@ -293,7 +293,15 @@ function App() {
           try {
             const stored = await workspaceRepository.loadWorkspace();
             setWorkspace(stored);
-            setSelectedProjectId(stored.projects[0]?.id ?? null);
+            // Deep link only to a project this session can actually see.
+            const requested = projectIdFromTargetPath(targetPath);
+            const deepLinked = requested && stored.projects.some((p) => p.id === requested) ? requested : null;
+            setSelectedProjectId(deepLinked ?? stored.projects[0]?.id ?? null);
+            if (deepLinked) {
+              setWorkspaceView("workspace");
+              setWorkspaceSurface("conversation");
+              setActiveTab("active_run");
+            }
             setIsReady(true);
           } catch (error) {
             setFatalError(error instanceof Error ? error.message : "Workspace failed to load.");
