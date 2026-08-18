@@ -653,6 +653,36 @@ check(
   !containsSecretMaterial(projectionRow),
 );
 
+// --- presence fallback while Core has not applied the projection contract ---
+const presence = projectPresenceSignal(projectionRow);
+check(
+  "presence crosses even when the project is not canonically linked yet",
+  presence.allowUnlinked === true && presence.event === "ops.project_registered",
+);
+check(
+  "presence names the real system, with no invented metric",
+  presence.summary.includes(projectionRow.project_name) && !/\b0\b/.test(presence.summary),
+);
+check(
+  "presence re-publishes only when the project's real state changes",
+  projectPresenceSignal(projectionRow).opsEventKey === presence.opsEventKey &&
+    projectPresenceSignal({ ...projectionRow, status: "archived" }).opsEventKey !== presence.opsEventKey,
+);
+check(
+  "a presence republish is idempotent under the live activity unique key",
+  suiteDedupeKey(presence) === suiteDedupeKey(projectPresenceSignal(projectionRow)),
+);
+check(
+  "presence never invents a time it does not know",
+  projectPresenceSignal({ ...projectionRow, source_updated_at: "2026-08-01T00:00:00Z" }).occurredAt ===
+    "2026-08-01T00:00:00Z",
+);
+check(
+  "the projection writer falls back to the live activity contract, not to nothing",
+  clientSourceForFallback.includes("projectPresenceSignal") &&
+    clientSourceForFallback.includes('reason === "contract_missing"'),
+);
+
 const clientSource = read("src/suite/client.ts");
 check(
   "the projection is written with the Core user's own token, under Core RLS",
