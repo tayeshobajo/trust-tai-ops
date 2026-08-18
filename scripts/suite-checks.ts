@@ -39,6 +39,15 @@ import {
 import type { OpsSuiteSignal, SuiteActivityRow, SuiteWriteContext } from "../src/suite/osActivity.ts";
 import { buildOpsSnapshot } from "../src/suite/snapshot.ts";
 import {
+  OPS_PROJECTION_TABLE,
+  OPS_PROJECTION_CONFLICT_TARGET,
+  buildProjectProjection,
+  buildProjectionBatch,
+  markProjectionRemoved,
+  projectionPath,
+  syncProjectionRows,
+} from "../src/suite/projection.ts";
+import {
   ACCEPTANCE_SUMMARY,
   acceptanceEventKey,
   acceptanceSignal,

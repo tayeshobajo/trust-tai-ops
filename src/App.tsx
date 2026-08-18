@@ -147,6 +147,16 @@ function App() {
   const selectedProject = getProjectById(workspace, selectedProjectId);
   const activeRun = getActiveRun(selectedProject);
 
+  // Keep the Core-facing read projection current as project status, health,
+  // approvals, and activity move. No suite session means this is a no-op.
+  useEffect(() => {
+    if (!isReady || workspace.projects.length === 0) return;
+    const timer = window.setTimeout(() => {
+      void syncProjectProjection(workspace.projects);
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [isReady, workspace]);
+
   useEffect(() => {
     if (!selectedProject) {
       return;
