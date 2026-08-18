@@ -45,6 +45,10 @@ export function SsoLanding({ onSignedIn }: { onSignedIn: (targetPath: string | n
     const handler = async (event: MessageEvent) => {
       if (done) return;
 
+      // Only the window that opened us (or embeds us) may hand over a session.
+      const expectedSource = window.opener ?? window.parent;
+      if (expectedSource && event.source !== expectedSource) return;
+
       const read = readHandoffMessage({ origin: event.origin, data: event.data }, allowlist);
       if (!read.ok) {
         if (read.reason !== "not_a_handoff") {
