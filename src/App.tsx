@@ -412,11 +412,11 @@ function App() {
         onNavigate={navigateGlobal}
       />
     ) : workspaceView === "global_activity" ? (
-      <GlobalPage active="activity" onNavigate={navigateGlobal} operator={operatorLabel} approvalsCount={approvalsCount}>
+      <GlobalPage active="activity" onNavigate={navigateGlobal} operator={operatorLabel} approvalsCount={approvalsCount} showAdminAccess={isOpsAdmin}>
         <GlobalActivityPage workspace={workspace} onOpenProject={openProjectById} />
       </GlobalPage>
     ) : workspaceView === "approvals" ? (
-      <GlobalPage active="approvals" onNavigate={navigateGlobal} operator={operatorLabel} approvalsCount={approvalsCount}>
+      <GlobalPage active="approvals" onNavigate={navigateGlobal} operator={operatorLabel} approvalsCount={approvalsCount} showAdminAccess={isOpsAdmin}>
         <ApprovalsPage workspace={workspace} onOpenProject={openProjectById} />
       </GlobalPage>
     ) : workspaceView === "admin_access" ? (
@@ -430,7 +430,7 @@ function App() {
         <AdminAccessPage authState={authState} />
       </GlobalPage>
     ) : workspaceView === "settings" ? (
-      <GlobalPage active="settings" onNavigate={navigateGlobal} operator={operatorLabel} approvalsCount={approvalsCount}>
+      <GlobalPage active="settings" onNavigate={navigateGlobal} operator={operatorLabel} approvalsCount={approvalsCount} showAdminAccess={isOpsAdmin}>
         <SettingsPage
           workspace={workspace}
           authState={authState}

@@ -78,7 +78,13 @@ export function ProjectsCommandCenter({
 
   return (
     <div className={`home-shell ${mobilePreview ? "is-preview" : ""}`}>
-      <GlobalRail active="projects" onNavigate={onNavigate} operator={operator} approvalsCount={approvalsCount} />
+      <GlobalRail
+        active="projects"
+        onNavigate={onNavigate}
+        operator={operator}
+        approvalsCount={approvalsCount}
+        showAdminAccess={authState.role === "admin"}
+      />
 
       <section className="inbox-column" aria-label="Projects">
         <header className="inbox-head">
