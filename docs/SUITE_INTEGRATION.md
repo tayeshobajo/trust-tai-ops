@@ -56,6 +56,16 @@ without a competing editable copy.
 Until Core applies the DDL, the writer reports
 `{ status: "unavailable", reason: "contract_missing" }` and Ops is unaffected.
 
+### Presence fallback while the contract is missing
+
+So the Core Ops room is not empty in the meantime, a `contract_missing`
+projection falls back to the live `public.activities` contract and publishes
+one `ops.project_registered` presence row per managed system: real name,
+domain, status, health, attention state, and a `destination_route` back to the
+exact Ops project. It is keyed on the project's real state, so a republish is a
+no-op until something actually changes, and it never invents a count or a time.
+If Core rejects the event type, the write fails quiet and Ops is unaffected.
+
 ## The live OS activities contract
 
 Ops writes to `public.activities` in the OS project using exactly these

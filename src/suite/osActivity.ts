@@ -26,6 +26,10 @@ export const OPS_SUITE_EVENTS = [
   "ops.rollback_performed",
   "ops.recommendation_created",
   "ops.completed",
+  // Presence of a managed system, not a moment in time. Emitted only as the
+  // fallback for a Core that has not yet applied the projection contract, so
+  // the Ops room shows real managed systems instead of nothing.
+  "ops.project_registered",
 ] as const;
 
 export type OpsSuiteEvent = (typeof OPS_SUITE_EVENTS)[number];
@@ -48,6 +52,11 @@ export type OpsSuiteSignal = {
    * a historical time is never invented for an event whose time is unknown.
    */
   occurredAt?: string | null;
+  /**
+   * Presence-style signals describe a system Ops manages, not an event on a
+   * canonically-linked project, so they may cross without a canonical link.
+   */
+  allowUnlinked?: boolean;
 };
 
 /**
@@ -207,7 +216,7 @@ export async function syncSuiteSignal(
   }
   if (!deps) return { status: "unavailable", reason: "no_os_session" };
   if (!deps.context?.organizationId) return { status: "unavailable", reason: "no_organization" };
-  if (!signal.canonicalProjectId) return { status: "unavailable", reason: "not_linked" };
+  if (!signal.canonicalProjectId && !signal.allowUnlinked) return { status: "unavailable", reason: "not_linked" };
 
   const row = buildSuiteActivity(signal, opsBaseUrl, deps.context);
 

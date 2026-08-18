@@ -16,6 +16,7 @@ import {
   OPS_PROJECTION_TABLE,
   buildProjectionBatch,
   syncProjectionRows,
+  projectPresenceSignal,
 } from "./projection";
 import type { OpsProjectProjectionRow, ProjectionSyncDeps, ProjectionSyncResult } from "./projection";
 import type { SsoHandoff } from "./ssoBridge";
@@ -213,5 +214,20 @@ export async function syncProjectProjection(projects: Project[]): Promise<Projec
   if (!deps) return { status: "unavailable", reason: "no_os_session" };
 
   const rows = buildProjectionBatch(projects, deps.context, env.opsBaseUrl);
-  return syncProjectionRows(rows, deps);
+  const result = await syncProjectionRows(rows, deps);
+
+  // Core has not applied the projection contract yet. Rather than leaving the
+  // Ops room empty, publish real managed-system presence into the activity
+  // stream, which is already the live suite contract. Idempotent and
+  // fail-quiet: a Core that rejects the event type simply gets nothing.
+  if (result.status === "unavailable" && result.reason === "contract_missing") {
+    let published = 0;
+    for (const row of rows) {
+      const outcome = await sendSuiteSignal(projectPresenceSignal(row));
+      if (outcome.status === "written" || outcome.status === "duplicate") published += 1;
+    }
+    return { ...result, fallback: published > 0 ? "activity_stream" : "none", fallbackRows: published };
+  }
+
+  return result;
 }
