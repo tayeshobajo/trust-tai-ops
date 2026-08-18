@@ -150,14 +150,13 @@ Deno.serve(async (req) => {
 
     if (error) return json({ error: "revoke_failed", detail: error.message }, 500);
 
-    // A disabled member must not keep a live Ops session.
+    // A disabled member must not keep elevated rights on any live session.
     const authId = await admin.auth.admin
       .listUsers({ page: 1, perPage: 200 })
       .then((res) => res.data?.users?.find((u) => u.email?.toLowerCase() === email)?.id ?? null)
       .catch(() => null);
     if (authId) {
       await admin.auth.admin.updateUserById(authId, { app_metadata: { role: "viewer" } }).catch(() => null);
-      await admin.auth.admin.signOut(authId, "global").catch(() => null);
     }
 
     console.log("ops_membership_revoked", JSON.stringify({ email, by: callerEmail }));
