@@ -104,16 +104,25 @@ Deno.serve(async (req) => {
     member = byExternal.data ?? null;
 
     if (!member) {
+      const normalizedEmail = osUser.email.trim().toLowerCase();
       const byEmail = await admin
         .from("users")
         .select("id, organization_id, email, role, status, auth_user_id, trust_tai_os_user_id")
-        .eq("email", osUser.email)
+        .ilike("email", normalizedEmail)
         .maybeSingle();
       member = byEmail.data ?? null;
     }
 
-    if (!member) return json({ error: "no_ops_membership" }, 403);
-    if (member.status === "disabled") return json({ error: "ops_access_disabled" }, 403);
+    if (!member) {
+      // Identity only, never the token: a 403 is unactionable without knowing
+      // who was turned away.
+      console.log("sso_refused no_ops_membership", JSON.stringify({ email: osUser.email, osUserId: osUser.id }));
+      return json({ error: "no_ops_membership", email: osUser.email }, 403);
+    }
+    if (member.status === "disabled") {
+      console.log("sso_refused ops_access_disabled", JSON.stringify({ email: osUser.email, osUserId: osUser.id }));
+      return json({ error: "ops_access_disabled", email: osUser.email }, 403);
+    }
 
     const opsRole = String(member.role ?? "viewer");
     const email = String(member.email ?? osUser.email).toLowerCase();
