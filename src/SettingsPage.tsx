@@ -12,9 +12,10 @@ type Props = {
   authState: AuthState;
   repositoryHealth: RepositoryHealth;
   onSignOut?: () => void;
+  onOpenAdminAccess?: () => void;
 };
 
-export function SettingsPage({ workspace, authState, repositoryHealth, onSignOut }: Props) {
+export function SettingsPage({ workspace, authState, repositoryHealth, onSignOut, onOpenAdminAccess }: Props) {
   const [modelId, setModelId] = useState(readReasonModelId);
   const selected = REASON_MODEL_OPTIONS.find((option) => option.id === modelId);
 
@@ -54,6 +55,13 @@ export function SettingsPage({ workspace, authState, repositoryHealth, onSignOut
           </button>
         ) : null}
         <p className="set-note">Workspace naming is read-only in this version.</p>
+        {authState.role === "admin" && onOpenAdminAccess ? (
+          <p className="set-note">
+            <button type="button" className="link-button" onClick={onOpenAdminAccess}>
+              Manage who can open Ops
+            </button>
+          </p>
+        ) : null}
       </section>
 
       <section className="set-block">

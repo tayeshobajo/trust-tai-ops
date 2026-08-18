@@ -28,9 +28,11 @@ function failureCopy(code: string, email: string | null | undefined): string {
   const base = FAILURE_COPY[code] ?? "That handoff could not be accepted.";
   if (!email) return base;
   if (code === "no_ops_membership") {
-    return `${email} does not have Ops access yet. Ask an Ops admin to add this address.`;
+    return `${email} does not have Ops access yet. An Ops admin can add this exact address under Ops access in Ops, then this handoff will work.`;
   }
-  if (code === "ops_access_disabled") return `Ops access for ${email} is disabled.`;
+  if (code === "ops_access_disabled") {
+    return `Ops access for ${email} has been removed. An Ops admin can restore it under Ops access in Ops.`;
+  }
   return base;
 }
 
@@ -151,6 +153,16 @@ export function SsoLanding({ onSignedIn }: { onSignedIn: (targetPath: string | n
               "Trust Tai OS did not hand over a session. Open Ops again from Trust Tai OS, or sign in to Ops directly."}
             {state.phase === "failed" && state.detail}
           </p>
+          {state.phase === "failed" ? (
+            <p className="admin-access-feedback tone-bad" role="alert">
+              Nothing was signed in. Once access is granted, open Ops again from Trust Tai OS.
+            </p>
+          ) : null}
+          {state.phase === "ready" ? (
+            <p className="admin-access-feedback tone-good" role="status">
+              Handoff accepted.
+            </p>
+          ) : null}
         </div>
 
         {(state.phase === "failed" || state.phase === "timed_out") && (

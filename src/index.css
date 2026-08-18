@@ -6969,3 +6969,73 @@ p, li {
 @media (prefers-reduced-motion: reduce) {
   .pw-caret { animation: none; }
 }
+
+
+/* ─── Ops access administration ─────────────────────────── */
+
+.admin-access-form {
+  display: grid;
+  gap: var(--tt-space-4);
+  max-width: 520px;
+  margin-bottom: var(--tt-space-4);
+}
+
+.admin-access-form input,
+.admin-access-form select {
+  width: 100%;
+}
+
+.admin-access-form .primary-button {
+  justify-self: start;
+}
+
+.admin-access-feedback {
+  margin: 0 0 var(--tt-space-3);
+  padding: var(--tt-space-3) var(--tt-space-4);
+  border-radius: 10px;
+  border: 1px solid var(--tt-rule);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.admin-access-feedback.tone-good {
+  border-color: color-mix(in srgb, var(--tt-success) 40%, transparent);
+  background: color-mix(in srgb, var(--tt-success) 8%, transparent);
+  color: var(--tt-ink);
+}
+
+.admin-access-feedback.tone-bad {
+  border-color: color-mix(in srgb, var(--tt-danger, #b3261e) 40%, transparent);
+  background: color-mix(in srgb, var(--tt-danger, #b3261e) 8%, transparent);
+  color: var(--tt-ink);
+}
+
+.admin-access-list li small {
+  display: block;
+  margin-top: 2px;
+  color: var(--tt-muted);
+  font-size: 12px;
+}
+
+.admin-access-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-3);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.status-chip.tone-good {
+  border-color: color-mix(in srgb, var(--tt-success) 40%, transparent);
+  color: var(--tt-success);
+}
+
+.link-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--tt-signal, var(--tt-ink));
+  text-decoration: underline;
+  cursor: pointer;
+}
