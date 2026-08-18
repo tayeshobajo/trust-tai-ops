@@ -18,7 +18,21 @@ const FAILURE_COPY: Record<string, string> = {
   no_ops_membership: "This account does not have Ops access yet. Ask an Ops admin to add you.",
   ops_access_disabled: "Ops access for this account is disabled.",
   os_not_configured: "The suite connection is not configured for this deployment.",
+  session_bootstrap_failed: "Ops recognised the account but could not start a session. Try again in a moment.",
+  local_session_failed: "Ops recognised the account but could not start a session. Try again in a moment.",
+  ops_account_unavailable: "Ops could not open an account for this person. Ask an Ops admin to check the membership.",
 };
+
+/** Names the refused account when the server told us which one it was. */
+function failureCopy(code: string, email: string | null | undefined): string {
+  const base = FAILURE_COPY[code] ?? "That handoff could not be accepted.";
+  if (!email) return base;
+  if (code === "no_ops_membership") {
+    return `${email} does not have Ops access yet. Ask an Ops admin to add this address.`;
+  }
+  if (code === "ops_access_disabled") return `Ops access for ${email} is disabled.`;
+  return base;
+}
 
 /** How long to keep announcing readiness before saying plainly that nothing arrived. */
 const READY_PING_INTERVAL_MS = 400;
@@ -76,7 +90,7 @@ export function SsoLanding({ onSignedIn }: { onSignedIn: (targetPath: string | n
         setState({ phase: "ready", email: result.email });
         onSignedIn(targetPath);
       } else {
-        setState({ phase: "failed", detail: FAILURE_COPY[result.error] ?? "The secure handoff could not be completed." });
+        setState({ phase: "failed", detail: failureCopy(result.error, result.email) });
       }
     };
 

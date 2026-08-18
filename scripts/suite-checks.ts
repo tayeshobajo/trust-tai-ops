@@ -144,7 +144,12 @@ const exchange = read("supabase/functions/os-sso-exchange/index.ts");
 check("the exchange re-verifies the OS token against the OS auth service", exchange.includes("/auth/v1/user"));
 check("an unverified token stops the request", exchange.includes("os_token_rejected"));
 check("identity resolves by exact external reference", exchange.includes('.eq("trust_tai_os_user_id"'));
-check("or by exact email, never a fuzzy match", exchange.includes('.eq("email", osUser.email)') && !exchange.includes("ilike"));
+check(
+  "or by exact email, never a fuzzy match",
+  exchange.includes('.eq("email", normalizedEmail)') &&
+    exchange.includes("osUser.email.trim().toLowerCase()") &&
+    !exchange.includes("ilike"),
+);
 check("a person without Ops membership is refused", exchange.includes("no_ops_membership"));
 check("Ops roles are preserved, not taken from the OS", exchange.includes("member.role"));
 check("the response carries no service-role key", !exchange.includes("SERVICE_ROLE_KEY\") ?? \"\",\n      return"));
