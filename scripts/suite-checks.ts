@@ -46,6 +46,7 @@ import {
   markProjectionRemoved,
   projectionPath,
   syncProjectionRows,
+  projectPresenceSignal,
 } from "../src/suite/projection.ts";
 import {
   ACCEPTANCE_SUMMARY,
@@ -654,6 +655,7 @@ check(
 );
 
 // --- presence fallback while Core has not applied the projection contract ---
+const clientSourceForFallback = read("src/suite/client.ts");
 const presence = projectPresenceSignal(projectionRow);
 check(
   "presence crosses even when the project is not canonically linked yet",
