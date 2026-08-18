@@ -16,6 +16,7 @@
  */
 
 import { containsSecretMaterial, sanitizeSummary, OPS_APP_KEY } from "./osActivity";
+import type { OpsSuiteSignal } from "./osActivity";
 import type { Project, Run } from "../types";
 
 /** The Core table Ops upserts into. Core owns the DDL; Ops owns the rows. */
@@ -172,9 +173,42 @@ export function markProjectionRemoved(row: OpsProjectProjectionRow, now: string)
 
 export type ProjectionSyncResult =
   | { status: "synced"; rows: number }
-  | { status: "unavailable"; reason: "not_configured" | "no_os_session" | "no_organization" | "contract_missing" }
+  | {
+      status: "unavailable";
+      reason: "not_configured" | "no_os_session" | "no_organization" | "contract_missing";
+      /** What Ops did instead when the projection contract is not live yet. */
+      fallback?: "activity_stream" | "none";
+      fallbackRows?: number;
+    }
   | { status: "rejected"; reason: "secret_material" }
   | { status: "failed"; reason: string };
+
+/**
+ * Fallback for a Core that has not applied the projection contract yet.
+ *
+ * This is presence, not a fabricated event: it states that Ops manages this
+ * system right now, keyed so it is republished only when the project's real
+ * state changes. `occurred_at` uses the project's real last activity when Ops
+ * knows it, and is stamped at emission only when it genuinely does not.
+ */
+export function projectPresenceSignal(row: OpsProjectProjectionRow): OpsSuiteSignal {
+  const state = [row.status, row.lifecycle_state, row.health ?? "unknown", row.source_updated_at ?? "no-activity"].join("|");
+  const attention = row.needs_attention ? " Needs attention." : "";
+
+  return {
+    event: "ops.project_registered",
+    opsProjectId: row.ops_project_id,
+    canonicalProjectId: row.canonical_project_id,
+    // Presence describes the system itself, which may not be canonically
+    // linked yet. Without this it would be dropped as `not_linked`.
+    allowUnlinked: true,
+    opsEventKey: `presence:${state}`,
+    summary: sanitizeSummary(
+      `${row.project_name}${row.primary_domain ? ` (${row.primary_domain})` : ""} is managed in Ops — ${row.status}, health ${row.health ?? "unknown"}.${attention}`,
+    ),
+    occurredAt: row.source_updated_at ?? undefined,
+  };
+}
 
 export type ProjectionSyncDeps = {
   context: ProjectionContext;
