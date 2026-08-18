@@ -11,7 +11,15 @@ import { getSupabaseClient } from "../supabase";
 import { clearSuiteSession, getSuiteSession, setSuiteSession } from "./osToken";
 import { OPS_APP_KEY, syncSuiteSignal } from "./osActivity";
 import type { OpsSuiteSignal, SuiteActivityRow, SuiteSyncDeps, SuiteSyncResult } from "./osActivity";
+import {
+  OPS_PROJECTION_CONFLICT_TARGET,
+  OPS_PROJECTION_TABLE,
+  buildProjectionBatch,
+  syncProjectionRows,
+} from "./projection";
+import type { OpsProjectProjectionRow, ProjectionSyncDeps, ProjectionSyncResult } from "./projection";
 import type { SsoHandoff } from "./ssoBridge";
+import type { Project } from "../types";
 
 export type SsoExchangeResult =
   | { ok: true; email: string; role: string; canonicalProjectId: string | null }
@@ -157,4 +165,53 @@ export async function sendSuiteSignal(signal: OpsSuiteSignal): Promise<SuiteSync
 
 export function endSuiteSession(): void {
   clearSuiteSession();
+}
+
+/**
+ * Upsert deps for the Core-side read projection. Writes go out with the Core
+ * publishable key plus the signed-in Core user's bearer token, so Core RLS
+ * decides what may be written — Ops never asserts cross-org access.
+ */
+function projectionDeps(): ProjectionSyncDeps | null {
+  const env = resolveOpsEnv();
+  const session = getSuiteSession();
+  if (!session || !isSuiteConfigured(env)) return null;
+
+  const base = `${(env.osSupabaseUrl ?? "").replace(/\/+$/, "")}/rest/v1/${OPS_PROJECTION_TABLE}`;
+  const headers = OS_REST_HEADERS(session.osAccessToken, env.osSupabasePublicKey ?? "");
+
+  return {
+    context: { organizationId: session.osOrganizationId },
+    upsert: async (rows: OpsProjectProjectionRow[]) => {
+      const response = await fetch(`${base}?on_conflict=${OPS_PROJECTION_CONFLICT_TARGET}`, {
+        method: "POST",
+        headers: { ...headers, Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify(rows),
+      });
+      // Core has not applied db/core-contract/ops_project_projection.sql yet.
+      if (response.status === 404) return "contract_missing";
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        if (detail.includes("PGRST205")) return "contract_missing";
+        throw new Error(`projection_write_failed_${response.status}`);
+      }
+      return "synced";
+    },
+  };
+}
+
+/**
+ * Publish the current Ops project list into Core as a read projection.
+ * Idempotent by construction (deterministic upsert key), fail-quiet, and
+ * never blocking: Ops keeps working with no Core at all.
+ */
+export async function syncProjectProjection(projects: Project[]): Promise<ProjectionSyncResult> {
+  const env = resolveOpsEnv();
+  if (!isSuiteConfigured(env)) return { status: "unavailable", reason: "not_configured" };
+
+  const deps = projectionDeps();
+  if (!deps) return { status: "unavailable", reason: "no_os_session" };
+
+  const rows = buildProjectionBatch(projects, deps.context, env.opsBaseUrl);
+  return syncProjectionRows(rows, deps);
 }
