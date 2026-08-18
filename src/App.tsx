@@ -12,6 +12,7 @@ import type { GlobalDestination } from "./GlobalRail";
 import { GlobalActivityPage } from "./GlobalActivityPage";
 import { ApprovalsPage } from "./ApprovalsPage";
 import { SettingsPage } from "./SettingsPage";
+import { AdminAccessPage } from "./AdminAccessPage";
 import { SsoLanding } from "./SsoLanding";
 import { isSsoLandingPath, projectIdFromTargetPath } from "./suite/ssoBridge";
 import { syncProjectProjection } from "./suite/client";
@@ -249,6 +250,9 @@ function App() {
   const authGateEnabled = isAuthGateRequired(opsEnv);
 
   const operatorLabel = authState.userEmail ?? "Operator";
+  // Only admins are offered the Ops access surface. The server re-checks this
+  // on every membership change; hiding it here is presentation only.
+  const isOpsAdmin = authState.role === "admin";
   const approvalsCount = countPendingDecisions(workspace);
 
   const openProjectById = (projectId: string) => {
@@ -269,7 +273,9 @@ function App() {
           ? "global_activity"
           : destination === "approvals"
             ? "approvals"
-            : "settings",
+            : destination === "admin_access"
+              ? "admin_access"
+              : "settings",
     );
   };
 
@@ -412,6 +418,16 @@ function App() {
     ) : workspaceView === "approvals" ? (
       <GlobalPage active="approvals" onNavigate={navigateGlobal} operator={operatorLabel} approvalsCount={approvalsCount}>
         <ApprovalsPage workspace={workspace} onOpenProject={openProjectById} />
+      </GlobalPage>
+    ) : workspaceView === "admin_access" ? (
+      <GlobalPage
+        active="admin_access"
+        onNavigate={navigateGlobal}
+        operator={operatorLabel}
+        approvalsCount={approvalsCount}
+        showAdminAccess={isOpsAdmin}
+      >
+        <AdminAccessPage authState={authState} />
       </GlobalPage>
     ) : workspaceView === "settings" ? (
       <GlobalPage active="settings" onNavigate={navigateGlobal} operator={operatorLabel} approvalsCount={approvalsCount}>

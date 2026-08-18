@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
 
-export type GlobalDestination = "projects" | "activity" | "approvals" | "settings";
+export type GlobalDestination = "projects" | "activity" | "approvals" | "admin_access" | "settings";
 
 type Props = {
   active: GlobalDestination;
   onNavigate: (destination: GlobalDestination) => void;
   operator: string;
   approvalsCount?: number;
+  /** Ops access administration is only offered to admins. */
+  showAdminAccess?: boolean;
 };
 
 const Icon = ({ name }: { name: GlobalDestination }) => {
@@ -42,6 +44,13 @@ const Icon = ({ name }: { name: GlobalDestination }) => {
           <path d="M20 6 9 17l-5-5" />
         </svg>
       );
+    case "admin_access":
+      return (
+        <svg {...common}>
+          <circle cx="9" cy="8" r="3.2" />
+          <path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6 1.2 0 2.3.3 3.2.9M16 16.5h5M18.5 14v5" />
+        </svg>
+      );
     case "settings":
     default:
       return (
@@ -59,7 +68,7 @@ const mainNav: Array<{ id: GlobalDestination; label: string }> = [
   { id: "approvals", label: "Approvals" },
 ];
 
-export function GlobalRail({ active, onNavigate, operator, approvalsCount = 0 }: Props) {
+export function GlobalRail({ active, onNavigate, operator, approvalsCount = 0, showAdminAccess = false }: Props) {
   const initial = operator.slice(0, 1).toUpperCase();
 
   const item = (id: GlobalDestination, label: string) => (
@@ -94,6 +103,7 @@ export function GlobalRail({ active, onNavigate, operator, approvalsCount = 0 }:
         <ul className="global-rail-nav">{mainNav.map((entry) => item(entry.id, entry.label))}</ul>
 
         <ul className="global-rail-utility">
+          {showAdminAccess ? item("admin_access", "Ops access") : null}
           {item("settings", "Settings")}
           <li>
             <div className="global-rail-operator" title={operator}>
@@ -105,7 +115,11 @@ export function GlobalRail({ active, onNavigate, operator, approvalsCount = 0 }:
       </nav>
 
       <nav className="global-tabbar" aria-label="Primary">
-        {[...mainNav, { id: "settings" as const, label: "Settings" }].map((entry) => (
+        {[
+          ...mainNav,
+          ...(showAdminAccess ? [{ id: "admin_access" as const, label: "Access" }] : []),
+          { id: "settings" as const, label: "Settings" },
+        ].map((entry) => (
           <button
             key={entry.id}
             type="button"
@@ -132,11 +146,18 @@ export function GlobalPage({
   onNavigate,
   operator,
   approvalsCount,
+  showAdminAccess,
   children,
 }: Props & { children: ReactNode }) {
   return (
     <div className="home-shell is-single">
-      <GlobalRail active={active} onNavigate={onNavigate} operator={operator} approvalsCount={approvalsCount} />
+      <GlobalRail
+        active={active}
+        onNavigate={onNavigate}
+        operator={operator}
+        approvalsCount={approvalsCount}
+        showAdminAccess={showAdminAccess}
+      />
       <section className="global-main">{children}</section>
     </div>
   );

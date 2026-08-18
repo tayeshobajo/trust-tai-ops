@@ -71,6 +71,7 @@ export type WorkspaceView =
   | "first_run"
   | "global_activity"
   | "approvals"
+  | "admin_access"
   | "settings";
 
 export type PhaseStatus = "pending" | "active" | "completed" | "blocked" | "failed";
