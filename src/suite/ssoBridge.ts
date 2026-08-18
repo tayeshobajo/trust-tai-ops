@@ -22,6 +22,8 @@ export type SsoHandoff = {
   organizationId: string;
   canonicalProjectId: string | null;
   returnContext: string | null;
+  /** Sanitized same-app destination path to land on after sign-in. */
+  targetPath: string | null;
 };
 
 export type SsoRejection =
@@ -32,6 +34,36 @@ export type SsoRejection =
   | "missing_organization_id"
   | "malformed_organization_id"
   | "malformed_project_id";
+
+/**
+ * Accepts only a same-app absolute path. Anything that could leave the app —
+ * a scheme, a protocol-relative `//host`, a backslash, an encoded escape, a
+ * control character — is refused rather than repaired.
+ */
+export function sanitizeTargetPath(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const value = raw.trim();
+  if (value.length === 0 || value.length > 512) return null;
+  if (!value.startsWith("/")) return null;
+  if (value.startsWith("//") || value.startsWith("/\\")) return null;
+  if (value.includes("\\") || value.includes("..")) return null;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f\s]/.test(value)) return null;
+  if (/^\/+\s*[a-z][a-z0-9+.-]*:/i.test(value)) return null;
+  if (/%2f%2f/i.test(value) || /%5c/i.test(value)) return null;
+  if (!/^\/[A-Za-z0-9\-._~/]*(\?[A-Za-z0-9\-._~=&%]*)?$/.test(value)) return null;
+  // Never let a handoff land back on the handoff surface.
+  if (isSsoLandingPath(value.split("?")[0])) return null;
+  return value;
+}
+
+/** The Ops project a sanitized target path deep-links to, when it names one. */
+export function projectIdFromTargetPath(path: string | null): string | null {
+  if (!path) return null;
+  const match = path.split("?")[0].match(/^\/(?:projects?)\/([0-9a-f-]{36})\/?$/i);
+  if (!match) return null;
+  return UUID.test(match[1]) ? match[1].toLowerCase() : null;
+}
 
 export type SsoReadResult =
   | { ok: true; handoff: SsoHandoff }
@@ -100,7 +132,12 @@ export function readHandoffMessage(
   const returnContext =
     typeof returnRaw === "string" && returnRaw.length > 0 && returnRaw.length <= 512 ? returnRaw : null;
 
-  return { ok: true, handoff: { accessToken: token, organizationId, canonicalProjectId, returnContext } };
+  const targetPath = sanitizeTargetPath(payload.targetPath ?? payload.target_path);
+
+  return {
+    ok: true,
+    handoff: { accessToken: token, organizationId, canonicalProjectId, returnContext, targetPath },
+  };
 }
 
 /**
