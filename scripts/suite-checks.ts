@@ -555,6 +555,140 @@ check(
   read("src/suite/client.ts").includes("verifyOtp"),
 );
 
+console.log("\nthe Core-facing project projection is honest, deterministic, and org-scoped");
+
+const PROJECTION_ORG = "11111111-2222-3333-4444-555555555555";
+const projectionRow = buildProjectProjection(
+  project,
+  { organizationId: PROJECTION_ORG },
+  "https://ops.trusttai.com/",
+  "2026-08-18T12:00:00Z",
+);
+
+check("the projection is scoped to the Core organization from the handoff", projectionRow.organization_id === PROJECTION_ORG);
+check("the projection is keyed on the Ops project id", projectionRow.ops_project_id === project.id);
+check(
+  "the upsert key is deterministic and org scoped",
+  OPS_PROJECTION_CONFLICT_TARGET === "organization_id,ops_project_id",
+);
+check("the projection names the Core table Ops writes", OPS_PROJECTION_TABLE === "ops_project_projection");
+check("real project identity is carried, not invented", projectionRow.project_name === "Acme Website" && projectionRow.client_label === "Acme");
+check("real health is carried", projectionRow.health === "watching");
+check("a blocked run with a pending approval needs attention", projectionRow.needs_attention === true);
+check("real open counts are carried", projectionRow.open_issues === 1 && projectionRow.open_approvals === 1 && projectionRow.open_risks === 1);
+check("an owner Ops does not model stays unknown, not fabricated", projectionRow.owner === null);
+check(
+  "unknown metrics are null rather than a false zero",
+  (() => {
+    const sparse = buildProjectProjection(
+      { ...project, runs: undefined, riskFlags: undefined, recommendations: undefined } as never,
+      { organizationId: PROJECTION_ORG },
+      "https://ops.trusttai.com",
+    );
+    return (
+      sparse.open_issues === null &&
+      sparse.open_approvals === null &&
+      sparse.open_risks === null &&
+      sparse.open_recommendations === null
+    );
+  })(),
+);
+check(
+  "the projection carries the exact Ops destination for a deep link",
+  projectionRow.ops_path === `/projects/${project.id}` &&
+    projectionRow.ops_url === `https://ops.trusttai.com/projects/${project.id}`,
+);
+check(
+  "that destination is accepted by the handoff target-path rules",
+  sanitizeTargetPath(projectionPath("86e4247c-5e6e-4d02-82b7-6c502d2ac374")) ===
+    "/projects/86e4247c-5e6e-4d02-82b7-6c502d2ac374" &&
+    projectIdFromTargetPath(projectionPath("86e4247c-5e6e-4d02-82b7-6c502d2ac374")) ===
+      "86e4247c-5e6e-4d02-82b7-6c502d2ac374",
+);
+check(
+  "an archived project is projected honestly instead of silently dropped",
+  buildProjectProjection(
+    { ...project, status: "archived" } as never,
+    { organizationId: PROJECTION_ORG },
+    "https://ops.trusttai.com",
+  ).lifecycle_state === "archived",
+);
+check(
+  "a removed project is projected as removed, not deleted quietly",
+  markProjectionRemoved(projectionRow, "2026-08-18T13:00:00Z").lifecycle_state === "removed",
+);
+check(
+  "a backfill projects every Ops project once",
+  buildProjectionBatch([project, { ...project, id: "ops-3" } as never], { organizationId: PROJECTION_ORG }, "https://ops.trusttai.com").length === 2,
+);
+
+const projectionCalls: unknown[][] = [];
+const projectionSynced = await syncProjectionRows([projectionRow], {
+  context: { organizationId: PROJECTION_ORG },
+  upsert: async (rows) => {
+    projectionCalls.push(rows);
+    return "synced";
+  },
+});
+check("a projection sync reports what it actually wrote", projectionSynced.status === "synced" && projectionSynced.rows === 1);
+check("the write is a single deterministic upsert batch", projectionCalls.length === 1);
+
+const projectionNoSession = await syncProjectionRows([projectionRow], null);
+check(
+  "no Core session means unavailable, never a fabricated success",
+  projectionNoSession.status === "unavailable" && projectionNoSession.reason === "no_os_session",
+);
+
+const projectionMissing = await syncProjectionRows([projectionRow], {
+  context: { organizationId: PROJECTION_ORG },
+  upsert: async () => "contract_missing",
+});
+check(
+  "a missing Core contract is reported plainly",
+  projectionMissing.status === "unavailable" && projectionMissing.reason === "contract_missing",
+);
+
+check(
+  "no secret material can ride along in a projection row",
+  !containsSecretMaterial(projectionRow),
+);
+
+const clientSource = read("src/suite/client.ts");
+check(
+  "the projection is written with the Core user's own token, under Core RLS",
+  clientSource.includes("OPS_PROJECTION_TABLE") && clientSource.includes("session.osAccessToken"),
+);
+check(
+  "the projection upsert merges duplicates rather than inserting twice",
+  clientSource.includes("resolution=merge-duplicates") && clientSource.includes("on_conflict="),
+);
+check(
+  "the app backfills the projection after a verified handoff",
+  read("src/App.tsx").includes("syncProjectProjection(stored.projects)"),
+);
+check(
+  "the app keeps the projection current as project state moves",
+  read("src/App.tsx").includes("syncProjectProjection(workspace.projects)"),
+);
+check(
+  "the Core-side contract is checked in for Core to apply",
+  read("db/core-contract/ops_project_projection.sql").includes("unique (organization_id, ops_project_id)"),
+);
+
+console.log("\nthe handoff surface never hangs or silently degrades");
+
+const landingSource = read("src/SsoLanding.tsx");
+check("readiness is announced repeatedly so a late Core listener still hears it", landingSource.includes("setInterval"));
+check("a handoff that never arrives ends in an explicit state", landingSource.includes("timed_out"));
+check(
+  "a tab with no real opener is not treated as its own opener",
+  landingSource.includes("window.parent !== window"),
+);
+check(
+  "an authorization refusal is shown, not replaced by the generic login screen",
+  landingSource.includes("no_ops_membership") && landingSource.includes("ops_access_disabled"),
+);
+
 console.log("");
 
 if (failures.length > 0) {
