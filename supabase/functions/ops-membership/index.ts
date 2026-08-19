@@ -44,7 +44,13 @@ type MemberRow = {
   updated_at: string;
 };
 
-const MEMBER_COLUMNS = "id, organization_id, full_name, email, role, status, created_at, updated_at";
+const MEMBER_COLUMNS =
+  "id, organization_id, full_name, email, role, status, provisioned_via, created_at, updated_at";
+
+/** Keeps a search term from being read as PostgREST filter syntax. */
+function sanitizeSearch(value: unknown): string {
+  return typeof value === "string" ? value.trim().slice(0, 120).replace(/[,%()*\\]/g, " ").trim() : "";
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -88,13 +94,47 @@ Deno.serve(async (req) => {
   const organizationId = String(callerMember.organization_id);
 
   if (action === "list") {
-    const { data, error } = await admin
+    const search = sanitizeSearch(body.search);
+    const pageSize = Math.min(Math.max(Number(body.pageSize) || 20, 5), 100);
+    const page = Math.max(Number(body.page) || 1, 1);
+    const from = (page - 1) * pageSize;
+
+    let query = admin
       .from("users")
-      .select(MEMBER_COLUMNS)
-      .eq("organization_id", organizationId)
-      .order("email");
+      .select(MEMBER_COLUMNS, { count: "exact" })
+      .eq("organization_id", organizationId);
+
+    if (search) query = query.or(`email.ilike.%${search}%,full_name.ilike.%${search}%`);
+
+    const { data, count, error } = await query.order("email").range(from, from + pageSize - 1);
     if (error) return json({ error: "list_failed", detail: error.message }, 500);
-    return json({ ok: true, members: (data ?? []) as MemberRow[] });
+    return json({
+      ok: true,
+      members: (data ?? []) as MemberRow[],
+      total: count ?? 0,
+      page,
+      pageSize,
+    });
+  }
+
+  if (action === "settings" || action === "update_settings") {
+    if (action === "update_settings") {
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (typeof body.autoProvision === "boolean") patch.ops_auto_provision = body.autoProvision;
+      if (typeof body.autoProvisionRole === "string" && ROLES.has(body.autoProvisionRole)) {
+        patch.ops_auto_provision_role = body.autoProvisionRole;
+      }
+      const { error } = await admin.from("organizations").update(patch).eq("id", organizationId);
+      if (error) return json({ error: "settings_failed", detail: error.message }, 500);
+    }
+
+    const { data, error } = await admin
+      .from("organizations")
+      .select("id, name, trust_tai_os_organization_id, ops_auto_provision, ops_auto_provision_role")
+      .eq("id", organizationId)
+      .maybeSingle();
+    if (error || !data) return json({ error: "settings_unavailable", detail: error?.message }, 500);
+    return json({ ok: true, settings: data });
   }
 
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
@@ -126,7 +166,14 @@ Deno.serve(async (req) => {
           .single()
       : await admin
           .from("users")
-          .insert({ organization_id: organizationId, email, full_name: fullName, role, status: "active" })
+          .insert({
+            organization_id: organizationId,
+            email,
+            full_name: fullName,
+            role,
+            status: "active",
+            provisioned_via: "manual",
+          })
           .select(MEMBER_COLUMNS)
           .single();
 

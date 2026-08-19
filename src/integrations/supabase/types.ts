@@ -410,7 +410,10 @@ export type Database = {
           descriptor: string
           id: string
           name: string
+          ops_auto_provision: boolean
+          ops_auto_provision_role: string
           subdomain: string
+          trust_tai_os_organization_id: string | null
           updated_at: string
         }
         Insert: {
@@ -418,7 +421,10 @@ export type Database = {
           descriptor: string
           id?: string
           name: string
+          ops_auto_provision?: boolean
+          ops_auto_provision_role?: string
           subdomain: string
+          trust_tai_os_organization_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -426,7 +432,10 @@ export type Database = {
           descriptor?: string
           id?: string
           name?: string
+          ops_auto_provision?: boolean
+          ops_auto_provision_role?: string
           subdomain?: string
+          trust_tai_os_organization_id?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -1820,6 +1829,7 @@ export type Database = {
           full_name: string
           id: string
           organization_id: string
+          provisioned_via: string
           role: string
           status: string
           trust_tai_os_user_id: string | null
@@ -1832,6 +1842,7 @@ export type Database = {
           full_name: string
           id?: string
           organization_id: string
+          provisioned_via?: string
           role: string
           status?: string
           trust_tai_os_user_id?: string | null
@@ -1844,6 +1855,7 @@ export type Database = {
           full_name?: string
           id?: string
           organization_id?: string
+          provisioned_via?: string
           role?: string
           status?: string
           trust_tai_os_user_id?: string | null

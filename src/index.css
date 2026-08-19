@@ -7025,6 +7025,19 @@ p, li {
   justify-content: flex-end;
 }
 
+.admin-access-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tt-space-3);
+  flex-wrap: wrap;
+  margin-top: var(--tt-space-4);
+}
+
+.admin-access-pager .set-note {
+  margin: 0;
+}
+
 .status-chip.tone-good {
   border-color: color-mix(in srgb, var(--tt-success) 40%, transparent);
   color: var(--tt-success);

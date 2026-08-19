@@ -17,8 +17,17 @@ export type OpsMember = {
   email: string;
   role: OpsRole;
   status: string;
+  provisioned_via?: string;
   created_at: string;
   updated_at: string;
+};
+
+export type OpsAccessSettings = {
+  id: string;
+  name: string;
+  trust_tai_os_organization_id: string | null;
+  ops_auto_provision: boolean;
+  ops_auto_provision_role: OpsRole;
 };
 
 export type MembershipFailure = { ok: false; error: string; detail?: string };
@@ -68,8 +77,25 @@ async function callMembership<T>(body: Record<string, unknown>): Promise<({ ok: 
   }
 }
 
-export function listOpsMembers() {
-  return callMembership<{ members: OpsMember[] }>({ action: "list" });
+export function listOpsMembers(input?: { search?: string; page?: number; pageSize?: number }) {
+  return callMembership<{ members: OpsMember[]; total: number; page: number; pageSize: number }>({
+    action: "list",
+    search: input?.search ?? "",
+    page: input?.page ?? 1,
+    pageSize: input?.pageSize ?? 20,
+  });
+}
+
+export function readOpsAccessSettings() {
+  return callMembership<{ settings: OpsAccessSettings }>({ action: "settings" });
+}
+
+export function updateOpsAccessSettings(input: { autoProvision?: boolean; autoProvisionRole?: OpsRole }) {
+  return callMembership<{ settings: OpsAccessSettings }>({
+    action: "update_settings",
+    autoProvision: input.autoProvision,
+    autoProvisionRole: input.autoProvisionRole,
+  });
 }
 
 export function grantOpsAccess(input: { email: string; fullName?: string; role?: OpsRole }) {

@@ -39,7 +39,9 @@ function json(body: unknown, status = 200) {
  * Verifies the OS token against the OS auth service. Expired, revoked, or
  * forged tokens fail here, not later.
  */
-async function verifyOsToken(token: string): Promise<{ id: string; email: string } | null> {
+async function verifyOsToken(
+  token: string,
+): Promise<{ id: string; email: string; organizationId: string | null; blocked: boolean } | null> {
   const osUrl = Deno.env.get("TRUST_TAI_OS_SUPABASE_URL") ?? "";
   const osAnon = Deno.env.get("TRUST_TAI_OS_SUPABASE_ANON_KEY") ?? "";
   if (!osUrl || !osAnon) throw new Error("os_not_configured");
@@ -50,11 +52,28 @@ async function verifyOsToken(token: string): Promise<{ id: string; email: string
 
   if (!response.ok) return null;
 
-  const user = (await response.json()) as { id?: string; email?: string; aud?: string };
+  const user = (await response.json()) as {
+    id?: string;
+    email?: string;
+    app_metadata?: Record<string, unknown>;
+    user_metadata?: Record<string, unknown>;
+  };
   if (!user?.id || !user.email) return null;
 
-  return { id: String(user.id), email: String(user.email).toLowerCase() };
+  // Organization and standing come from the OS auth service itself, never
+  // from the browser: only a server-verified organization may unlock
+  // automatic provisioning.
+  const meta = { ...(user.user_metadata ?? {}), ...(user.app_metadata ?? {}) } as Record<string, unknown>;
+  const rawOrg = meta.organization_id ?? meta.organisation_id ?? meta.org_id ?? null;
+  const organizationId =
+    typeof rawOrg === "string" && UUID.test(rawOrg.trim()) ? rawOrg.trim().toLowerCase() : null;
+  const status = typeof meta.status === "string" ? meta.status.toLowerCase() : "";
+  const blocked = status === "disabled" || status === "suspended" || meta.banned === true;
+
+  return { id: String(user.id), email: String(user.email).trim().toLowerCase(), organizationId, blocked };
 }
+
+const AUTO_ROLES = new Set(["viewer", "operator", "senior_operator", "admin"]);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -117,10 +136,51 @@ Deno.serve(async (req) => {
     }
 
     if (!member) {
-      // Identity only, never the token: a 403 is unactionable without knowing
-      // who was turned away.
-      console.log("sso_refused no_ops_membership", JSON.stringify({ email: osUser.email, osUserId: osUser.id }));
-      return json({ error: "no_ops_membership", email: osUser.email }, 403);
+      // Automatic provisioning: an accepted Trust Tai OS person whose
+      // server-verified OS organization is the one this workspace is linked to
+      // is admitted without a manual step. Anyone else is still refused.
+      const linkedOrg = osUser.organizationId
+        ? (
+            await admin
+              .from("organizations")
+              .select("id, ops_auto_provision, ops_auto_provision_role")
+              .eq("trust_tai_os_organization_id", osUser.organizationId)
+              .maybeSingle()
+          ).data
+        : null;
+
+      if (linkedOrg && linkedOrg.ops_auto_provision !== false && !osUser.blocked) {
+        const autoRole = AUTO_ROLES.has(String(linkedOrg.ops_auto_provision_role))
+          ? String(linkedOrg.ops_auto_provision_role)
+          : "viewer";
+        const { data: created, error: createError } = await admin
+          .from("users")
+          .insert({
+            organization_id: linkedOrg.id,
+            email: osUser.email,
+            full_name: osUser.email.split("@")[0],
+            role: autoRole,
+            status: "active",
+            trust_tai_os_user_id: osUser.id,
+            provisioned_via: "trust_tai_os",
+          })
+          .select("id, organization_id, email, role, status, auth_user_id, trust_tai_os_user_id")
+          .single();
+
+        if (createError) {
+          console.log("sso_auto_provision_failed", JSON.stringify({ email: osUser.email, detail: createError.message }));
+        } else {
+          console.log("sso_auto_provisioned", JSON.stringify({ email: osUser.email, osUserId: osUser.id, role: autoRole }));
+          member = created as Record<string, unknown>;
+        }
+      }
+
+      if (!member) {
+        // Identity only, never the token: a 403 is unactionable without knowing
+        // who was turned away.
+        console.log("sso_refused no_ops_membership", JSON.stringify({ email: osUser.email, osUserId: osUser.id }));
+        return json({ error: "no_ops_membership", email: osUser.email }, 403);
+      }
     }
     if (member.status === "disabled") {
       console.log("sso_refused ops_access_disabled", JSON.stringify({ email: osUser.email, osUserId: osUser.id }));
@@ -161,6 +221,18 @@ Deno.serve(async (req) => {
       .from("users")
       .update({ auth_user_id: authUserId, trust_tai_os_user_id: osUser.id })
       .eq("id", member.id);
+
+    // Trust on first known member: the first person who already holds Ops
+    // access and arrives from an unrecorded OS organization teaches this
+    // workspace which OS organization it belongs to, so later colleagues can
+    // be admitted automatically. Never overwrites an existing link.
+    if (osUser.organizationId) {
+      await admin
+        .from("organizations")
+        .update({ trust_tai_os_organization_id: osUser.organizationId })
+        .eq("id", member.organization_id)
+        .is("trust_tai_os_organization_id", null);
+    }
 
     // Server-to-client session bootstrap: a single-use OTP hash the browser
     // redeems through the normal Supabase client. No password, no service key.
