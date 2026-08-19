@@ -121,7 +121,16 @@ function App() {
           return;
         }
 
-        const detail = error instanceof Error ? error.message : "Workspace failed to load.";
+        const detail = describeLoadError(error);
+
+        // A signed-out first paint is the ordinary case (an SSO handoff or the
+        // sign-in screen comes next). Failing to read the workspace with no
+        // session is not a fatal deployment error, and must not leave a sticky
+        // "Workspace unavailable" behind for the session that follows.
+        if (!auth.isAuthenticated) {
+          setIsReady(true);
+          return;
+        }
 
         if (demoAllowed) {
           setWorkspace(createSeedWorkspace());
@@ -327,7 +336,7 @@ function App() {
             }
             setIsReady(true);
           } catch (error) {
-            setFatalError(error instanceof Error ? error.message : "Workspace failed to load.");
+            setFatalError(describeLoadError(error));
           }
         }}
       />
@@ -346,7 +355,7 @@ function App() {
             setWorkspace(stored);
             setSelectedProjectId(stored.projects[0]?.id ?? null);
           } catch (error) {
-            setFatalError(error instanceof Error ? error.message : "Workspace failed to load.");
+            setFatalError(describeLoadError(error));
           }
         }}
       />
