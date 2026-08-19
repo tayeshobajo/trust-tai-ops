@@ -48,6 +48,23 @@ import type {
   WorkspaceView,
 } from "./types";
 
+/**
+ * Supabase errors arrive as plain objects, not `Error` instances, so the
+ * naive `instanceof` check threw away the only useful detail and left the
+ * operator with a bare "Workspace failed to load."
+ */
+function describeLoadError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const shape = error as { message?: unknown; hint?: unknown; code?: unknown };
+    const message = typeof shape.message === "string" ? shape.message : "";
+    const code = typeof shape.code === "string" ? shape.code : "";
+    const detail = [message, code ? `(${code})` : ""].filter(Boolean).join(" ");
+    if (detail) return detail;
+  }
+  return "Workspace failed to load.";
+}
+
 function App() {
   const opsEnv = resolveOpsEnv();
   const demoAllowed = isDemoModeAllowed(opsEnv);
@@ -121,7 +138,16 @@ function App() {
           return;
         }
 
-        const detail = error instanceof Error ? error.message : "Workspace failed to load.";
+        const detail = describeLoadError(error);
+
+        // A signed-out first paint is the ordinary case (an SSO handoff or the
+        // sign-in screen comes next). Failing to read the workspace with no
+        // session is not a fatal deployment error, and must not leave a sticky
+        // "Workspace unavailable" behind for the session that follows.
+        if (!auth.isAuthenticated) {
+          setIsReady(true);
+          return;
+        }
 
         if (demoAllowed) {
           setWorkspace(createSeedWorkspace());
@@ -308,6 +334,9 @@ function App() {
         onSignedIn={async (targetPath) => {
           const auth = await loadAuthState();
           setAuthState(auth);
+          // Any error recorded while nobody was signed in belongs to the
+          // signed-out first paint, not to this freshly handed-over session.
+          setFatalError(null);
           setSsoLanding(false);
           window.history.replaceState(null, "", "/");
           try {
@@ -327,7 +356,7 @@ function App() {
             }
             setIsReady(true);
           } catch (error) {
-            setFatalError(error instanceof Error ? error.message : "Workspace failed to load.");
+            setFatalError(describeLoadError(error));
           }
         }}
       />
@@ -346,7 +375,7 @@ function App() {
             setWorkspace(stored);
             setSelectedProjectId(stored.projects[0]?.id ?? null);
           } catch (error) {
-            setFatalError(error instanceof Error ? error.message : "Workspace failed to load.");
+            setFatalError(describeLoadError(error));
           }
         }}
       />
