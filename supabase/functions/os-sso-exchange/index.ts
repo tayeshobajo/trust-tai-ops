@@ -123,6 +123,10 @@ Deno.serve(async (req) => {
       .select("id, organization_id, email, role, status, auth_user_id, trust_tai_os_user_id")
       .eq("trust_tai_os_user_id", osUser.id)
       .maybeSingle();
+    if (byExternal.error) {
+      console.log("sso_membership_lookup_failed", JSON.stringify({ method: "external_id", detail: byExternal.error.message }));
+      return json({ error: "membership_lookup_failed" }, 500);
+    }
     member = byExternal.data ?? null;
 
     if (!member) {
@@ -130,8 +134,14 @@ Deno.serve(async (req) => {
       const byEmail = await admin
         .from("users")
         .select("id, organization_id, email, role, status, auth_user_id, trust_tai_os_user_id")
-        .eq("email", normalizedEmail)
+        // PostgREST `ilike` makes existing memberships resilient to legacy
+        // email casing. Grant/update paths store the trimmed lowercase form.
+        .ilike("email", normalizedEmail)
         .maybeSingle();
+      if (byEmail.error) {
+        console.log("sso_membership_lookup_failed", JSON.stringify({ method: "email", detail: byEmail.error.message }));
+        return json({ error: "membership_lookup_failed" }, 500);
+      }
       member = byEmail.data ?? null;
     }
 
@@ -182,7 +192,9 @@ Deno.serve(async (req) => {
         return json({ error: "no_ops_membership", email: osUser.email }, 403);
       }
     }
-    if (member.status === "disabled") {
+    // Membership is affirmative: only an explicitly active row authorizes
+    // entry. Unknown, pending, suspended, and disabled states all fail closed.
+    if (String(member.status).trim().toLowerCase() !== "active") {
       console.log("sso_refused ops_access_disabled", JSON.stringify({ email: osUser.email, osUserId: osUser.id }));
       return json({ error: "ops_access_disabled", email: osUser.email }, 403);
     }
