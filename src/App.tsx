@@ -48,6 +48,23 @@ import type {
   WorkspaceView,
 } from "./types";
 
+/**
+ * Supabase errors arrive as plain objects, not `Error` instances, so the
+ * naive `instanceof` check threw away the only useful detail and left the
+ * operator with a bare "Workspace failed to load."
+ */
+function describeLoadError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const shape = error as { message?: unknown; hint?: unknown; code?: unknown };
+    const message = typeof shape.message === "string" ? shape.message : "";
+    const code = typeof shape.code === "string" ? shape.code : "";
+    const detail = [message, code ? `(${code})` : ""].filter(Boolean).join(" ");
+    if (detail) return detail;
+  }
+  return "Workspace failed to load.";
+}
+
 function App() {
   const opsEnv = resolveOpsEnv();
   const demoAllowed = isDemoModeAllowed(opsEnv);
