@@ -317,6 +317,9 @@ function App() {
         onSignedIn={async (targetPath) => {
           const auth = await loadAuthState();
           setAuthState(auth);
+          // Any error recorded while nobody was signed in belongs to the
+          // signed-out first paint, not to this freshly handed-over session.
+          setFatalError(null);
           setSsoLanding(false);
           window.history.replaceState(null, "", "/");
           try {
