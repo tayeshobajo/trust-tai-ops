@@ -134,9 +134,10 @@ Deno.serve(async (req) => {
       const byEmail = await admin
         .from("users")
         .select("id, organization_id, email, role, status, auth_user_id, trust_tai_os_user_id")
-        // PostgREST `ilike` makes existing memberships resilient to legacy
-        // email casing. Grant/update paths store the trimmed lowercase form.
-        .ilike("email", normalizedEmail)
+        // Email is normalized at every membership write boundary. Keep this
+        // comparison exact so `%` or `_` in a valid address cannot become a
+        // wildcard and authorize a different person.
+        .eq("email", normalizedEmail)
         .maybeSingle();
       if (byEmail.error) {
         console.log("sso_membership_lookup_failed", JSON.stringify({ method: "email", detail: byEmail.error.message }));
