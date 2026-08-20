@@ -7403,3 +7403,265 @@ p, li {
   .pw-typing-dots span { animation: none; }
   .pw-msg-actions { transition: none; }
 }
+
+/* ═══ Chat: two voices, one living panel ══════════════════════
+   Presentation only — role identity, an accent rail on agent turns,
+   and motion that runs only while the agent actually is. */
+
+.pw-thread { gap: var(--tt-space-4); }
+
+.pw-msg {
+  gap: var(--tt-space-3);
+  align-items: flex-start;
+}
+
+/* Agent turn: light panel with a royal rail on its leading edge. */
+.pw-msg-agent .pw-msg-main {
+  position: relative;
+  background: color-mix(in srgb, var(--tt-royal) 3%, var(--tt-white));
+  border: 1px solid color-mix(in srgb, var(--tt-royal) 12%, var(--tt-rule));
+  border-left: 2px solid color-mix(in srgb, var(--tt-royal) 45%, transparent);
+  border-radius: 4px 14px 14px 4px;
+  padding: var(--tt-space-3) var(--tt-space-4);
+}
+
+.pw-msg-agent.is-live .pw-msg-main {
+  border-left-color: var(--tt-royal);
+  animation: pw-rail-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes pw-rail-breathe {
+  0%, 100% { border-left-color: color-mix(in srgb, var(--tt-royal) 35%, transparent); }
+  50% { border-left-color: var(--tt-royal); }
+}
+
+/* The person's turn: paper, no bubble, ink identity. */
+.pw-msg-user .pw-msg-main {
+  flex: 1;
+  max-width: 100%;
+  margin-left: 0;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--tt-ink) 16%, transparent);
+  border-radius: 0;
+  padding: var(--tt-space-1) var(--tt-space-4);
+}
+
+.pw-msg-user { justify-content: flex-start; }
+
+.pw-user-avatar {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  margin-top: 2px;
+  border-radius: var(--tt-radius-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tt-ink);
+  color: var(--tt-paper);
+}
+
+.pw-user-avatar.is-muted,
+.pw-agent-avatar.is-muted {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.pw-agent-avatar { border-radius: var(--tt-radius-pill); }
+
+.pw-msg-who {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  margin-bottom: 4px;
+  font-size: 0.78rem;
+  font-weight: 640;
+  color: var(--tt-ink);
+}
+
+.pw-msg-who time {
+  font-family: var(--tt-font-mono);
+  font-size: 0.68rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--tt-muted);
+}
+
+.pw-ai-chip {
+  font-family: var(--tt-font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--tt-ink) 7%, transparent);
+  color: var(--tt-muted);
+}
+
+/* Nested observation card inside an agent turn. */
+.pw-msg-agent .pw-card {
+  background: var(--tt-white);
+  border: 1px solid var(--tt-rule);
+  border-radius: 12px;
+  padding: var(--tt-space-3) var(--tt-space-4);
+  margin-top: var(--tt-space-3);
+}
+
+.pw-msg-agent .pw-card h4 {
+  margin: 0 0 var(--tt-space-2);
+  font-family: var(--tt-font-sans);
+  font-size: 0.84rem;
+  font-weight: 640;
+}
+
+/* Live phase strip at the foot of the agent's current turn. */
+.pw-phase-strip {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tt-space-3);
+  margin: var(--tt-space-3) 0 0;
+  padding: var(--tt-space-2) 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--tt-royal) 10%, var(--tt-rule));
+  font-size: 0.72rem;
+  color: var(--tt-muted);
+}
+
+.pw-phase-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pw-phase-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--tt-radius-pill);
+  border: 1px solid color-mix(in srgb, var(--tt-ink) 22%, transparent);
+}
+
+.pw-phase-step.is-done .pw-phase-dot {
+  background: color-mix(in srgb, var(--tt-success) 65%, transparent);
+  border-color: transparent;
+}
+
+.pw-phase-step.is-now {
+  color: var(--tt-royal);
+  font-weight: 600;
+}
+
+.pw-phase-step.is-now .pw-phase-dot {
+  background: var(--tt-royal);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tt-royal) 16%, transparent);
+}
+
+/* Right-rail checklist reads the same language. */
+.pw-phases .pw-phase {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+}
+
+.pw-phases .pw-phase::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: var(--tt-radius-pill);
+  border: 1.5px solid color-mix(in srgb, var(--tt-ink) 20%, transparent);
+  flex: 0 0 auto;
+}
+
+.pw-phases .pw-phase.is-done::before {
+  background: var(--tt-success);
+  border-color: transparent;
+}
+
+.pw-phases .pw-phase.is-now::before {
+  background: var(--tt-royal);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tt-royal) 16%, transparent);
+}
+
+.pw-context-block + .pw-context-block {
+  border-top: 1px solid var(--tt-rule);
+  padding-top: var(--tt-space-4);
+  margin-top: var(--tt-space-4);
+}
+
+/* Credential card: platform mark and a plain confirmation. */
+.pw-cred-card {
+  position: relative;
+  padding-right: var(--tt-space-4);
+}
+
+.pw-cred-title {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+}
+
+.pw-cred-title::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: var(--tt-radius-pill);
+  background: color-mix(in srgb, var(--tt-royal) 18%, transparent);
+  flex: 0 0 auto;
+}
+
+/* Composer: quick actions and a confident send pill. */
+.composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--tt-radius-pill);
+  background: transparent;
+  color: var(--tt-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.composer-chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--tt-ink) 5%, transparent);
+  color: var(--tt-ink);
+}
+
+.composer-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.composer-spacer { flex: 1; }
+
+.composer-shell .composer-row .primary-button.composer-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  min-width: 0;
+  padding: 8px 18px;
+  border-radius: var(--tt-radius-pill);
+  background: var(--tt-ink);
+  color: var(--tt-paper);
+}
+
+.composer-tip {
+  margin: var(--tt-space-2) 0 0;
+  text-align: center;
+  font-size: 0.74rem;
+  color: var(--tt-muted);
+}
+
+@media (max-width: 720px) {
+  .composer-chip span,
+  .composer-tip { font-size: 0.72rem; }
+  .pw-phase-strip { gap: var(--tt-space-2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pw-msg-agent.is-live .pw-msg-main { animation: none; }
+}
