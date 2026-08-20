@@ -2355,7 +2355,6 @@ export function ProjectWorkspace({
           <p className="composer-tip">
             Tip: paste credentials, URLs, or screenshots — I&apos;ll understand. Enter sends, Shift+Enter starts a new line.
           </p>
-          </div>
         </div>
       </main>
 
