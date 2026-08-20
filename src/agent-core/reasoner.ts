@@ -14,7 +14,7 @@ import { planAction } from "./registry";
 import { executionGateway } from "./gateway";
 import { redactSecrets } from "./secretGuard";
 import { materializeServerPlan } from "./reasonPlan";
-import { elementQueryFromTitle, elementQueriesFromTitle } from "./elementQuery";
+import { elementQueriesFromTitle } from "./elementQuery";
 import type {
   AgentAction,
   AgentActionArguments,
