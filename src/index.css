@@ -7665,3 +7665,16 @@ p, li {
 @media (prefers-reduced-motion: reduce) {
   .pw-msg-agent.is-live .pw-msg-main { animation: none; }
 }
+
+/* Grouped agent lines merge into one continuous panel. */
+.pw-msg-wrap.is-grouped { margin-top: -10px; }
+
+.pw-msg-agent.is-grouped .pw-msg-main {
+  border-top-color: transparent;
+  border-radius: 0 4px 4px 0;
+  padding-top: var(--tt-space-2);
+}
+
+.pw-msg-wrap:not(.is-grouped) + .pw-msg-wrap.is-grouped .pw-msg-agent .pw-msg-main {
+  margin-top: 0;
+}
