@@ -52,6 +52,7 @@ import {
 import type { QueuedFile, QueuedState } from "./evidence";
 import type { ProjectEvidence } from "./types";
 import { containsSecretMaterial } from "./agent-core/secretGuard";
+import { describeCredentialText } from "./agent-core/credentialPreview";
 import type { RunPlan } from "./agent-core/plan";
 import { credentialIntakeAvailable, submitCredentialText } from "./agent-core/credentialIntake";
 import {
