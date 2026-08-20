@@ -1802,7 +1802,15 @@ export function ProjectWorkspace({
           </div>
         ) : null}
 
-        <div className="pw-thread">
+        <div
+          className="pw-thread"
+          ref={threadRef}
+          onScroll={(event) => {
+            const node = event.currentTarget;
+            const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
+            if (distance <= 160 && hasNewBelow) setHasNewBelow(false);
+          }}
+        >
           {hidden > 0 ? (
             <button className="pw-load-earlier" type="button" onClick={() =>
                 setWindowSize((size) => {
