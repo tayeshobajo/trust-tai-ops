@@ -14,6 +14,7 @@ import { planAction } from "./registry";
 import { executionGateway } from "./gateway";
 import { redactSecrets } from "./secretGuard";
 import { materializeServerPlan } from "./reasonPlan";
+import { elementQueryFromTitle, elementQueriesFromTitle } from "./elementQuery";
 import type {
   AgentAction,
   AgentActionArguments,
@@ -47,14 +48,6 @@ const hasContentEvidence = (context: AgentContext) =>
   context.evidence.some(
     (item) => item.toolId === "browser.inspect_page_readonly" && Array.isArray(item.data.elementMatches),
   );
-
-/** Pull a bounded element search term out of the task title, if any. */
-const elementQueryFromTitle = (title: string): string | null => {
-  // Prefer quoted phrases: "the 'Watch On Demand' button"
-  const quoted = title.match(/["'“”‘’]([^"'“”‘’]{2,60})["'“”‘’]/);
-  if (quoted) return quoted[1].trim().slice(0, 120);
-  return null;
-};
 
 /** Tasks where how the page actually behaves in a browser is real evidence. */
 const BROWSER_TASK_TYPES: readonly string[] = [
@@ -319,7 +312,7 @@ class DeterministicReasoner implements AgentReasoner {
           ? {}
           : item.toolId === "browser.inspect_page_readonly"
           ? item.id === "inspect-page-content"
-            ? { url, viewport: "desktop", elementQuery: elementQueryFromTitle(context.run.title ?? "") ?? "button" }
+            ? { url, viewport: "desktop", elementQuery: elementQueriesFromTitle(context.run.title ?? "")[0] ?? "button" }
             : { url, viewport: item.id === "inspect-page-mobile" ? "mobile" : "desktop" }
           : { url });
       const built = planAction(item.id, item.toolId, context.run.id, args, item.purpose);
@@ -472,6 +465,7 @@ class ServerModelReasoner implements AgentReasoner {
       url: context.environment.primaryUrl,
       capabilities: context.capabilities,
       stack: getProjectStack(context.project),
+      title: context.run.title ?? undefined,
     });
     if (!plan || !isValidPlan(plan)) return null;
     // A reasoning layer may never plan a change: this pass is read-only.

@@ -270,14 +270,31 @@ export default async function ({ page, context }) {
   let elementMatches = [];
   if (elementQuery) {
     elementMatches = await page.evaluate((query) => {
-      const needle = String(query).toLowerCase();
-      const all = Array.from(document.querySelectorAll("a, button, input, [class]"));
-      const matches = all.filter((el) => {
+      // Tokenize query into meaningful words (≥2 chars).
+      const queryTokens = String(query).toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((t) => t.length >= 2);
+      const threshold = Math.max(1, Math.ceil(queryTokens.length * 0.6));
+      // A "strong" token is one long enough to be distinctive on its own (≥3 chars).
+      const strongTokens = queryTokens.filter((t) => t.length >= 3);
+
+      const score = (el) => {
         const text = (el.textContent || "").trim().toLowerCase();
         const classes = String(el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className || "").toLowerCase();
-        return text.includes(needle) || classes.includes(needle);
-      }).slice(0, 5);
-      return matches.map((el) => ({
+        const combined = text + " " + classes;
+        // Exact substring: highest confidence.
+        if (combined.includes(String(query).toLowerCase())) return 3;
+        // Word-overlap: count how many query tokens appear anywhere in the element text+classes.
+        const matched = queryTokens.filter((t) => combined.includes(t));
+        if (matched.length >= threshold) return 2;
+        // Strong-token match: any single distinctive query word (≥3 chars) appears.
+        if (strongTokens.some((t) => combined.includes(t))) return 1;
+        return 0;
+      };
+
+      const all = Array.from(document.querySelectorAll("a, button, input, [class]"));
+      const scored = all.map((el) => ({ el, s: score(el) })).filter((entry) => entry.s > 0);
+      // Sort descending by score, keep top 5.
+      scored.sort((a, b) => b.s - a.s);
+      return scored.slice(0, 5).map(({ el }) => ({
         text: (el.textContent || "").trim().slice(0, 160),
         html: el.outerHTML.slice(0, 600),
         tag: el.tagName.toLowerCase(),

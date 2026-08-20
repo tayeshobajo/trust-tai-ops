@@ -392,6 +392,49 @@ check(
 }
 
 console.log("");
+// --- elementQuery extraction -------------------------------------------------
+
+console.log("\nelement query extraction");
+{
+  const { elementQueryFromTitle, elementQueriesFromTitle } = await import("../src/agent-core/elementQuery.ts");
+
+  // AABC test case: task title → primary search term
+  const aabcTitle = "Update the Watch Now, Download Slides and Take The Quiz buttons on the event page";
+  const primary = elementQueryFromTitle(aabcTitle);
+  check(
+    'AABC title: primary query is the first named element ("Watch Now")',
+    primary !== null && primary.toLowerCase().startsWith("watch"),
+  );
+
+  const terms = elementQueriesFromTitle(aabcTitle);
+  check("AABC title: produces at least 2 search terms", terms.length >= 2);
+  check("AABC title: first term starts with 'watch'", terms[0]?.toLowerCase().startsWith("watch") ?? false);
+  check("AABC title: second term starts with 'download'", terms[1]?.toLowerCase().startsWith("download") ?? false);
+  check("all terms are bounded to 120 chars", terms.every((t) => t.length <= 120));
+  check("no more than 3 terms returned", terms.length <= 3);
+
+  // Quoted-phrase preference
+  const quotedTitle = 'Fix the \'Register Now\' button colour';
+  const quotedPrimary = elementQueryFromTitle(quotedTitle);
+  check("quoted phrase is preferred over noun extraction", quotedPrimary === "Register Now");
+
+  // Title with no recognisable element hint
+  const genericTitle = "The site is slow";
+  const genericTerms = elementQueriesFromTitle(genericTitle);
+  check(
+    "fallback terms list always includes \"button\"",
+    genericTerms.includes("button"),
+  );
+
+  // Stop-word filtering: common verbs/filler should not be the primary
+  const updateTitle = "Update and fix the settings page";
+  const updatePrimary = elementQueryFromTitle(updateTitle);
+  check(
+    "stop words like 'update' and 'fix' are not returned as primary term",
+    updatePrimary === null || !/^(update|fix|and|the)$/i.test(updatePrimary),
+  );
+}
+
 if (failures.length > 0) {
   console.log(`${failures.length} check(s) failed`);
   process.exit(1);

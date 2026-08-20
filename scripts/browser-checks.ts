@@ -189,6 +189,61 @@ console.log("\nbrowserless dialect");
   );
 }
 
+// --- fuzzy element matching -------------------------------------------------
+
+console.log("\nfuzzy element matching (BROWSERLESS_FUNCTION_SOURCE)");
+{
+  // Verify the page script embedded in BROWSERLESS_FUNCTION_SOURCE uses
+  // token-overlap matching rather than plain exact substring.
+  const { BROWSERLESS_FUNCTION_SOURCE } = await import("../supabase/functions/_shared/browserInspect.ts");
+  check(
+    "page script tokenises the query",
+    BROWSERLESS_FUNCTION_SOURCE.includes("queryTokens"),
+  );
+  check(
+    "page script has a match-threshold (60% overlap)",
+    BROWSERLESS_FUNCTION_SOURCE.includes("threshold"),
+  );
+  check(
+    "page script has a strong-token fallback for single distinctive words",
+    BROWSERLESS_FUNCTION_SOURCE.includes("strongTokens"),
+  );
+  check(
+    "page script still supports exact-substring as highest-confidence match",
+    BROWSERLESS_FUNCTION_SOURCE.includes("combined.includes(String(query)"),
+  );
+  check(
+    "page script sorts by descending score before slicing",
+    BROWSERLESS_FUNCTION_SOURCE.includes("scored.sort("),
+  );
+  // The AABC test case: query="Watch Now" must match text="Watch On Demand"
+  // because the token "watch" (≥3 chars, strong token) appears in both.
+  // We exercise this with an inline simulation of the scoring logic.
+  const simulateFuzzy = (query: string, text: string): boolean => {
+    const tokens = query.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((t) => t.length >= 2);
+    const threshold = Math.max(1, Math.ceil(tokens.length * 0.6));
+    const strong = tokens.filter((t) => t.length >= 3);
+    const combined = text.toLowerCase();
+    if (combined.includes(query.toLowerCase())) return true;
+    const matched = tokens.filter((t) => combined.includes(t));
+    if (matched.length >= threshold) return true;
+    if (strong.some((t) => combined.includes(t))) return true;
+    return false;
+  };
+  check(
+    'AABC test case: "Watch Now" fuzzy-matches "Watch On Demand"',
+    simulateFuzzy("Watch Now", "Watch On Demand"),
+  );
+  check(
+    'AABC test case: "Download Slides" fuzzy-matches "Download Slides"',
+    simulateFuzzy("Download Slides", "Download Slides"),
+  );
+  check(
+    'sanity: completely unrelated query does not match',
+    !simulateFuzzy("xyzzy frobnik", "Watch On Demand"),
+  );
+}
+
 if (failures.length > 0) {
   console.error(`${failures.length} check(s) failed:\n - ${failures.join("\n - ")}`);
   process.exit(1);

@@ -11,6 +11,7 @@ import { isToolEligibleForStack } from "./policy";
 import type { AgentAction, AgentActionArguments, AgentPlan, ToolId } from "./types";
 import { accessTypesForStack } from "../stacks";
 import type { AccessType, ProjectStack } from "../types";
+import { elementQueriesFromTitle } from "./elementQuery";
 
 export type ReasonStepSpec = {
   toolId: ToolId;
@@ -191,7 +192,7 @@ const ACCESS_TYPES: AccessType[] = [
  */
 export const materializeServerPlan = (
   payload: unknown,
-  options: { runId: string | null; url: string | null; capabilities: string[]; stack?: ProjectStack },
+  options: { runId: string | null; url: string | null; capabilities: string[]; stack?: ProjectStack; title?: string },
 ): AgentPlan | null => {
   if (!payload || typeof payload !== "object") return null;
   const raw = payload as ServerReasonPlan;
@@ -218,6 +219,12 @@ export const materializeServerPlan = (
     else {
       if (!options.url) return null;
       args = spec.viewport ? { url: options.url, viewport: spec.viewport } : { url: options.url };
+      // For inspect-page-content, inject the best element query derived from
+      // the task title so the browser script knows what to look for.
+      if (step.id === "inspect-page-content" && options.title) {
+        const eq = elementQueriesFromTitle(options.title)[0] ?? "button";
+        args = { ...args, elementQuery: eq };
+      }
     }
 
     const built = planAction(step.id, spec.toolId, options.runId, args, step.purpose || spec.purpose);
