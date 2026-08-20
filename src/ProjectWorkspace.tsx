@@ -1941,16 +1941,37 @@ export function ProjectWorkspace({
 
             // Consecutive lines from the same speaker read as one turn.
             const grouped = !divider && previous !== null && previous.role === message.role;
+            // The live phase strip belongs to the agent's most recent turn only.
+            const isLastAgentTurn =
+              message.role === "agent" &&
+              position === windowed.length - 1 &&
+              Boolean(activeRun) &&
+              !searching;
 
             return (
               <div key={message.key} className={grouped ? "pw-msg-wrap is-grouped" : "pw-msg-wrap"}>
                 {divider ? <p className="pw-day-divider"><span>{divider}</span></p> : null}
-                <article className={`pw-msg pw-msg-${message.role}${grouped ? " is-grouped" : ""}`}>
-                  {message.role === "agent" ? <AgentAvatar muted={grouped} /> : null}
+                <article
+                  className={`pw-msg pw-msg-${message.role}${grouped ? " is-grouped" : ""}${
+                    isLastAgentTurn && (busy || agentBusy) ? " is-live" : ""
+                  }`}
+                >
+                  {message.role === "agent" ? (
+                    <AgentAvatar muted={grouped} />
+                  ) : (
+                    <UserAvatar muted={grouped} />
+                  )}
                   <div className="pw-msg-main">
-                  {message.role === "agent" && !grouped ? (
+                  {!grouped ? (
                     <span className="pw-msg-who">
-                      Engineering Agent
+                      {message.role === "agent" ? (
+                        <>
+                          Engineering Agent
+                          <span className="pw-ai-chip" aria-hidden="true">AI</span>
+                        </>
+                      ) : (
+                        "You"
+                      )}
                       {message.createdAt ? <time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time> : null}
                     </span>
                   ) : null}
