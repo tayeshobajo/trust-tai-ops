@@ -1957,6 +1957,19 @@ export function ProjectWorkspace({
           <div ref={threadEndRef} />
         </div>
 
+        {hasNewBelow ? (
+          <button
+            className="pw-jump-latest"
+            type="button"
+            onClick={() => {
+              threadEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+              setHasNewBelow(false);
+            }}
+          >
+            New messages · jump to latest
+          </button>
+        ) : null}
+
         <div
           className={dropActive ? "pw-composer is-drop-active" : "pw-composer"}
           onDragOver={(event) => {
