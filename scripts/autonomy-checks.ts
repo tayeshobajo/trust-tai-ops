@@ -73,6 +73,9 @@ const gatewayFor = (
     available: () => true,
     projectCapabilities: async () => ({ stored: [], verified: [] }),
     reason: async () => null,
+  synthesize: async () => null,
+  planFix: async () => null,
+  recordResolution: async () => undefined,
     invoke: async (request) => (await handler(request.toolId, request.args as Record<string, unknown>)) as never,
   } as never);
 

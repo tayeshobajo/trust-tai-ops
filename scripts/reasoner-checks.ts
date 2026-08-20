@@ -250,6 +250,9 @@ setExecutionGateway({
   projectCapabilities: async () => ({ stored: [], verified: [] }),
   invoke: async () => ({ ok: false as const, code: "not_implemented" as const, summary: "", retryable: false }),
   reason: async () => null,
+  synthesize: async () => null,
+  planFix: async () => null,
+  recordResolution: async () => undefined,
 });
 check("an unavailable model yields no plan of its own", (await serverModelReasoner.plan(context)) === null);
 const fellBack = await selectReasoner().plan(context);

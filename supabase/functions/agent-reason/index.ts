@@ -560,7 +560,8 @@ Deno.serve(async (req) => {
     mode !== "compose_reply" &&
     mode !== "synthesize_diagnosis" &&
     mode !== "plan_fix" &&
-    mode !== "monitor"
+    mode !== "monitor" &&
+    mode !== "record_resolution"
   ) {
     return fail("invalid_input", "I don't know how to think about that.", false);
   }
@@ -672,6 +673,96 @@ Deno.serve(async (req) => {
 
   if (mode === "compose_reply") {
     return await streamReply(model, apiKey, body.facts);
+  }
+
+  // ---------------------------------------------------------------------------
+  // record_resolution: called when a run reaches "complete" with a confirmed fix.
+  // Extracts the fix pattern from the run's findings + actions and upserts it
+  // into knowledge_base_entries so future runs benefit from it.
+  // ---------------------------------------------------------------------------
+  if (mode === "record_resolution") {
+    const runId = typeof body.runId === "string" ? body.runId.trim() : "";
+    const taskType = typeof body.taskType === "string" ? body.taskType.trim().slice(0, 40) : "";
+    const taskTitle = typeof body.taskTitle === "string" ? body.taskTitle.trim().slice(0, 160) : "";
+    const hostContext = typeof body.hostContext === "string" ? body.hostContext.trim().slice(0, 40) : null;
+
+    if (!runId || !taskType || !taskTitle) {
+      return Response.json({ ok: true, recorded: false, reason: "insufficient_context" }, { headers: corsHeaders });
+    }
+
+    // Verify this run belongs to the authorized project.
+    if (!(await runBelongsToProject(authz.project.projectId, runId))) {
+      return fail("not_found", "I can't find that task on this project.", false);
+    }
+
+    // Load findings and successful actions for this run.
+    const [findingsResult, actionsResult] = await Promise.all([
+      service.from("run_findings").select("title, summary, severity").eq("run_id", runId).limit(10),
+      service.from("run_actions").select("summary, outcome").eq("run_id", runId).eq("outcome", "success").limit(10),
+    ]);
+
+    const findings = (findingsResult.data ?? []) as Array<{ title: string; summary: string; severity: string }>;
+    const actions = (actionsResult.data ?? []) as Array<{ summary: string; outcome: string }>;
+
+    // Need at least one finding (the diagnosis) to be worth recording.
+    if (findings.length === 0) {
+      return Response.json({ ok: true, recorded: false, reason: "no_findings" }, { headers: corsHeaders });
+    }
+
+    // Build a symptom pattern from the task title + top finding title.
+    const topFinding = findings[0];
+    const symptomPattern = taskTitle.slice(0, 200);
+    const evidenceSignals = findings.map((f) => f.title.slice(0, 100)).slice(0, 5);
+    const resolutionParts = actions.map((a) => a.summary.slice(0, 200));
+    const resolution = resolutionParts.length > 0
+      ? resolutionParts.join(" Then: ")
+      : topFinding.summary.slice(0, 600);
+
+    // Upsert: if an identical symptom_pattern + task_type already exists,
+    // increment project_count and update last_confirmed_at. Otherwise insert.
+    const existing = await service
+      .from("knowledge_base_entries")
+      .select("id, project_count")
+      .eq("scope", "wordpress")
+      .eq("task_type", taskType)
+      .eq("symptom_pattern", symptomPattern)
+      .maybeSingle();
+
+    const now = new Date().toISOString();
+    if (existing.data) {
+      await service
+        .from("knowledge_base_entries")
+        .update({
+          resolution: resolution.slice(0, 600),
+          evidence_signals: JSON.stringify(evidenceSignals),
+          host_context: hostContext,
+          project_count: (existing.data.project_count ?? 1) + 1,
+          last_confirmed_at: now,
+          updated_at: now,
+        })
+        .eq("id", existing.data.id);
+      return Response.json({ ok: true, recorded: true, action: "updated", id: existing.data.id }, { headers: corsHeaders });
+    }
+
+    const { data: inserted } = await service
+      .from("knowledge_base_entries")
+      .insert({
+        scope: "wordpress",
+        task_type: taskType,
+        symptom_pattern: symptomPattern,
+        resolution: resolution.slice(0, 600),
+        evidence_signals: JSON.stringify(evidenceSignals),
+        tools_used: JSON.stringify([]),
+        host_context: hostContext,
+        project_count: 1,
+        last_confirmed_at: now,
+        created_at: now,
+        updated_at: now,
+      })
+      .select("id")
+      .maybeSingle();
+
+    return Response.json({ ok: true, recorded: true, action: "inserted", id: inserted?.id ?? null }, { headers: corsHeaders });
   }
 
   if (mode === "analyze_meeting_source") {

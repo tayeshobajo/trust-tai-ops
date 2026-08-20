@@ -175,6 +175,9 @@ setExecutionGateway({
   available: () => true,
   projectCapabilities: async () => ({ stored: [], verified: [] }),
   reason: async () => null,
+  synthesize: async () => null,
+  planFix: async () => null,
+  recordResolution: async () => undefined,
   invoke: async () => {
     calls += 1;
     return {

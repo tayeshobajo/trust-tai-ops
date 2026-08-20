@@ -9,6 +9,7 @@ import { getSupabaseClient } from "./supabase";
 const isUuid = (value: string): boolean =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 import { redactBody } from "./agent-core/secretGuard";
+import { executionGateway } from "./agent-core/gateway";
 import { isProjectStack, normalizeVersions } from "./stacks";
 import type {
   AccessType,
@@ -1196,6 +1197,30 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       (client.from("run_phases") as never as { update: (v: unknown) => { eq: (k: string, v: string) => { eq: (k: string, v: string) => unknown } } }).update({ status: phase.status })
         .eq("run_id", runId).eq("state", phase.state),
     ));
+
+    // Learning loop: when a task reaches complete, record the resolution
+    // pattern in the knowledge base so future runs benefit from it.
+    // Fire-and-forget — never blocks the UI or throws.
+    if (targetState === "complete" && updatedRun.taskType) {
+      // Resolve the hosting provider for this project's environment.
+      let hostContext: string | null = null;
+      try {
+        const envRow = await client
+          .from("project_environments")
+          .select("hosting_provider")
+          .eq("project_id", projectId)
+          .maybeSingle();
+        hostContext = (envRow.data as { hosting_provider?: string } | null)?.hosting_provider ?? null;
+      } catch { /* non-fatal */ }
+
+      executionGateway().recordResolution({
+        projectId,
+        runId,
+        taskType: updatedRun.taskType,
+        taskTitle: updatedRun.title ?? "",
+        hostContext,
+      }).catch(() => { /* fire and forget */ });
+    }
 
     return this.loadWorkspace();
   }

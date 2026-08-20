@@ -60,6 +60,17 @@ export interface ExecutionGateway {
    * Returns null on failure — enhancement only, never a dependency.
    */
   planFix(projectId: string, digest: Record<string, unknown>): Promise<FixPlanResult | null>;
+  /**
+   * Record a successfully resolved task as a knowledge base pattern.
+   * Fire-and-forget — never throws, never blocks the caller.
+   */
+  recordResolution(params: {
+    projectId: string;
+    runId: string;
+    taskType: string;
+    taskTitle: string;
+    hostContext: string | null;
+  }): Promise<void>;
 }
 
 export type FixStep = {
@@ -201,6 +212,36 @@ class SupabaseFunctionGateway implements ExecutionGateway {
     } catch {
       // Fix planning is an enhancement, never a dependency.
       return null;
+    }
+  }
+
+  /**
+   * Fire-and-forget: record a resolved task as a knowledge base pattern.
+   * Never throws, never blocks the UI.
+   */
+  async recordResolution(params: {
+    projectId: string;
+    runId: string;
+    taskType: string;
+    taskTitle: string;
+    hostContext: string | null;
+  }): Promise<void> {
+    if (!this.available()) return;
+    try {
+      const client = getSupabaseClient();
+      await client.functions.invoke("agent-reason", {
+        body: {
+          projectId: params.projectId,
+          mode: "record_resolution",
+          runId: params.runId,
+          taskType: params.taskType,
+          taskTitle: params.taskTitle,
+          hostContext: params.hostContext ?? null,
+          model: readReasonModelId(),
+        },
+      });
+    } catch {
+      // Non-fatal: learning is an enhancement, not a dependency.
     }
   }
 
