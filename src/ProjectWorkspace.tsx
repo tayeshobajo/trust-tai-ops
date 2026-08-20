@@ -1297,7 +1297,7 @@ export function ProjectWorkspace({
       let createdId: string | null = null;
       let savedId: string | null = null;
       try {
-        const brief = value || `Review the ${attachments.length === 1 ? "file" : "files"} I've attached.`;
+        const brief = typed || `Review the ${attachments.length === 1 ? "file" : "files"} I've attached.`;
         const next = await workspaceRepository.createRun(project.id, draftFromBrief(project, brief));
         onWorkspaceUpdate(next);
         const created = next.projects.find((item) => item.id === project.id)?.runs[0];
