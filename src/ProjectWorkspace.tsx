@@ -1128,8 +1128,11 @@ export function ProjectWorkspace({
     if (!evidenceIntakeAvailable()) return;
     const onPaste = (event: ClipboardEvent) => {
       const target = event.target as HTMLElement | null;
+      // The composer owns its own paste handling. Skipping it here is what
+      // stops one clipboard image being queued twice.
+      if (target && target === composerRef.current) return;
       // Another text field owns the paste (transcript box, search, access form).
-      if (target && target !== composerRef.current) {
+      if (target) {
         const tag = target.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
       }
