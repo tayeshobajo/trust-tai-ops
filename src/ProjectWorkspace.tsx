@@ -1878,9 +1878,13 @@ export function ProjectWorkspace({
                         ) : null}
                       </>
                     );
-                  })() : message.body.map((paragraph, index) => (
-                    <p key={index}>{searching ? <Highlight text={paragraph} query={query} /> : paragraph}</p>
-                  ))}
+                  })() : searching ? (
+                    message.body.map((paragraph, index) => (
+                      <p key={index}><Highlight text={paragraph} query={query} /></p>
+                    ))
+                  ) : (
+                    <MarkdownBody body={message.body} />
+                  )}
                   {message.card ? (
                     <div className="pw-card">
                       <h4>{message.card.title}</h4>
@@ -1928,6 +1932,21 @@ export function ProjectWorkspace({
                     </ul>
                   ) : null}
                   {activeRun && message.decision ? renderDecision(activeRun, message.decision) : null}
+                  <div className="pw-msg-actions">
+                    <button
+                      type="button"
+                      className="pw-msg-reply"
+                      onClick={() => {
+                        setReplyTo({
+                          who: message.role === "user" ? "You" : "Engineering Agent",
+                          text: message.body.join(" ").slice(0, 400),
+                        });
+                        composerRef.current?.focus();
+                      }}
+                    >
+                      Reply
+                    </button>
+                  </div>
                   {message.role === "user" && message.createdAt ? (
                     <time className="pw-msg-time" dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time>
                   ) : null}
