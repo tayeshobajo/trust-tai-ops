@@ -3,6 +3,7 @@ import { buildSiteHealth } from "./health";
 import type { AgentEvidence } from "./agent-core/types";
 import type { AccessType, MessageKind, NewProjectMessage, Organization, Project, ProjectMessage, Run, RunDraft } from "./types";
 import { buildThread, draftFromBrief } from "./conversation";
+import { MarkdownBody } from "./markdown";
 import type { DecisionKind, ThreadCard, ThreadDiff, ThreadMessage } from "./conversation";
 import { constraintAlreadyStored, detectConstraints } from "./agent-core/constraints";
 import {
