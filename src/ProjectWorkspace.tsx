@@ -175,6 +175,35 @@ const AgentAvatar = ({ muted = false }: { muted?: boolean }) => (
   </span>
 );
 
+/** The person's own mark — deep ink, so the two voices never blur. */
+const UserAvatar = ({ muted = false }: { muted?: boolean }) => (
+  <span className={muted ? "pw-user-avatar is-muted" : "pw-user-avatar"} aria-hidden="true">
+    {muted ? null : (
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <circle cx="12" cy="8.4" r="3.4" />
+        <path d="M5.2 19.2c1.1-3.2 3.7-4.8 6.8-4.8s5.7 1.6 6.8 4.8" strokeLinecap="round" />
+      </svg>
+    )}
+  </span>
+);
+
+const PhaseStrip = ({ phase }: { phase: string | null }) => {
+  const currentIndex = phase ? HUMAN_PHASES.indexOf(phase as (typeof HUMAN_PHASES)[number]) : -1;
+  return (
+    <ol className="pw-phase-strip" aria-label="Task progress">
+      {HUMAN_PHASES.map((item, index) => {
+        const state = index < currentIndex ? "done" : index === currentIndex ? "now" : "next";
+        return (
+          <li key={item} className={`pw-phase-step is-${state}`}>
+            <span className="pw-phase-dot" aria-hidden="true" />
+            {item}
+          </li>
+        );
+      })}
+    </ol>
+  );
+};
+
 /** A calm "agent is working" cue that replaces the silent disabled send state. */
 const TypingIndicator = ({ label }: { label: string }) => (
   <article className="pw-msg pw-msg-agent pw-typing" aria-busy="true" aria-live="polite">
