@@ -2072,9 +2072,6 @@ export function ProjectWorkspace({
                       Reply
                     </button>
                   </div>
-                  {message.role === "user" && message.createdAt ? (
-                    <time className="pw-msg-time" dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time>
-                  ) : null}
                   </div>
                 </article>
               </div>
