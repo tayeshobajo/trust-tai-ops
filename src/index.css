@@ -6775,6 +6775,26 @@ p, li {
   color: var(--muted);
 }
 
+/* Quiet affordance shown only when the reader has scrolled away from the end. */
+.pw-jump-latest {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(100% + var(--tt-space-2));
+  z-index: 3;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface, var(--tt-paper, #fcfaf6));
+  color: var(--ink, var(--tt-ink, #01051b));
+  padding: 6px 14px;
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgb(1 5 27 / 0.12);
+}
+
+.pw-jump-latest:hover { border-color: color-mix(in srgb, var(--accent, #2f6df6) 45%, var(--line)); }
+
 .composer-attach {
   display: inline-grid;
   place-items: center;
