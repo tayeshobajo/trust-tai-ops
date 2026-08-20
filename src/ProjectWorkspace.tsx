@@ -158,8 +158,30 @@ const WarningIcon = () => (
 );
 
 const SendIcon = () => (
-  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-    <path d="M5 12h13M12 5.5 18.5 12 12 18.5" strokeLinecap="round" strokeLinejoin="round" />
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+    <path d="M4.5 12 20 5l-6.6 15-2.2-6.2z" strokeLinejoin="round" />
+  </svg>
+);
+
+const ImageIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+    <circle cx="9" cy="10" r="1.4" />
+    <path d="m4.5 17 4.4-4.2 3.2 3 2.6-2.3 4.8 4.2" strokeLinejoin="round" />
+  </svg>
+);
+
+const KeyIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <circle cx="8.5" cy="12" r="3.6" />
+    <path d="M12.1 12H21M18 12v3M15.4 12v2.2" strokeLinecap="round" />
+  </svg>
+);
+
+const TranscriptIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <path d="M20 14.5a2.5 2.5 0 0 1-2.5 2.5H9l-4 3v-3H6.5A2.5 2.5 0 0 1 4 14.5v-7A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5z" strokeLinejoin="round" />
+    <path d="M8 9.5h8M8 12.5h5" strokeLinecap="round" />
   </svg>
 );
 
