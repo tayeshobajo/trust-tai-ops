@@ -270,10 +270,14 @@ Deno.serve(async (req) => {
         password: secret,
       });
       verification = outcome.state;
-      note =
-        outcome.state === "verified"
-          ? "WordPress Admin login is verified. This is a normal login password, not an Application Password, so the private REST inspection path is not enabled from this credential."
-          : outcome.summary;
+      if (outcome.state === "verified") {
+        note = "WordPress Admin login is verified. This is a normal login password, not an Application Password, so the private REST inspection path is not enabled from this credential.";
+      } else if (outcome.code === "wordfence_2fa_required" || outcome.code === "challenge_required") {
+        // Give a precise, actionable instruction rather than a dead end.
+        note = outcome.summary;
+      } else {
+        note = outcome.summary;
+      }
       if (outcome.state === "verified") {
         verifiedAt = new Date().toISOString();
         await deps.markVerification?.(project.projectId, "wordpress_admin", "verified", verifiedAt);

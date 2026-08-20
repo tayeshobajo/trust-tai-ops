@@ -229,6 +229,24 @@ const challenged = await verifyWordPressLogin(
 );
 check("a two-factor challenge is not a rejection", challenged.state === "needs_attention");
 
+// Wordfence 2FA: body contains wordfence-specific markers
+const wfChallenged = await verifyWordPressLogin(
+  "https://example.com",
+  { username: "owner@example.com", password: FAKE_WP_PASSWORD },
+  fakeFetch(respond({ status: 200, body: '<div class="wfls-2fa-container">Enter your Wordfence authentication code</div>' })),
+);
+check("wordfence 2fa returns wordfence_2fa_required code", wfChallenged.code === "wordfence_2fa_required");
+check("wordfence 2fa is not a rejection", wfChallenged.state === "needs_attention");
+check("wordfence 2fa message instructs app password creation", wfChallenged.summary.toLowerCase().includes("application password"));
+
+// Wordfence 2FA via redirect URL containing wordfence marker
+const wfRedirect = await verifyWordPressLogin(
+  "https://example.com",
+  { username: "owner@example.com", password: FAKE_WP_PASSWORD },
+  fakeFetch(respond({ status: 302, headers: { location: "https://example.com/wp-login.php?wordfence_lostphone=1" } })),
+);
+check("wordfence 2fa redirect also returns wordfence_2fa_required", wfRedirect.code === "wordfence_2fa_required");
+
 const crossOrigin = await verifyWordPressLogin(
   "https://example.com",
   { username: "owner@example.com", password: FAKE_WP_PASSWORD },

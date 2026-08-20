@@ -85,7 +85,7 @@ const CONNECTION_TYPES: ConnectionDefinition[] = [
         label: "Application Password",
         kind: "secret",
         placeholder: "xxxx xxxx xxxx xxxx xxxx xxxx",
-        hint: "In WordPress: Users → Profile → Application Passwords. It can be revoked on its own, and your login password is never needed.",
+        hint: "WP Admin → Users → Profile → Application Passwords → Add New. Use your normal login password and you'll hit a 2FA wall — Application Passwords bypass that entirely. Copy the password with its spaces.",
       },
       {
         key: "loginUrl",

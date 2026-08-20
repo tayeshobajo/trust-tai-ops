@@ -27,6 +27,17 @@ export const LOGIN_PATH = "/wp-login.php";
 const LOGIN_TIMEOUT_MS = 12_000;
 
 const CHALLENGE = /(two[- ]factor|2fa|authentication code|one[- ]time (?:code|password)|g-recaptcha|recaptcha|hcaptcha|captcha|verification code)/i;
+// Wordfence 2FA is distinct from generic 2FA: it intercepts the login session
+// with its own screen before the WP session cookie is ever issued. Detecting
+// it specifically lets us give the user a precise, actionable instruction
+// (create an Application Password) instead of a generic "second step" message.
+const WORDFENCE_2FA = /(wordfence|wfls-|wf-2fa|wordfence.*two.factor|two.factor.*wordfence)/i;
+
+export const APP_PASSWORD_INSTRUCTION =
+  "This site has two-factor authentication enabled. Create an Application Password instead: " +
+  "in WP Admin go to Users → Profile → Application Passwords, add a name like 'Trust Tai Ops', " +
+  "copy the generated password (spaces included), and paste it back here. " +
+  "Application Passwords bypass 2FA entirely and can be revoked on their own.";
 const LOGIN_ERROR = /id=["']login_error["']|class=["'][^"']*login_error/i;
 const ADMIN_SIGNAL = /(wp-admin\/?["'\s>]|id=["']wpadminbar["']|adminmenumain)/i;
 
@@ -158,6 +169,13 @@ export const verifyWordPressLogin = async (
         summary: "WordPress accepted that login.",
       };
     }
+    if (WORDFENCE_2FA.test(location) || (CHALLENGE.test(location) && WORDFENCE_2FA.test(location))) {
+      return {
+        state: "needs_attention",
+        code: "wordfence_2fa_required",
+        summary: APP_PASSWORD_INSTRUCTION,
+      };
+    }
     if (CHALLENGE.test(location)) {
       return {
         state: "needs_attention",
@@ -179,11 +197,18 @@ export const verifyWordPressLogin = async (
     text = "";
   }
 
+  if (WORDFENCE_2FA.test(text)) {
+    return {
+      state: "needs_attention",
+      code: "wordfence_2fa_required",
+      summary: APP_PASSWORD_INSTRUCTION,
+    };
+  }
   if (CHALLENGE.test(text)) {
     return {
       state: "needs_attention",
       code: "challenge_required",
-      summary: "That login is protected by a second security step, so I can't confirm it on my own.",
+      summary: "That login is protected by a second security step, so I can't confirm it on my own. If this site uses Wordfence two-factor authentication, create an Application Password instead: WP Admin → Users → Profile → Application Passwords.",
     };
   }
   if (LOGIN_ERROR.test(text)) {
