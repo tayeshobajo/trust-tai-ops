@@ -2139,12 +2139,36 @@ export function ProjectWorkspace({
           ) : null}
 
           <div className="composer-shell">
+          {credentialPreview ? (
+            <div className="pw-cred-card" role="status">
+              <p className="pw-cred-title">{credentialPreview.title}</p>
+              {credentialPreview.fields.length > 0 ? (
+                <dl className="pw-cred-fields">
+                  {credentialPreview.fields.map((field) => (
+                    <div key={field.label}>
+                      <dt>{field.label}</dt>
+                      <dd className={field.secret ? "is-secret" : ""}>{field.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+              <p className="pw-cred-note">
+                {credentialPreview.ambiguous
+                  ? "This looks like site access. I'll handle it securely when you send."
+                  : "I'll seal this in the secure store on send. It never enters the conversation."}
+              </p>
+            </div>
+          ) : null}
           <textarea
             ref={composerRef}
             className="composer-input"
             rows={1}
             value={composerValue}
-            placeholder="Describe the issue, task, or outcome you want help with..."
+            placeholder={
+              activeRun
+                ? "Message the agent…"
+                : "Describe what you want me to investigate, fix, improve, or build…"
+            }
             aria-label="Message the Engineering Agent"
             onChange={(event) => setComposerValue(event.target.value)}
             onKeyDown={(event) => {
@@ -2247,18 +2271,19 @@ export function ProjectWorkspace({
                 ＋
               </button>
             ) : null}
+            <p className="composer-hint">
+              <span>Enter</span> to send · <span>Shift+Enter</span> for a new line
+            </p>
             <button
-              className="primary-button"
+              className={credentialPreview ? "primary-button composer-send is-wide" : "primary-button composer-send"}
               type="button"
+              aria-label={credentialPreview ? "Send securely" : "Send message"}
               disabled={(!composerValue.trim() && pendingFiles.length === 0) || busy || uploading}
               onClick={() => void sendMessage()}
             >
-              {uploading ? "Reading files…" : "Send"}
+              {uploading ? "Reading files…" : credentialPreview ? "Send securely" : <SendIcon />}
             </button>
           </div>
-          <p className="composer-hint">
-            <span>Enter</span> to send · <span>Shift+Enter</span> for a new line
-          </p>
           </div>
         </div>
       </main>
