@@ -156,14 +156,37 @@ const WarningIcon = () => (
   </svg>
 );
 
-/** A calm "agent is thinking" cue that replaces the silent disabled send state. */
-const TypingIndicator = () => (
+const SendIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+    <path d="M5 12h13M12 5.5 18.5 12 12 18.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+/** A quiet identity mark for the agent — a shield, not a sparkle. */
+const AgentAvatar = ({ muted = false }: { muted?: boolean }) => (
+  <span className={muted ? "pw-agent-avatar is-muted" : "pw-agent-avatar"} aria-hidden="true">
+    {muted ? null : (
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M12 3.6 19 7v5.1c0 3.9-2.8 6.5-7 7.7-4.2-1.2-7-3.8-7-7.7V7z" strokeLinejoin="round" />
+        <path d="m9.3 12.1 1.9 1.9 3.5-3.9" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )}
+  </span>
+);
+
+/** A calm "agent is working" cue that replaces the silent disabled send state. */
+const TypingIndicator = ({ label }: { label: string }) => (
   <article className="pw-msg pw-msg-agent pw-typing" aria-busy="true" aria-live="polite">
-    <span className="pw-msg-who">Engineering Agent</span>
-    <div className="pw-typing-dots">
-      <span />
-      <span />
-      <span />
+    <AgentAvatar />
+    <div className="pw-msg-main">
+      <span className="pw-typing-line">
+        <span className="pw-typing-label">{label}</span>
+        <span className="pw-typing-dots">
+          <span />
+          <span />
+          <span />
+        </span>
+      </span>
     </div>
   </article>
 );
@@ -184,11 +207,14 @@ const echoSignature = (body: string[]): string =>
 /** The reply being written, shown where the finished message will appear. */
 const StreamingMessage = ({ text }: { text: string }) => (
   <article className="pw-msg pw-msg-agent" aria-live="polite">
-    <span className="pw-msg-who">Engineering Agent</span>
-    <p className="pw-msg-line">
-      {text}
-      <span className="pw-caret" aria-hidden="true" />
-    </p>
+    <AgentAvatar />
+    <div className="pw-msg-main">
+      <span className="pw-msg-who">Engineering Agent</span>
+      <p className="pw-msg-line">
+        {text}
+        <span className="pw-caret" aria-hidden="true" />
+      </p>
+    </div>
   </article>
 );
 
