@@ -1257,25 +1257,32 @@ export function ProjectWorkspace({
   };
 
   const sendMessage = async () => {
-    const value = composerValue.trim();
+    const typed = composerValue.trim();
+    // A quoted reply travels as Markdown blockquote lines, so the thread shows
+    // the referenced context inline without a second storage shape.
+    const value = replyTo
+      ? [...replyTo.text.split("\n").map((line) => `> ${line}`), "", typed].join("\n").trim()
+      : typed;
     const attachments = pendingFiles;
     if (!value && attachments.length === 0) return;
 
     // Credential-shaped text never becomes a stored message. It goes straight
     // to the authorized server intake, which parses, authorizes and seals it,
     // and returns a sanitized replacement for the conversation.
-    if (value && containsSecretMaterial(value)) {
-      await handleCredentialPaste(value);
+    if (typed && containsSecretMaterial(typed)) {
+      await handleCredentialPaste(typed);
       return;
     }
 
     // A message that points backwards ("option B", "same as yesterday") is not
     // a new instruction. It is resolved against stored history first, and if it
     // cannot be resolved the agent asks rather than assumes.
-    if (value && attachments.length === 0 && continuityAvailable() && referenceIntent(value).needsRecall) {
-      const handled = await handleBackwardReference(value);
+    if (typed && attachments.length === 0 && continuityAvailable() && referenceIntent(typed).needsRecall) {
+      const handled = await handleBackwardReference(typed);
       if (handled) return;
     }
+
+    setReplyTo(null);
 
     // Filenames are never persisted from the browser: the client's name for a
     // file is unsanitized, and the attachment records are the source of truth.
