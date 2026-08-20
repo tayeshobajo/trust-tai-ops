@@ -520,7 +520,18 @@ export function ProjectWorkspace({
 
   useEffect(() => {
     if (!messagesLoaded || searching) return;
+    const node = threadRef.current;
+    if (node) {
+      // Only follow the conversation when the reader is already at the end.
+      // Scrolling back through history must not be yanked forward.
+      const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
+      if (distance > 160) {
+        setHasNewBelow(true);
+        return;
+      }
+    }
     threadEndRef.current?.scrollIntoView({ block: "end" });
+    setHasNewBelow(false);
   }, [messagesLoaded, visible.length, surface, searching, streamingText]);
 
   // Single write path for every message the user actually sees.
