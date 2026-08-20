@@ -231,6 +231,8 @@ export function ProjectWorkspace({
   const [evidence, setEvidence] = useState<ProjectEvidence[]>([]);
   const [pendingFiles, setPendingFiles] = useState<QueuedFile[]>([]);
   const [dropActive, setDropActive] = useState(false);
+  // The message being replied to, quoted into the next thing sent.
+  const [replyTo, setReplyTo] = useState<{ who: string; text: string } | null>(null);
   // True when new lines arrived while the reader was scrolled up.
   const [hasNewBelow, setHasNewBelow] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
