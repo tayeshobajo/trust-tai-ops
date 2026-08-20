@@ -52,6 +52,7 @@ import {
 import type { QueuedFile, QueuedState } from "./evidence";
 import type { ProjectEvidence } from "./types";
 import { containsSecretMaterial } from "./agent-core/secretGuard";
+import { describeCredentialText } from "./agent-core/credentialPreview";
 import type { RunPlan } from "./agent-core/plan";
 import { credentialIntakeAvailable, submitCredentialText } from "./agent-core/credentialIntake";
 import {
@@ -156,14 +157,37 @@ const WarningIcon = () => (
   </svg>
 );
 
-/** A calm "agent is thinking" cue that replaces the silent disabled send state. */
-const TypingIndicator = () => (
+const SendIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+    <path d="M5 12h13M12 5.5 18.5 12 12 18.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+/** A quiet identity mark for the agent — a shield, not a sparkle. */
+const AgentAvatar = ({ muted = false }: { muted?: boolean }) => (
+  <span className={muted ? "pw-agent-avatar is-muted" : "pw-agent-avatar"} aria-hidden="true">
+    {muted ? null : (
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M12 3.6 19 7v5.1c0 3.9-2.8 6.5-7 7.7-4.2-1.2-7-3.8-7-7.7V7z" strokeLinejoin="round" />
+        <path d="m9.3 12.1 1.9 1.9 3.5-3.9" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )}
+  </span>
+);
+
+/** A calm "agent is working" cue that replaces the silent disabled send state. */
+const TypingIndicator = ({ label }: { label: string }) => (
   <article className="pw-msg pw-msg-agent pw-typing" aria-busy="true" aria-live="polite">
-    <span className="pw-msg-who">Engineering Agent</span>
-    <div className="pw-typing-dots">
-      <span />
-      <span />
-      <span />
+    <AgentAvatar />
+    <div className="pw-msg-main">
+      <span className="pw-typing-line">
+        <span className="pw-typing-label">{label}</span>
+        <span className="pw-typing-dots">
+          <span />
+          <span />
+          <span />
+        </span>
+      </span>
     </div>
   </article>
 );
@@ -184,11 +208,14 @@ const echoSignature = (body: string[]): string =>
 /** The reply being written, shown where the finished message will appear. */
 const StreamingMessage = ({ text }: { text: string }) => (
   <article className="pw-msg pw-msg-agent" aria-live="polite">
-    <span className="pw-msg-who">Engineering Agent</span>
-    <p className="pw-msg-line">
-      {text}
-      <span className="pw-caret" aria-hidden="true" />
-    </p>
+    <AgentAvatar />
+    <div className="pw-msg-main">
+      <span className="pw-msg-who">Engineering Agent</span>
+      <p className="pw-msg-line">
+        {text}
+        <span className="pw-caret" aria-hidden="true" />
+      </p>
+    </div>
   </article>
 );
 
@@ -293,6 +320,13 @@ export function ProjectWorkspace({
     });
   }, []);
   const healthMetrics = useMemo(() => buildSiteHealth(healthEvidence), [healthEvidence]);
+
+  // Presentation only: what the typed text looks like, with the secret masked.
+  // Nothing here is stored, sent or logged — the secure intake still owns it.
+  const credentialPreview = useMemo(
+    () => (containsSecretMaterial(composerValue) ? describeCredentialText(composerValue) : null),
+    [composerValue],
+  );
 
   /**
    * The plan is a working document, not a log. Reasoner revisions restate the
@@ -1095,8 +1129,11 @@ export function ProjectWorkspace({
     if (!evidenceIntakeAvailable()) return;
     const onPaste = (event: ClipboardEvent) => {
       const target = event.target as HTMLElement | null;
+      // The composer owns its own paste handling. Skipping it here is what
+      // stops one clipboard image being queued twice.
+      if (target && target === composerRef.current) return;
       // Another text field owns the paste (transcript box, search, access form).
-      if (target && target !== composerRef.current) {
+      if (target) {
         const tag = target.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
       }
@@ -1777,7 +1814,14 @@ export function ProjectWorkspace({
             <strong>Engineering Agent</strong>
             <small>{project.name} · {project.primaryDomain}</small>
           </div>
-          <span className={`agent-state ${agentStateTone(activeRun)}`}>{agentStateLabel(activeRun)}</span>
+          <span
+            className={`agent-state ${agentStateTone(activeRun)}${
+              busy || agentBusy ? " is-live" : ""
+            }`}
+          >
+            <span className="agent-state-dot" aria-hidden="true" />
+            {agentStateLabel(activeRun)}
+          </span>
           <button className="pw-pane-toggle" type="button" onClick={() => setMobilePane("context")}>
             Task
           </button>
@@ -1866,11 +1910,16 @@ export function ProjectWorkspace({
                 ? dayLabel(message.createdAt)
                 : null;
 
+            // Consecutive lines from the same speaker read as one turn.
+            const grouped = !divider && previous !== null && previous.role === message.role;
+
             return (
-              <div key={message.key} className="pw-msg-wrap">
+              <div key={message.key} className={grouped ? "pw-msg-wrap is-grouped" : "pw-msg-wrap"}>
                 {divider ? <p className="pw-day-divider"><span>{divider}</span></p> : null}
-                <article className={`pw-msg pw-msg-${message.role}`}>
-                  {message.role === "agent" ? (
+                <article className={`pw-msg pw-msg-${message.role}${grouped ? " is-grouped" : ""}`}>
+                  {message.role === "agent" ? <AgentAvatar muted={grouped} /> : null}
+                  <div className="pw-msg-main">
+                  {message.role === "agent" && !grouped ? (
                     <span className="pw-msg-who">
                       Engineering Agent
                       {message.createdAt ? <time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time> : null}
@@ -1975,6 +2024,7 @@ export function ProjectWorkspace({
                   {message.role === "user" && message.createdAt ? (
                     <time className="pw-msg-time" dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time>
                   ) : null}
+                  </div>
                 </article>
               </div>
             );
@@ -1982,7 +2032,15 @@ export function ProjectWorkspace({
 
           {streamingText ? <StreamingMessage text={streamingText} /> : null}
 
-          {!streamingText && (busy || agentBusy || Date.now() < typingUntil) && !uploading ? <TypingIndicator /> : null}
+          {!streamingText && (busy || agentBusy || Date.now() < typingUntil) && !uploading ? (
+            <TypingIndicator
+              label={
+                activeRun && agentStateTone(activeRun) === "agent-state-working"
+                  ? `${agentStateLabel(activeRun)}…`
+                  : "Thinking…"
+              }
+            />
+          ) : null}
 
           {persistError ? (
             <p className="pw-persist-error" role="status">
@@ -2082,12 +2140,36 @@ export function ProjectWorkspace({
           ) : null}
 
           <div className="composer-shell">
+          {credentialPreview ? (
+            <div className="pw-cred-card" role="status">
+              <p className="pw-cred-title">{credentialPreview.title}</p>
+              {credentialPreview.fields.length > 0 ? (
+                <dl className="pw-cred-fields">
+                  {credentialPreview.fields.map((field) => (
+                    <div key={field.label}>
+                      <dt>{field.label}</dt>
+                      <dd className={field.secret ? "is-secret" : ""}>{field.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+              <p className="pw-cred-note">
+                {credentialPreview.ambiguous
+                  ? "This looks like site access. I'll handle it securely when you send."
+                  : "I'll seal this in the secure store on send. It never enters the conversation."}
+              </p>
+            </div>
+          ) : null}
           <textarea
             ref={composerRef}
             className="composer-input"
             rows={1}
             value={composerValue}
-            placeholder="Describe the issue, task, or outcome you want help with..."
+            placeholder={
+              activeRun
+                ? "Message the agent…"
+                : "Describe what you want me to investigate, fix, improve, or build…"
+            }
             aria-label="Message the Engineering Agent"
             onChange={(event) => setComposerValue(event.target.value)}
             onKeyDown={(event) => {
@@ -2190,18 +2272,19 @@ export function ProjectWorkspace({
                 ＋
               </button>
             ) : null}
+            <p className="composer-hint">
+              <span>Enter</span> to send · <span>Shift+Enter</span> for a new line
+            </p>
             <button
-              className="primary-button"
+              className={credentialPreview ? "primary-button composer-send is-wide" : "primary-button composer-send"}
               type="button"
+              aria-label={credentialPreview ? "Send securely" : "Send message"}
               disabled={(!composerValue.trim() && pendingFiles.length === 0) || busy || uploading}
               onClick={() => void sendMessage()}
             >
-              {uploading ? "Reading files…" : "Send"}
+              {uploading ? "Reading files…" : credentialPreview ? "Send securely" : <SendIcon />}
             </button>
           </div>
-          <p className="composer-hint">
-            <span>Enter</span> to send · <span>Shift+Enter</span> for a new line
-          </p>
           </div>
         </div>
       </main>
