@@ -17,6 +17,7 @@ import { authorizeProject } from "../_shared/authz.ts";
 import { authzDeps, executionContextConfigured, serviceClient } from "../_shared/clients.ts";
 import {
   loadMemoryIndex,
+  loadKnowledgeBasePatterns,
   loadProjectContext,
   loadRetrievedConversation,
   loadRunEvidence,
@@ -700,6 +701,35 @@ Deno.serve(async (req) => {
   // Long-term recall: what the person was proven to be referring back to on
   // this task. Written by the continuity boundary, never by the browser.
   const retrieved = await loadRetrievedConversation(authz.project.projectId, runClaim || null).catch(() => []);
+
+  // Knowledge base: fetch the top matching diagnostic patterns for this task
+  // type and inject them as priorIncidents so the model reasons from proven
+  // fix patterns rather than starting from scratch every time.
+  // Resolve hosting provider for this project's environment — used to boost
+  // host-specific KB patterns (e.g. Kinsta CDN artifacts on Kinsta projects).
+  let hostingProvider: string | null = null;
+  try {
+    if (authz.project.environmentId) {
+      const envRow = await service
+        .from("project_environments")
+        .select("hosting_provider")
+        .eq("id", authz.project.environmentId)
+        .maybeSingle();
+      hostingProvider = envRow.data?.hosting_provider ?? null;
+    }
+  } catch { /* non-fatal */ }
+
+  const kbPatterns = await loadKnowledgeBasePatterns(
+    service,
+    digest.taskType,
+    hostingProvider,
+  ).catch(() => []);
+  if (kbPatterns.length > 0) {
+    digest.priorIncidents = [
+      ...kbPatterns,
+      ...digest.priorIncidents,
+    ].slice(0, 5);
+  }
 
   const asked = await askModel(model, planCall(model, apiKey, digest, attachments, retrieved), TIMEOUT_MS);
   if (!asked.ok) return asked.response;

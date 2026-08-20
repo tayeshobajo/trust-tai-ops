@@ -308,3 +308,63 @@ export const loadRetrievedConversation = async (
     };
   });
 };
+
+// ---------------------------------------------------------------------------
+// Knowledge base pattern lookup
+// ---------------------------------------------------------------------------
+
+export type KnowledgeBasePattern = {
+  symptom: string;
+  resolution: string;
+  evidenceSignals: string[];
+  host: string | null;
+};
+
+/**
+ * Fetch the top matching diagnostic patterns from the knowledge_base_entries
+ * table for the given task type. Host-specific patterns are boosted to the
+ * front when the project's hosting provider is known.
+ *
+ * Returns at most 4 patterns, bounded so they never dominate the prompt.
+ */
+export const loadKnowledgeBasePatterns = async (
+  service: ReturnType<typeof createClient>,
+  taskType: string,
+  hostingProvider: string | null,
+): Promise<KnowledgeBasePattern[]> => {
+  if (!taskType || taskType === "unknown") return [];
+
+  const { data } = await service
+    .from("knowledge_base_entries")
+    .select("symptom_pattern, resolution, evidence_signals, host_context")
+    .eq("scope", "wordpress")
+    .eq("task_type", taskType)
+    .order("project_count", { ascending: false })
+    .limit(12);
+
+  if (!data || data.length === 0) return [];
+
+  const rows = data as Array<{
+    symptom_pattern: string;
+    resolution: string;
+    evidence_signals: unknown;
+    host_context: string | null;
+  }>;
+
+  // Sort: host-matching entries first, then generic ones.
+  const host = hostingProvider ? hostingProvider.toLowerCase() : null;
+  const sorted = rows.slice().sort((a, b) => {
+    const aMatch = host && a.host_context && a.host_context.toLowerCase() === host ? -1 : 0;
+    const bMatch = host && b.host_context && b.host_context.toLowerCase() === host ? -1 : 0;
+    return aMatch - bMatch;
+  });
+
+  return sorted.slice(0, 4).map((row) => ({
+    symptom: String(row.symptom_pattern ?? "").slice(0, 200),
+    resolution: String(row.resolution ?? "").slice(0, 600),
+    evidenceSignals: Array.isArray(row.evidence_signals)
+      ? (row.evidence_signals as unknown[]).map((s) => String(s).slice(0, 100)).slice(0, 5)
+      : [],
+    host: row.host_context ?? null,
+  }));
+};
