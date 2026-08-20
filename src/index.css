@@ -7145,3 +7145,261 @@ p, li {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* ═══ Chat workspace redesign ═══════════════════════════════
+   Presentation only. Light canvas, quiet borders, alignment and
+   identity instead of heavy bubbles. */
+
+/* --- Live state in the chat header ---------------------------------------- */
+.pw-chat-head .agent-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.agent-state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--tt-radius-pill);
+  background: currentColor;
+  opacity: 0.75;
+}
+
+.agent-state.is-live .agent-state-dot {
+  animation: pw-state-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes pw-state-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+/* --- Message rows: avatar column + readable body -------------------------- */
+.pw-thread { gap: var(--tt-space-5); }
+
+.pw-msg-wrap.is-grouped { margin-top: calc(var(--tt-space-3) * -1); }
+
+.pw-msg {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tt-space-3);
+}
+
+.pw-msg-main { min-width: 0; flex: 1; }
+
+.pw-agent-avatar {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  margin-top: 2px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--tt-royal) 22%, var(--tt-rule));
+  background: color-mix(in srgb, var(--tt-royal) 6%, var(--tt-white));
+  color: var(--tt-royal);
+}
+
+.pw-agent-avatar.is-muted {
+  border-color: transparent;
+  background: transparent;
+}
+
+/* Agent turns sit on a very light raised surface, not a box per line. */
+.pw-msg-agent .pw-msg-main {
+  border-radius: 14px;
+  padding: var(--tt-space-3) var(--tt-space-4);
+  background: color-mix(in srgb, var(--tt-royal) 3%, var(--tt-white));
+  border: 1px solid color-mix(in srgb, var(--tt-royal) 10%, var(--tt-rule));
+}
+
+.pw-msg-agent.is-grouped .pw-msg-main {
+  border-top-left-radius: 6px;
+}
+
+.pw-typing .pw-msg-main,
+.pw-msg-agent .pw-msg-main:has(> .pw-msg-line) {
+  background: transparent;
+  border-color: transparent;
+}
+
+/* User turns: pale surface with a blue edge — never a dark bubble. */
+.pw-msg-user {
+  justify-content: flex-end;
+}
+
+.pw-msg-user {
+  background: none;
+  color: inherit;
+  box-shadow: none;
+  padding: 0;
+  max-width: 100%;
+  align-self: stretch;
+}
+
+.pw-msg-user .pw-msg-main {
+  flex: 0 1 auto;
+  max-width: 78%;
+  margin-left: auto;
+  border-radius: 14px;
+  padding: var(--tt-space-3) var(--tt-space-4);
+  background: color-mix(in srgb, var(--tt-royal) 5%, var(--tt-white));
+  border: 1px solid color-mix(in srgb, var(--tt-royal) 16%, var(--tt-rule));
+  border-right: 2px solid color-mix(in srgb, var(--tt-royal) 55%, transparent);
+  color: var(--tt-ink);
+}
+
+.pw-msg-user .pw-msg-main p:last-child { margin-bottom: 0; }
+
+.pw-msg-who {
+  text-transform: none;
+  font-family: var(--tt-font-sans);
+  letter-spacing: 0.01em;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--tt-muted);
+  display: flex;
+  align-items: baseline;
+  gap: var(--tt-space-2);
+}
+
+/* Reply stays a hover/focus affordance. */
+.pw-msg-actions {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.pw-msg:hover .pw-msg-actions,
+.pw-msg:focus-within .pw-msg-actions {
+  opacity: 1;
+}
+
+/* --- Working state -------------------------------------------------------- */
+.pw-typing-line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+}
+
+.pw-typing-label {
+  font-size: 0.82rem;
+  color: var(--tt-muted);
+}
+
+.pw-typing-dots {
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--tt-royal) 7%, transparent);
+}
+
+/* --- Credential preview inside the composer ------------------------------- */
+.pw-cred-card {
+  border: 1px solid color-mix(in srgb, var(--tt-royal) 22%, var(--tt-rule));
+  background: color-mix(in srgb, var(--tt-royal) 4%, var(--tt-white));
+  border-radius: 12px;
+  padding: var(--tt-space-3) var(--tt-space-4);
+}
+
+.pw-cred-title {
+  margin: 0 0 var(--tt-space-2);
+  font-size: 0.86rem;
+  font-weight: 620;
+  color: var(--tt-ink);
+}
+
+.pw-cred-fields {
+  margin: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.pw-cred-fields > div {
+  display: flex;
+  gap: var(--tt-space-3);
+  font-size: 0.82rem;
+}
+
+.pw-cred-fields dt {
+  min-width: 82px;
+  color: var(--tt-muted);
+}
+
+.pw-cred-fields dd {
+  margin: 0;
+  color: var(--tt-ink);
+  overflow-wrap: anywhere;
+}
+
+.pw-cred-fields dd.is-secret {
+  font-family: var(--tt-font-mono);
+  letter-spacing: 0.08em;
+}
+
+.pw-cred-note {
+  margin: var(--tt-space-2) 0 0;
+  font-size: 0.76rem;
+  color: var(--tt-muted);
+}
+
+/* --- Composer controls ---------------------------------------------------- */
+.composer-shell .composer-row {
+  align-items: center;
+}
+
+.composer-shell .composer-hint {
+  flex: 1;
+  margin: 0;
+  text-align: right;
+}
+
+.composer-shell .composer-row .primary-button.composer-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+}
+
+.composer-shell .composer-row .primary-button.composer-send.is-wide {
+  width: auto;
+  min-width: 0;
+  padding: 8px 16px;
+}
+
+/* --- Attachment previews -------------------------------------------------- */
+.pw-pending-files li {
+  border-radius: 12px;
+}
+
+.pw-pending-thumb {
+  border-radius: 8px;
+}
+
+/* --- Left task rail ------------------------------------------------------- */
+.pw-task-row {
+  border-radius: 12px;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.pw-task-row.is-active {
+  background: color-mix(in srgb, var(--tt-royal) 6%, var(--tt-white));
+  border-left: 2px solid var(--tt-royal);
+}
+
+.pw-attention { background: var(--tt-warning); }
+
+/* --- Right context rail --------------------------------------------------- */
+.pw-context h3 { line-height: 1.2; }
+.pw-context-block { margin: 0; }
+
+@media (max-width: 900px) {
+  .pw-msg-user .pw-msg-main { max-width: 88%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-state.is-live .agent-state-dot,
+  .pw-typing-dots span { animation: none; }
+  .pw-msg-actions { transition: none; }
+}
