@@ -320,6 +320,13 @@ export function ProjectWorkspace({
   }, []);
   const healthMetrics = useMemo(() => buildSiteHealth(healthEvidence), [healthEvidence]);
 
+  // Presentation only: what the typed text looks like, with the secret masked.
+  // Nothing here is stored, sent or logged — the secure intake still owns it.
+  const credentialPreview = useMemo(
+    () => (containsSecretMaterial(composerValue) ? describeCredentialText(composerValue) : null),
+    [composerValue],
+  );
+
   /**
    * The plan is a working document, not a log. Reasoner revisions restate the
    * same intent in slightly different words, so near-duplicates are folded and
