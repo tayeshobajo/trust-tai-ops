@@ -230,6 +230,8 @@ export function ProjectWorkspace({
   const [evidence, setEvidence] = useState<ProjectEvidence[]>([]);
   const [pendingFiles, setPendingFiles] = useState<QueuedFile[]>([]);
   const [dropActive, setDropActive] = useState(false);
+  // True when new lines arrived while the reader was scrolled up.
+  const [hasNewBelow, setHasNewBelow] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [meetingBusy, setMeetingBusy] = useState(false);
