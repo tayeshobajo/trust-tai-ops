@@ -25,6 +25,7 @@ import {
   authenticatedPatch,
   authenticatedDelete,
   wpCodeSnippetAction,
+  wpCodeSnippetCreate,
   normalizeHealthTest,
   normalizePlugins,
   pluginsFromAdminHtml,
@@ -33,7 +34,7 @@ import { runReadOnlyWpCli, resolveSshAccess } from "../_shared/wpCli.ts";
 import { buildWpCliWriteCommand } from "../_shared/wpCliWriteCatalog.ts";
 import { denoSftpTransport, denoSshTransport } from "../_shared/sshTransport.ts";
 import { readWordPressErrorLog } from "../_shared/errorLog.ts";
-import { isBrowserViewport, runBrowserInspection } from "../_shared/browserInspect.ts";
+import { isBrowserViewport, runBrowserInspection, sanitizeElementQuery } from "../_shared/browserInspect.ts";
 
 const fail = (code: string, summary: string, retryable: boolean) =>
   Response.json({ ok: false, code, summary, retryable }, { headers: corsHeaders });
@@ -528,6 +529,7 @@ const inspectPage = async (args: Record<string, unknown>, clientUrl: string, can
   if (!url) return fail("invalid_input", "That request was missing the page address.", false);
 
   const viewport = isBrowserViewport(args.viewport) ? args.viewport : "desktop";
+  const elementQuery = sanitizeElementQuery(args.elementQuery);
   // Browserless is the connected service by default; a self-hosted renderer
   // overrides the address without any code change.
   const token = Deno.env.get("BROWSER_INSPECT_TOKEN") ?? null;
@@ -539,7 +541,7 @@ const inspectPage = async (args: Record<string, unknown>, clientUrl: string, can
       endpoint,
       token,
     },
-    { url, viewport, allowedUrl: canonicalUrl },
+    { url, viewport, allowedUrl: canonicalUrl, elementQuery },
   );
 
   if (!outcome.ok) return fail(outcome.code, outcome.summary, outcome.retryable);
@@ -713,7 +715,7 @@ const purgeCache = async (
 };
 
 /**
- * Activate / deactivate / trash a WPCode snippet by ID.
+ * Activate / deactivate / trash a WPCode snippet by ID, or create a new one.
  */
 const wpCodeSnippet = async (
   projectId: string,
@@ -724,17 +726,46 @@ const wpCodeSnippet = async (
   if (!authorizedProjectId) return fail("unauthorized", "Sign in to use write tools.", false);
   if (!canonicalUrl) return fail("invalid_input", "No canonical site URL is recorded for this project.", false);
 
+  const action = typeof args.action === "string" && ["activate", "deactivate", "trash", "create"].includes(args.action)
+    ? (args.action as "activate" | "deactivate" | "trash" | "create")
+    : null;
+  if (!action) return fail("invalid_input", "That request needs an action: activate, deactivate, trash, or create.", false);
+
+  const cred = await resolveCredential(secretStoreDeps(), projectId, "wordpress_admin");
+  if (!cred.ok) return fail(cred.code, cred.summary, false);
+
+  if (action === "create") {
+    const title = typeof args.title === "string" ? args.title.trim() : "";
+    const code = typeof args.code === "string" ? args.code : "";
+    const codeType = args.codeType === "php" ? "php" : "js";
+    const location = args.location === "php_head" || args.location === "php_body" ? args.location : "footer";
+    const activate = args.activate !== false;
+    if (!title) return fail("invalid_input", "A new snippet needs a short title.", false);
+    if (code.length < 5) return fail("invalid_input", "A new snippet needs its code.", false);
+    if (code.length > 8000) return fail("invalid_input", "That snippet is too long for a safe create (8 KB limit).", false);
+    if (codeType === "js" && location !== "footer") {
+      return fail("invalid_input", "JavaScript snippets can only go in the footer location.", false);
+    }
+    if (codeType === "php" && !/<\?php/.test(code)) {
+      return fail("invalid_input", "PHP snippets must start with an opening <?php tag.", false);
+    }
+    const outcome = await wpCodeSnippetCreate(
+      canonicalUrl,
+      { title, code, codeType, location, activate },
+      cred.credential,
+    );
+    if (!outcome.ok) return fail(outcome.kind, `WPCode snippet create failed (${outcome.kind}).`, outcome.kind === "network");
+    return Response.json({
+      ok: true,
+      summary: `Created WPCode snippet "${title}"${activate ? " and activated it" : ""}.`,
+      data: { action: "create", title, codeType, location, active: activate, status: outcome.status },
+    }, { headers: corsHeaders });
+  }
+
   const snippetId = typeof args.snippetId === "number" ? args.snippetId : parseInt(String(args.snippetId ?? ""), 10);
   if (!Number.isInteger(snippetId) || snippetId <= 0) {
     return fail("invalid_input", "That request needs a valid WPCode snippet ID (positive integer).", false);
   }
-  const action = typeof args.action === "string" && ["activate", "deactivate", "trash"].includes(args.action)
-    ? (args.action as "activate" | "deactivate" | "trash")
-    : null;
-  if (!action) return fail("invalid_input", "That request needs an action: activate, deactivate, or trash.", false);
-
-  const cred = await resolveCredential(secretStoreDeps(), projectId, "wordpress_admin");
-  if (!cred.ok) return fail(cred.code, cred.summary, false);
 
   const outcome = await wpCodeSnippetAction(canonicalUrl, snippetId, action, cred.credential);
   if (!outcome.ok) return fail(outcome.kind, `WPCode snippet ${action} failed (${outcome.kind}).`, outcome.kind === "network");

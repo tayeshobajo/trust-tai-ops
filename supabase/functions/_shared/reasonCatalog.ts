@@ -15,6 +15,7 @@ export type ReasonStepId =
   | "inspect-site"
   | "inspect-page-desktop"
   | "inspect-page-mobile"
+  | "inspect-page-content"
   | "inspect-wp-public"
   | "read-health"
   | "read-health-authenticated"
@@ -42,6 +43,8 @@ export type ReasonStepSpec = {
   commandId?: string;
   /** Fixed viewport, for browser steps only. */
   viewport?: "desktop" | "mobile";
+  /** True when the planner must pass an elementQuery argument for this step. */
+  elementQueryRequired?: boolean;
   purpose: string;
 };
 
@@ -68,6 +71,15 @@ export const REASON_STEPS: Record<ReasonStepId, ReasonStepSpec> = {
     serverResolvedTarget: false,
     viewport: "mobile",
     purpose: "Load the page in a real browser on a phone-sized screen and watch how it performs.",
+  },
+  "inspect-page-content": {
+    id: "inspect-page-content",
+    toolId: "browser.inspect_page_readonly",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    viewport: "desktop",
+    elementQueryRequired: true,
+    purpose: "Load the page in a real browser and find the page elements named in the task (buttons, links, text) — returns the actual HTML of matching elements. Use this FIRST whenever the task names specific page elements.",
   },
   "inspect-wp-public": {
     id: "inspect-wp-public",
@@ -305,6 +317,7 @@ export type WriteStepId =
   | "fix-via-wp-cli"
   | "purge-cache"
   | "toggle-wpcode"
+  | "create-wpcode"
   | "activate-plugin"
   | "deactivate-plugin"
   | "flush-rewrites"
@@ -357,6 +370,13 @@ export const WRITE_STEPS: Record<WriteStepId, WriteStepSpec> = {
     toolId: "wordpress.wpcode_snippet",
     purpose: "Activate, deactivate, or trash a WPCode code snippet.",
     requiresConfirmation: false,
+    requiresEvidence: true,
+  },
+  "create-wpcode": {
+    id: "create-wpcode",
+    toolId: "wordpress.wpcode_snippet",
+    purpose: "Create a new WPCode snippet (PHP or JavaScript) and activate it. This is the preferred minimal path for small code-level fixes: add a snippet, never edit theme files.",
+    requiresConfirmation: true,
     requiresEvidence: true,
   },
   "activate-plugin": {

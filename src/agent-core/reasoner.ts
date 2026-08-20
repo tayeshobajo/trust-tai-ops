@@ -42,6 +42,20 @@ const hasPageEvidence = (context: AgentContext, viewport: "desktop" | "mobile") 
     (item) => item.toolId === "browser.inspect_page_readonly" && item.data.viewport === viewport,
   );
 
+/** Has a page-content inspection already run (element query evidence)? */
+const hasContentEvidence = (context: AgentContext) =>
+  context.evidence.some(
+    (item) => item.toolId === "browser.inspect_page_readonly" && Array.isArray(item.data.elementMatches),
+  );
+
+/** Pull a bounded element search term out of the task title, if any. */
+const elementQueryFromTitle = (title: string): string | null => {
+  // Prefer quoted phrases: "the 'Watch On Demand' button"
+  const quoted = title.match(/["'“”‘’]([^"'“”‘’]{2,60})["'“”‘’]/);
+  if (quoted) return quoted[1].trim().slice(0, 120);
+  return null;
+};
+
 /** Tasks where how the page actually behaves in a browser is real evidence. */
 const BROWSER_TASK_TYPES: readonly string[] = [
   "performance",
@@ -276,6 +290,27 @@ class DeterministicReasoner implements AgentReasoner {
       }
     }
 
+    // When the task names specific page elements (buttons, links, text), the
+    // page's own markup around those elements is primary evidence. Extract a
+    // search term from the task title and look for it directly. This is the
+    // deterministic planner's path; the server reasoner has the same step in
+    // its catalog.
+    const taskTitle = (context.run.title ?? "").toLowerCase();
+    const ELEMENT_TASK_HINTS = ["button", "link", "tab", "menu", "form", "modal", "banner", "popup", "text", "label", "icon"];
+    const mentionsElement = ELEMENT_TASK_HINTS.some((hint) => new RegExp(`\\b${hint}s?\\b`).test(taskTitle));
+    if (
+      hasEvidenceFrom(context, "public_http.inspect_site") &&
+      !hasContentEvidence(context) &&
+      !toolFailed(context, "browser.inspect_page_readonly") &&
+      mentionsElement
+    ) {
+      want.push({
+        id: "inspect-page-content",
+        toolId: "browser.inspect_page_readonly",
+        purpose: "Find the page elements named in the task and read their actual HTML.",
+      });
+    }
+
     for (const item of want.filter((entry) => !toolFailed(context, entry.toolId))) {
       // Private tools resolve their own target server-side from the project.
       const args: AgentActionArguments =
@@ -283,7 +318,9 @@ class DeterministicReasoner implements AgentReasoner {
         (item.toolId === "wordpress.list_plugins" || item.toolId === "wordpress.read_error_log"
           ? {}
           : item.toolId === "browser.inspect_page_readonly"
-          ? { url, viewport: item.id === "inspect-page-mobile" ? "mobile" : "desktop" }
+          ? item.id === "inspect-page-content"
+            ? { url, viewport: "desktop", elementQuery: elementQueryFromTitle(context.run.title ?? "") ?? "button" }
+            : { url, viewport: item.id === "inspect-page-mobile" ? "mobile" : "desktop" }
           : { url });
       const built = planAction(item.id, item.toolId, context.run.id, args, item.purpose);
       if ("error" in built) {

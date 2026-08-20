@@ -45,6 +45,13 @@ export const REASON_STEPS: Record<string, ReasonStepSpec> = {
     viewport: "mobile",
     purpose: "Load the page in a real browser on a phone-sized screen and watch how it performs.",
   },
+  "inspect-page-content": {
+    toolId: "browser.inspect_page_readonly",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    viewport: "desktop",
+    purpose: "Load the page in a real browser and find the page elements named in the task (buttons, links, text) — returns the actual HTML of matching elements. Use this FIRST whenever the task names specific page elements.",
+  },
   "inspect-wp-public": {
     toolId: "wordpress.inspect_public_surface",
     capability: "public_internet",

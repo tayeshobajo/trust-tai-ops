@@ -71,13 +71,24 @@ const requireUrl = (args: AgentActionArguments): ToolValidation => {
 /**
  * A page inspection names a public address and one of two fixed viewports.
  * There is no script, no selector and no free text: the browser only ever
- * loads a page and reports what the page did.
+ * loads a page and reports what the page did. An optional bounded search
+ * term (elementQuery) asks the page checker to also return matched page
+ * elements — sanitized server-side, never the whole page HTML.
  */
 const requirePageInspection = (args: AgentActionArguments): ToolValidation => {
   const url = requireUrl(args);
   if (!url.ok) return url;
   const viewport = args.viewport === "mobile" ? "mobile" : "desktop";
-  return { ok: true, args: { ...url.args, viewport } };
+  const rawQuery = typeof args.elementQuery === "string" ? args.elementQuery : "";
+  const elementQuery = rawQuery.trim().slice(0, 120);
+  return {
+    ok: true,
+    args: {
+      ...url.args,
+      viewport,
+      ...(elementQuery && !/[\x00-\x1f]/.test(elementQuery) ? { elementQuery } : {}),
+    },
+  };
 };
 
 const notAvailable = (summary: string): AgentToolResult => ({

@@ -92,6 +92,7 @@ export type BrowserReport = {
   requestCount: number | null;
   consoleErrors: string[];
   failedRequests: Array<{ host: string; status: number | null }>;
+  elementMatches: Array<{ text: string; html: string; tag: string; classes: string; href: string | null }>;
   truncated: boolean;
 };
 
@@ -99,6 +100,18 @@ export type NormalizedReport = { ok: true; report: BrowserReport } | { ok: false
 
 const MAX_CONSOLE_ERRORS = 10;
 const MAX_FAILED_REQUESTS = 10;
+const MAX_ELEMENT_MATCHES = 5;
+const MAX_ELEMENT_HTML_CHARS = 600;
+
+/** A bounded, sanitized search term for page-content inspection. */
+export const sanitizeElementQuery = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().slice(0, 120);
+  if (!trimmed) return null;
+  // No control characters, no null bytes; printable search text only.
+  if (/[\x00-\x1f]/.test(trimmed)) return null;
+  return trimmed;
+};
 
 /**
  * Whatever the rendering service returns is treated as untrusted data: only
@@ -144,6 +157,23 @@ export const normalizeBrowserReport = (
     .filter((entry): entry is { host: string; status: number | null } => entry !== null)
     .slice(0, MAX_FAILED_REQUESTS);
 
+  const elementSource = Array.isArray(raw.elementMatches) ? raw.elementMatches : [];
+  const elementMatches = elementSource
+    .map((entry) => {
+      const item = (entry ?? {}) as Record<string, unknown>;
+      const html = typeof item.html === "string" ? item.html.slice(0, MAX_ELEMENT_HTML_CHARS) : "";
+      if (!html) return null;
+      return {
+        text: line(item.text, 160) ?? "",
+        html,
+        tag: line(item.tag, 40) ?? "",
+        classes: line(item.classes, 160) ?? "",
+        href: line(item.href, 300),
+      };
+    })
+    .filter((entry): entry is { text: string; html: string; tag: string; classes: string; href: string | null } => entry !== null)
+    .slice(0, MAX_ELEMENT_MATCHES);
+
   return {
     ok: true,
     report: {
@@ -157,7 +187,8 @@ export const normalizeBrowserReport = (
       requestCount: num(raw.requestCount, 5_000),
       consoleErrors,
       failedRequests,
-      truncated: consoleSource.length > MAX_CONSOLE_ERRORS || failedSource.length > MAX_FAILED_REQUESTS,
+      elementMatches,
+      truncated: consoleSource.length > MAX_CONSOLE_ERRORS || failedSource.length > MAX_FAILED_REQUESTS || elementSource.length > MAX_ELEMENT_MATCHES,
     },
   };
 };
@@ -190,6 +221,11 @@ const describe = (report: BrowserReport): string => {
   const parts = [`I loaded the page in a real browser on ${BROWSER_VIEWPORTS[report.viewport].label}.`];
   if (report.status !== null) parts.push(`It answered ${report.status}.`);
   if (load) parts.push(`It finished loading in about ${load}.`);
+  if (report.elementMatches.length > 0) {
+    parts.push(`I found ${report.elementMatches.length} page element(s) matching the search${report.elementMatches[0]?.text ? `, first: "${report.elementMatches[0].text}"` : ""}.`);
+  } else if (report.elementMatches !== undefined && report.elementMatches.length === 0) {
+    parts.push("No page elements matched the search.");
+  }
   if (report.consoleErrors.length > 0) parts.push(`${report.consoleErrors.length} console errors were reported.`);
   return parts.join(" ");
 };
@@ -197,11 +233,13 @@ const describe = (report: BrowserReport): string => {
 /**
  * The page script Browserless runs. It only reads: it navigates once, waits
  * for the load to settle, and reports timings, console errors and failed
- * requests. It never clicks, types, or submits anything.
+ * requests. It never clicks, types, or submits anything. When an elementQuery
+ * is supplied it also returns bounded excerpts of matching page elements —
+ * never the whole page HTML.
  */
 export const BROWSERLESS_FUNCTION_SOURCE = `
 export default async function ({ page, context }) {
-  const { url, viewport } = context;
+  const { url, viewport, elementQuery } = context;
   const consoleErrors = [];
   const failedRequests = [];
   await page.setViewport(viewport);
@@ -229,6 +267,25 @@ export default async function ({ page, context }) {
       transferBytes: resources.reduce((total, entry) => total + (entry.transferSize || 0), 0),
     };
   });
+  let elementMatches = [];
+  if (elementQuery) {
+    elementMatches = await page.evaluate((query) => {
+      const needle = String(query).toLowerCase();
+      const all = Array.from(document.querySelectorAll("a, button, input, [class]"));
+      const matches = all.filter((el) => {
+        const text = (el.textContent || "").trim().toLowerCase();
+        const classes = String(el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className || "").toLowerCase();
+        return text.includes(needle) || classes.includes(needle);
+      }).slice(0, 5);
+      return matches.map((el) => ({
+        text: (el.textContent || "").trim().slice(0, 160),
+        html: el.outerHTML.slice(0, 600),
+        tag: el.tagName.toLowerCase(),
+        classes: String(el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className || "").slice(0, 160),
+        href: el.getAttribute("href") ? el.getAttribute("href").slice(0, 300) : null,
+      }));
+    }, elementQuery);
+  }
   return {
     data: {
       finalUrl: page.url(),
@@ -240,6 +297,7 @@ export default async function ({ page, context }) {
       requestCount: timing.requestCount,
       consoleErrors,
       failedRequests,
+      elementMatches,
     },
     type: "application/json",
   };
@@ -257,7 +315,7 @@ const dialectOf = (config: BrowserServiceConfig, endpoint: URL): "generic" | "br
  */
 export const runBrowserInspection = async (
   config: BrowserServiceConfig,
-  request: { url: string; viewport: BrowserViewportId; allowedUrl: string | null },
+  request: { url: string; viewport: BrowserViewportId; allowedUrl: string | null; elementQuery?: string | null },
   fetchImpl: typeof fetch = fetch,
 ): Promise<BrowserInspectOutcome> => {
   if (!config.endpoint) {
@@ -278,6 +336,7 @@ export const runBrowserInspection = async (
 
   const viewport = BROWSER_VIEWPORTS[request.viewport];
   const dialect = dialectOf(config, endpoint.url);
+  const elementQuery = sanitizeElementQuery(request.elementQuery) ?? undefined;
   const requestUrl = new URL(endpoint.url.toString());
   if (dialect === "browserless" && config.token) requestUrl.searchParams.set("token", config.token);
   const controller = new AbortController();
@@ -305,6 +364,7 @@ export const runBrowserInspection = async (
                   isMobile: viewport.mobile,
                   hasTouch: viewport.mobile,
                 },
+                ...(elementQuery ? { elementQuery } : {}),
               },
             }
           : {
@@ -316,6 +376,7 @@ export const runBrowserInspection = async (
                 mobile: viewport.mobile,
               },
               readOnly: true,
+              ...(elementQuery ? { elementQuery } : {}),
             },
       ),
     });

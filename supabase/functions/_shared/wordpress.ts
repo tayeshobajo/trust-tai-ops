@@ -284,3 +284,28 @@ export const wpCodeSnippetAction = async (
   }
   return authenticatedPut(baseUrl, path, { active: action === "activate" }, credential, fetchImpl, sessionCookie, sessionNonce);
 };
+
+/**
+ * Create (and optionally activate) a WPCode snippet.
+ * POST /wp-json/wpcode/v1/snippets — requires WPCode plugin with REST routes
+ * enabled and an administrator application password. Code location is
+ * validated: only footer script and PHP head/body locations are accepted.
+ */
+export const wpCodeSnippetCreate = async (
+  baseUrl: string,
+  snippet: { title: string; code: string; codeType: "js" | "php"; location: "footer" | "php_head" | "php_body"; activate: boolean },
+  credential: WpCredential | null,
+  fetchImpl: typeof fetch = fetch,
+  sessionCookie?: string | null,
+  sessionNonce?: string | null,
+): Promise<WpOutcome> => {
+  const path = "/wp-json/wpcode/v1/snippets";
+  const body = {
+    title: snippet.title.slice(0, 120),
+    code: snippet.code.slice(0, 8000),
+    code_type: snippet.codeType === "js" ? "js" : "php", // eslint-disable-line @typescript-eslint/no-explicit-any
+    location: snippet.location,
+    active: snippet.activate,
+  };
+  return authenticatedPost(baseUrl, path, body, credential, fetchImpl, sessionCookie, sessionNonce);
+};

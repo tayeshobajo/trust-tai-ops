@@ -161,6 +161,12 @@ export const SYSTEM_PROMPT = [
   "- If nothing further can be observed with current access, either request the single most useful access, or report findings.",
   "- If you set intent to request_access, plan zero steps.",
   "",
+  "Task discipline (a task is a question about ONE thing):",
+  "- Re-read the person's task before every turn. Every step you plan must directly answer THAT task. If you cannot explain in one sentence how a step helps answer the task, do not plan it.",
+  "- Console errors, failed requests, and plugin alerts that are NOT the reported problem are background context. Note them in one line if relevant, never investigate them.",
+  "- If the task names visible page elements (buttons, links, text), the page's own HTML is the primary evidence. Get it before anything else: browser content inspection shows the real rendered markup around the named elements.",
+  "- A named element that is missing from the page is itself the finding. Report it; do not pivot to unrelated errors.",
+  "",
   "Resourcefulness (this is what separates you from a checklist):",
   "- Asking a person for more access is the LAST resort, never the first reaction to a refusal.",
   "- One route failing does not mean the question is unanswerable. Before requesting access, run every catalog step that is still available and could shed light on the same question by another path.",
@@ -488,9 +494,10 @@ export const FIX_PLAN_SYSTEM_PROMPT = [
   "2b. Each step's stepId MUST be one of exactly these values — any other value is rejected:",
   "    fix-via-rest-api (wordpress.rest_api_write), fix-via-sftp (wordpress.sftp_write_file),",
   "    fix-via-wp-cli (wordpress.run_wp_cli_write), purge-cache (wordpress.purge_cache),",
-  "    toggle-wpcode (wordpress.wpcode_snippet), activate-plugin (wordpress.run_wp_cli_write),",
-  "    deactivate-plugin (wordpress.run_wp_cli_write), flush-rewrites (wordpress.run_wp_cli_write),",
-  "    enable-maintenance (wordpress.run_wp_cli_write), disable-maintenance (wordpress.run_wp_cli_write).",
+  "    toggle-wpcode (wordpress.wpcode_snippet), create-wpcode (wordpress.wpcode_snippet),",
+  "    activate-plugin (wordpress.run_wp_cli_write), deactivate-plugin (wordpress.run_wp_cli_write),",
+  "    flush-rewrites (wordpress.run_wp_cli_write), enable-maintenance (wordpress.run_wp_cli_write), disable-maintenance (wordpress.run_wp_cli_write).",
+  "2c. For small code-level front-end fixes (add an attribute to links, inject a script, tweak element behavior) PREFER create-wpcode with a JavaScript footer snippet over editing theme files: it is reversible (deactivate or trash the snippet) and survives updates. Pass args: { action: 'create', title, code, codeType: 'js', location: 'footer', activate: true }.",
   "3. Order steps safely: least-destructive first. Cache flush before config change. Read before write.",
   "4. Mark backupFirst: true for any step that modifies a file or REST resource.",
   "5. Mark requiresConfirmation: true for any step that is irreversible or high-risk.",
@@ -572,7 +579,7 @@ const ALLOWED_WRITE_TOOL_IDS = new Set([
 
 const ALLOWED_STEP_IDS = new Set([
   "fix-via-rest-api", "fix-via-sftp", "fix-via-wp-cli", "purge-cache",
-  "toggle-wpcode", "activate-plugin", "deactivate-plugin",
+  "toggle-wpcode", "create-wpcode", "activate-plugin", "deactivate-plugin",
   "flush-rewrites", "enable-maintenance", "disable-maintenance",
 ]);
 
