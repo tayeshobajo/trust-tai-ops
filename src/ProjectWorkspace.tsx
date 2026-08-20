@@ -262,6 +262,7 @@ export function ProjectWorkspace({
   }, [agentBusy]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
+  const threadRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
   const memoryRef = useRef<Set<string>>(new Set());
   const emitRef = useRef<Set<string>>(new Set());
