@@ -7678,3 +7678,9 @@ p, li {
 .pw-msg-wrap:not(.is-grouped) + .pw-msg-wrap.is-grouped .pw-msg-agent .pw-msg-main {
   margin-top: 0;
 }
+
+@media (max-width: 720px) {
+  .composer-shell .composer-row { flex-wrap: wrap; row-gap: var(--tt-space-2); }
+  .composer-spacer { flex: 1 0 auto; }
+  .composer-shell .composer-row .primary-button.composer-send { margin-left: auto; }
+}
