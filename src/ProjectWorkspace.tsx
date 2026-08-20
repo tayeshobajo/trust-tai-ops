@@ -1902,11 +1902,16 @@ export function ProjectWorkspace({
                 ? dayLabel(message.createdAt)
                 : null;
 
+            // Consecutive lines from the same speaker read as one turn.
+            const grouped = !divider && previous !== null && previous.role === message.role;
+
             return (
-              <div key={message.key} className="pw-msg-wrap">
+              <div key={message.key} className={grouped ? "pw-msg-wrap is-grouped" : "pw-msg-wrap"}>
                 {divider ? <p className="pw-day-divider"><span>{divider}</span></p> : null}
-                <article className={`pw-msg pw-msg-${message.role}`}>
-                  {message.role === "agent" ? (
+                <article className={`pw-msg pw-msg-${message.role}${grouped ? " is-grouped" : ""}`}>
+                  {message.role === "agent" ? <AgentAvatar muted={grouped} /> : null}
+                  <div className="pw-msg-main">
+                  {message.role === "agent" && !grouped ? (
                     <span className="pw-msg-who">
                       Engineering Agent
                       {message.createdAt ? <time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time> : null}
