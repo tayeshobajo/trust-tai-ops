@@ -158,8 +158,30 @@ const WarningIcon = () => (
 );
 
 const SendIcon = () => (
-  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-    <path d="M5 12h13M12 5.5 18.5 12 12 18.5" strokeLinecap="round" strokeLinejoin="round" />
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+    <path d="M4.5 12 20 5l-6.6 15-2.2-6.2z" strokeLinejoin="round" />
+  </svg>
+);
+
+const ImageIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+    <circle cx="9" cy="10" r="1.4" />
+    <path d="m4.5 17 4.4-4.2 3.2 3 2.6-2.3 4.8 4.2" strokeLinejoin="round" />
+  </svg>
+);
+
+const KeyIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <circle cx="8.5" cy="12" r="3.6" />
+    <path d="M12.1 12H21M18 12v3M15.4 12v2.2" strokeLinecap="round" />
+  </svg>
+);
+
+const TranscriptIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <path d="M20 14.5a2.5 2.5 0 0 1-2.5 2.5H9l-4 3v-3H6.5A2.5 2.5 0 0 1 4 14.5v-7A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5z" strokeLinejoin="round" />
+    <path d="M8 9.5h8M8 12.5h5" strokeLinecap="round" />
   </svg>
 );
 
@@ -174,6 +196,35 @@ const AgentAvatar = ({ muted = false }: { muted?: boolean }) => (
     )}
   </span>
 );
+
+/** The person's own mark — deep ink, so the two voices never blur. */
+const UserAvatar = ({ muted = false }: { muted?: boolean }) => (
+  <span className={muted ? "pw-user-avatar is-muted" : "pw-user-avatar"} aria-hidden="true">
+    {muted ? null : (
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <circle cx="12" cy="8.4" r="3.4" />
+        <path d="M5.2 19.2c1.1-3.2 3.7-4.8 6.8-4.8s5.7 1.6 6.8 4.8" strokeLinecap="round" />
+      </svg>
+    )}
+  </span>
+);
+
+const PhaseStrip = ({ phase }: { phase: string | null }) => {
+  const currentIndex = phase ? HUMAN_PHASES.indexOf(phase as (typeof HUMAN_PHASES)[number]) : -1;
+  return (
+    <ol className="pw-phase-strip" aria-label="Task progress">
+      {HUMAN_PHASES.map((item, index) => {
+        const state = index < currentIndex ? "done" : index === currentIndex ? "now" : "next";
+        return (
+          <li key={item} className={`pw-phase-step is-${state}`}>
+            <span className="pw-phase-dot" aria-hidden="true" />
+            {item}
+          </li>
+        );
+      })}
+    </ol>
+  );
+};
 
 /** A calm "agent is working" cue that replaces the silent disabled send state. */
 const TypingIndicator = ({ label }: { label: string }) => (
@@ -1912,16 +1963,37 @@ export function ProjectWorkspace({
 
             // Consecutive lines from the same speaker read as one turn.
             const grouped = !divider && previous !== null && previous.role === message.role;
+            // The live phase strip belongs to the agent's most recent turn only.
+            const isLastAgentTurn =
+              message.role === "agent" &&
+              position === windowed.length - 1 &&
+              Boolean(activeRun) &&
+              !searching;
 
             return (
               <div key={message.key} className={grouped ? "pw-msg-wrap is-grouped" : "pw-msg-wrap"}>
                 {divider ? <p className="pw-day-divider"><span>{divider}</span></p> : null}
-                <article className={`pw-msg pw-msg-${message.role}${grouped ? " is-grouped" : ""}`}>
-                  {message.role === "agent" ? <AgentAvatar muted={grouped} /> : null}
+                <article
+                  className={`pw-msg pw-msg-${message.role}${grouped ? " is-grouped" : ""}${
+                    isLastAgentTurn && (busy || agentBusy) ? " is-live" : ""
+                  }`}
+                >
+                  {message.role === "agent" ? (
+                    <AgentAvatar muted={grouped} />
+                  ) : (
+                    <UserAvatar muted={grouped} />
+                  )}
                   <div className="pw-msg-main">
-                  {message.role === "agent" && !grouped ? (
+                  {!grouped ? (
                     <span className="pw-msg-who">
-                      Engineering Agent
+                      {message.role === "agent" ? (
+                        <>
+                          Engineering Agent
+                          <span className="pw-ai-chip" aria-hidden="true">AI</span>
+                        </>
+                      ) : (
+                        "You"
+                      )}
                       {message.createdAt ? <time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time> : null}
                     </span>
                   ) : null}
@@ -2006,6 +2078,7 @@ export function ProjectWorkspace({
                     </ul>
                   ) : null}
                   {activeRun && message.decision ? renderDecision(activeRun, message.decision) : null}
+                  {isLastAgentTurn && signal ? <PhaseStrip phase={signal.phase ?? null} /> : null}
                   <div className="pw-msg-actions">
                     <button
                       type="button"
@@ -2021,9 +2094,6 @@ export function ProjectWorkspace({
                       Reply
                     </button>
                   </div>
-                  {message.role === "user" && message.createdAt ? (
-                    <time className="pw-msg-time" dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time>
-                  ) : null}
                   </div>
                 </article>
               </div>
@@ -2250,42 +2320,63 @@ export function ProjectWorkspace({
                   }}
                 />
                 <button
-                  className="composer-attach"
+                  className="composer-chip"
                   type="button"
-                  aria-label="Attach a screenshot, recording, log or export"
                   title="Attach a screenshot, recording, log or export"
                   disabled={uploading}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <PaperclipIcon />
+                  Attach
+                </button>
+                <button
+                  className="composer-chip"
+                  type="button"
+                  title="Attach a screenshot"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <ImageIcon />
+                  Screenshot
                 </button>
               </>
             ) : null}
+            <button
+              className="composer-chip"
+              type="button"
+              title="Paste WordPress, SFTP or SSH access — it is sealed securely on send"
+              onClick={() => composerRef.current?.focus()}
+            >
+              <KeyIcon />
+              Credentials
+            </button>
             {meetingIntelligenceAvailable() ? (
               <button
-                className="composer-attach"
+                className="composer-chip"
                 type="button"
-                aria-label="Share a meeting transcript"
                 title="Share a meeting transcript"
                 onClick={() => setTranscriptOpen((open) => !open)}
               >
-                ＋
+                <TranscriptIcon />
+                Transcript
               </button>
             ) : null}
-            <p className="composer-hint">
-              <span>Enter</span> to send · <span>Shift+Enter</span> for a new line
-            </p>
+            <span className="composer-spacer" />
             <button
-              className={credentialPreview ? "primary-button composer-send is-wide" : "primary-button composer-send"}
+              className={credentialPreview ? "primary-button composer-send is-secure" : "primary-button composer-send"}
               type="button"
               aria-label={credentialPreview ? "Send securely" : "Send message"}
               disabled={(!composerValue.trim() && pendingFiles.length === 0) || busy || uploading}
               onClick={() => void sendMessage()}
             >
-              {uploading ? "Reading files…" : credentialPreview ? "Send securely" : <SendIcon />}
+              <SendIcon />
+              {uploading ? "Reading files…" : credentialPreview ? "Send securely" : "Send"}
             </button>
           </div>
           </div>
+          <p className="composer-tip">
+            Tip: paste credentials, URLs, or screenshots — I&apos;ll understand. Enter sends, Shift+Enter starts a new line.
+          </p>
         </div>
       </main>
 
