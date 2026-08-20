@@ -1083,6 +1083,30 @@ export function ProjectWorkspace({
     setPendingFiles((current) => dequeueEvidenceFile(current, key));
   };
 
+  // Ctrl/Cmd+V anywhere in the workspace attaches a copied image. The composer
+  // handles its own paste; this catches the far more common case of the person
+  // copying a screenshot and pasting without clicking into the box first.
+  const queueFilesRef = useRef(queueFiles);
+  queueFilesRef.current = queueFiles;
+  useEffect(() => {
+    if (!evidenceIntakeAvailable()) return;
+    const onPaste = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      // Another text field owns the paste (transcript box, search, access form).
+      if (target && target !== composerRef.current) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
+      }
+      const images = imageFilesFromClipboard(event.clipboardData);
+      if (images.length === 0) return;
+      event.preventDefault();
+      queueFilesRef.current(images);
+      composerRef.current?.focus();
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, []);
+
   const markQueued = (key: string, state: QueuedState, reason?: string) => {
     setPendingFiles((current) =>
       current.map((entry) => (entry.key === key ? { ...entry, state, reason: reason ?? null } : entry)),
