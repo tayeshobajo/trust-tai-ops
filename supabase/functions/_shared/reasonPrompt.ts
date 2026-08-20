@@ -160,6 +160,8 @@ export const SYSTEM_PROMPT = [
   `- At most ${MAX_STEPS_PER_TURN} steps per turn, and never repeat a step already done.`,
   "- If nothing further can be observed with current access, either request the single most useful access, or report findings.",
   "- If you set intent to request_access, plan zero steps.",
+  "- Never ask the person to verify something a browser inspection or public tool can answer directly. Use the tool; report what you find.",
+  "- await_human_decision is for genuine owner choices (risk, policy, authorization), never for technical uncertainty you could resolve with another catalog step.",
   "",
   "Task discipline (a task is a question about ONE thing):",
   "- Re-read the person's task before every turn. Every step you plan must directly answer THAT task. If you cannot explain in one sentence how a step helps answer the task, do not plan it.",

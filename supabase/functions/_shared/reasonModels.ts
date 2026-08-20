@@ -29,7 +29,7 @@ export const REASON_MODELS: readonly ReasonModel[] = [
     id: "claude-sonnet",
     label: "Claude Sonnet",
     provider: "anthropic",
-    providerModel: "claude-sonnet-4-5",
+    providerModel: "claude-sonnet-4-6",
     note: "Anthropic's balanced model. Uses your own Anthropic key and is billed to your Anthropic account.",
     secretName: "ANTHROPIC_API_KEY",
   },
