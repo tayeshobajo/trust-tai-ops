@@ -2031,7 +2031,15 @@ export function ProjectWorkspace({
 
           {streamingText ? <StreamingMessage text={streamingText} /> : null}
 
-          {!streamingText && (busy || agentBusy || Date.now() < typingUntil) && !uploading ? <TypingIndicator /> : null}
+          {!streamingText && (busy || agentBusy || Date.now() < typingUntil) && !uploading ? (
+            <TypingIndicator
+              label={
+                activeRun && agentStateTone(activeRun) === "agent-state-working"
+                  ? `${agentStateLabel(activeRun)}…`
+                  : "Thinking…"
+              }
+            />
+          ) : null}
 
           {persistError ? (
             <p className="pw-persist-error" role="status">
