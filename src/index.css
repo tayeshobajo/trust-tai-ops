@@ -6777,10 +6777,8 @@ p, li {
 
 /* Quiet affordance shown only when the reader has scrolled away from the end. */
 .pw-jump-latest {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(100% + var(--tt-space-2));
+  display: block;
+  margin: 0 auto var(--tt-space-2);
   z-index: 3;
   border: 1px solid var(--line);
   border-radius: 999px;
