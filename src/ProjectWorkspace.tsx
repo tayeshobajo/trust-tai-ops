@@ -230,6 +230,8 @@ export function ProjectWorkspace({
   const [evidence, setEvidence] = useState<ProjectEvidence[]>([]);
   const [pendingFiles, setPendingFiles] = useState<QueuedFile[]>([]);
   const [dropActive, setDropActive] = useState(false);
+  // True when new lines arrived while the reader was scrolled up.
+  const [hasNewBelow, setHasNewBelow] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [meetingBusy, setMeetingBusy] = useState(false);
@@ -262,6 +264,7 @@ export function ProjectWorkspace({
   }, [agentBusy]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
+  const threadRef = useRef<HTMLDivElement | null>(null);
   const attemptedRef = useRef<Set<string>>(new Set());
   const memoryRef = useRef<Set<string>>(new Set());
   const emitRef = useRef<Set<string>>(new Set());
@@ -519,7 +522,18 @@ export function ProjectWorkspace({
 
   useEffect(() => {
     if (!messagesLoaded || searching) return;
+    const node = threadRef.current;
+    if (node) {
+      // Only follow the conversation when the reader is already at the end.
+      // Scrolling back through history must not be yanked forward.
+      const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
+      if (distance > 160) {
+        setHasNewBelow(true);
+        return;
+      }
+    }
     threadEndRef.current?.scrollIntoView({ block: "end" });
+    setHasNewBelow(false);
   }, [messagesLoaded, visible.length, surface, searching, streamingText]);
 
   // Single write path for every message the user actually sees.
@@ -1068,6 +1082,30 @@ export function ProjectWorkspace({
   const removeQueuedFile = (key: string) => {
     setPendingFiles((current) => dequeueEvidenceFile(current, key));
   };
+
+  // Ctrl/Cmd+V anywhere in the workspace attaches a copied image. The composer
+  // handles its own paste; this catches the far more common case of the person
+  // copying a screenshot and pasting without clicking into the box first.
+  const queueFilesRef = useRef(queueFiles);
+  queueFilesRef.current = queueFiles;
+  useEffect(() => {
+    if (!evidenceIntakeAvailable()) return;
+    const onPaste = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      // Another text field owns the paste (transcript box, search, access form).
+      if (target && target !== composerRef.current) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
+      }
+      const images = imageFilesFromClipboard(event.clipboardData);
+      if (images.length === 0) return;
+      event.preventDefault();
+      queueFilesRef.current(images);
+      composerRef.current?.focus();
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, []);
 
   const markQueued = (key: string, state: QueuedState, reason?: string) => {
     setPendingFiles((current) =>
@@ -1764,7 +1802,15 @@ export function ProjectWorkspace({
           </div>
         ) : null}
 
-        <div className="pw-thread">
+        <div
+          className="pw-thread"
+          ref={threadRef}
+          onScroll={(event) => {
+            const node = event.currentTarget;
+            const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
+            if (distance <= 160 && hasNewBelow) setHasNewBelow(false);
+          }}
+        >
           {hidden > 0 ? (
             <button className="pw-load-earlier" type="button" onClick={() =>
                 setWindowSize((size) => {
@@ -1910,6 +1956,19 @@ export function ProjectWorkspace({
           ) : null}
           <div ref={threadEndRef} />
         </div>
+
+        {hasNewBelow ? (
+          <button
+            className="pw-jump-latest"
+            type="button"
+            onClick={() => {
+              threadEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+              setHasNewBelow(false);
+            }}
+          >
+            New messages · jump to latest
+          </button>
+        ) : null}
 
         <div
           className={dropActive ? "pw-composer is-drop-active" : "pw-composer"}
