@@ -3,6 +3,7 @@ import { buildSiteHealth } from "./health";
 import type { AgentEvidence } from "./agent-core/types";
 import type { AccessType, MessageKind, NewProjectMessage, Organization, Project, ProjectMessage, Run, RunDraft } from "./types";
 import { buildThread, draftFromBrief } from "./conversation";
+import { MarkdownBody } from "./markdown";
 import type { DecisionKind, ThreadCard, ThreadDiff, ThreadMessage } from "./conversation";
 import { constraintAlreadyStored, detectConstraints } from "./agent-core/constraints";
 import {
@@ -230,6 +231,8 @@ export function ProjectWorkspace({
   const [evidence, setEvidence] = useState<ProjectEvidence[]>([]);
   const [pendingFiles, setPendingFiles] = useState<QueuedFile[]>([]);
   const [dropActive, setDropActive] = useState(false);
+  // The message being replied to, quoted into the next thing sent.
+  const [replyTo, setReplyTo] = useState<{ who: string; text: string } | null>(null);
   // True when new lines arrived while the reader was scrolled up.
   const [hasNewBelow, setHasNewBelow] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -1254,25 +1257,32 @@ export function ProjectWorkspace({
   };
 
   const sendMessage = async () => {
-    const value = composerValue.trim();
+    const typed = composerValue.trim();
+    // A quoted reply travels as Markdown blockquote lines, so the thread shows
+    // the referenced context inline without a second storage shape.
+    const value = replyTo
+      ? [...replyTo.text.split("\n").map((line) => `> ${line}`), "", typed].join("\n").trim()
+      : typed;
     const attachments = pendingFiles;
     if (!value && attachments.length === 0) return;
 
     // Credential-shaped text never becomes a stored message. It goes straight
     // to the authorized server intake, which parses, authorizes and seals it,
     // and returns a sanitized replacement for the conversation.
-    if (value && containsSecretMaterial(value)) {
-      await handleCredentialPaste(value);
+    if (typed && containsSecretMaterial(typed)) {
+      await handleCredentialPaste(typed);
       return;
     }
 
     // A message that points backwards ("option B", "same as yesterday") is not
     // a new instruction. It is resolved against stored history first, and if it
     // cannot be resolved the agent asks rather than assumes.
-    if (value && attachments.length === 0 && continuityAvailable() && referenceIntent(value).needsRecall) {
-      const handled = await handleBackwardReference(value);
+    if (typed && attachments.length === 0 && continuityAvailable() && referenceIntent(typed).needsRecall) {
+      const handled = await handleBackwardReference(typed);
       if (handled) return;
     }
+
+    setReplyTo(null);
 
     // Filenames are never persisted from the browser: the client's name for a
     // file is unsanitized, and the attachment records are the source of truth.
@@ -1287,7 +1297,7 @@ export function ProjectWorkspace({
       let createdId: string | null = null;
       let savedId: string | null = null;
       try {
-        const brief = value || `Review the ${attachments.length === 1 ? "file" : "files"} I've attached.`;
+        const brief = typed || `Review the ${attachments.length === 1 ? "file" : "files"} I've attached.`;
         const next = await workspaceRepository.createRun(project.id, draftFromBrief(project, brief));
         onWorkspaceUpdate(next);
         const created = next.projects.find((item) => item.id === project.id)?.runs[0];
@@ -1740,7 +1750,25 @@ export function ProjectWorkspace({
         <main className="pw-surface">{secondarySurface}</main>
       ) : (
       <>
-      <main className="pw-chat">
+      <main
+        className={dropActive ? "pw-chat is-drop-active" : "pw-chat"}
+        onDragOver={(event) => {
+          if (!evidenceIntakeAvailable()) return;
+          if (!Array.from(event.dataTransfer?.types ?? []).includes("Files")) return;
+          event.preventDefault();
+          setDropActive(true);
+        }}
+        onDragLeave={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+          setDropActive(false);
+        }}
+        onDrop={(event) => {
+          if (!evidenceIntakeAvailable()) return;
+          event.preventDefault();
+          setDropActive(false);
+          queueFiles(filesFromDataTransfer(event.dataTransfer));
+        }}
+      >
         <header className="pw-chat-head">
           <button className="pw-pane-toggle" type="button" onClick={() => setMobilePane("tasks")}>
             Tasks
@@ -1875,9 +1903,13 @@ export function ProjectWorkspace({
                         ) : null}
                       </>
                     );
-                  })() : message.body.map((paragraph, index) => (
-                    <p key={index}>{searching ? <Highlight text={paragraph} query={query} /> : paragraph}</p>
-                  ))}
+                  })() : searching ? (
+                    message.body.map((paragraph, index) => (
+                      <p key={index}><Highlight text={paragraph} query={query} /></p>
+                    ))
+                  ) : (
+                    <MarkdownBody body={message.body} />
+                  )}
                   {message.card ? (
                     <div className="pw-card">
                       <h4>{message.card.title}</h4>
@@ -1925,6 +1957,21 @@ export function ProjectWorkspace({
                     </ul>
                   ) : null}
                   {activeRun && message.decision ? renderDecision(activeRun, message.decision) : null}
+                  <div className="pw-msg-actions">
+                    <button
+                      type="button"
+                      className="pw-msg-reply"
+                      onClick={() => {
+                        setReplyTo({
+                          who: message.role === "user" ? "You" : "Engineering Agent",
+                          text: message.body.join(" ").slice(0, 400),
+                        });
+                        composerRef.current?.focus();
+                      }}
+                    >
+                      Reply
+                    </button>
+                  </div>
                   {message.role === "user" && message.createdAt ? (
                     <time className="pw-msg-time" dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time>
                   ) : null}
@@ -1972,27 +2019,20 @@ export function ProjectWorkspace({
 
         <div
           className={dropActive ? "pw-composer is-drop-active" : "pw-composer"}
-          onDragOver={(event) => {
-            if (!evidenceIntakeAvailable()) return;
-            if (!Array.from(event.dataTransfer?.types ?? []).includes("Files")) return;
-            event.preventDefault();
-            setDropActive(true);
-          }}
-          onDragLeave={(event) => {
-            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-            setDropActive(false);
-          }}
-          onDrop={(event) => {
-            if (!evidenceIntakeAvailable()) return;
-            event.preventDefault();
-            setDropActive(false);
-            queueFiles(filesFromDataTransfer(event.dataTransfer));
-          }}
         >
           {dropActive ? (
             <p className="pw-drop-hint" role="status">
-              Drop files here and I'll read what I can.
+              Drop images or files anywhere here and I&apos;ll read what I can.
             </p>
+          ) : null}
+          {replyTo ? (
+            <div className="pw-reply-chip">
+              <span className="pw-reply-who">Replying to {replyTo.who}</span>
+              <span className="pw-reply-text">{replyTo.text}</span>
+              <button type="button" aria-label="Cancel reply" onClick={() => setReplyTo(null)}>
+                <CloseIcon />
+              </button>
+            </div>
           ) : null}
           {transcriptOpen ? (
             <div className="transcript-intake">

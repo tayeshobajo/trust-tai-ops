@@ -6793,6 +6793,81 @@ p, li {
 
 .pw-jump-latest:hover { border-color: color-mix(in srgb, var(--accent, #2f6df6) 45%, var(--line)); }
 
+/* Markdown inside message bodies. Elements only — no HTML is ever injected. */
+.pw-msg .md-pre {
+  margin: var(--tt-space-2) 0;
+  padding: var(--tt-space-3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tt-ink, #01051b) 5%, transparent);
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.pw-msg .md-pre code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
+
+.pw-msg code.md-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.86em;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--tt-ink, #01051b) 7%, transparent);
+}
+
+.pw-msg .md-list { margin: var(--tt-space-2) 0; padding-left: 1.15rem; }
+.pw-msg .md-list li { margin: 2px 0; }
+.pw-msg .md-heading { margin: var(--tt-space-2) 0 var(--tt-space-1); font-size: 0.94rem; }
+
+.pw-msg .md-quote {
+  margin: var(--tt-space-2) 0;
+  padding: 2px 0 2px var(--tt-space-3);
+  border-left: 2px solid color-mix(in srgb, var(--tt-ink, #01051b) 25%, transparent);
+  color: var(--muted);
+  font-size: 0.88em;
+}
+
+.pw-msg .md-quote p { margin: 0; }
+.pw-msg a { color: inherit; text-underline-offset: 2px; }
+
+/* Per-message actions: quiet until the message is hovered or focused. */
+.pw-msg-actions { margin-top: 4px; opacity: 0; transition: opacity 120ms ease; }
+.pw-msg:hover .pw-msg-actions,
+.pw-msg:focus-within .pw-msg-actions { opacity: 1; }
+
+.pw-msg-reply {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pw-msg-reply:hover { color: var(--ink, var(--tt-ink, #01051b)); }
+
+/* Quoted context shown above the composer while composing a reply. */
+.pw-reply-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  margin-bottom: var(--tt-space-2);
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-left: 2px solid color-mix(in srgb, var(--tt-ink, #01051b) 35%, transparent);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.pw-reply-chip .pw-reply-who { font-weight: 600; white-space: nowrap; }
+.pw-reply-chip .pw-reply-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-reply-chip button { border: 0; background: none; cursor: pointer; color: inherit; display: inline-flex; }
+
+.pw-chat.is-drop-active { outline: 2px dashed color-mix(in srgb, var(--accent, #2f6df6) 60%, transparent); outline-offset: -6px; }
+
 .composer-attach {
   display: inline-grid;
   place-items: center;
