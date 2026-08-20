@@ -2298,41 +2298,63 @@ export function ProjectWorkspace({
                   }}
                 />
                 <button
-                  className="composer-attach"
+                  className="composer-chip"
                   type="button"
-                  aria-label="Attach a screenshot, recording, log or export"
                   title="Attach a screenshot, recording, log or export"
                   disabled={uploading}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <PaperclipIcon />
+                  Attach
+                </button>
+                <button
+                  className="composer-chip"
+                  type="button"
+                  title="Attach a screenshot"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <ImageIcon />
+                  Screenshot
                 </button>
               </>
             ) : null}
+            <button
+              className="composer-chip"
+              type="button"
+              title="Paste WordPress, SFTP or SSH access — it is sealed securely on send"
+              onClick={() => composerRef.current?.focus()}
+            >
+              <KeyIcon />
+              Credentials
+            </button>
             {meetingIntelligenceAvailable() ? (
               <button
-                className="composer-attach"
+                className="composer-chip"
                 type="button"
-                aria-label="Share a meeting transcript"
                 title="Share a meeting transcript"
                 onClick={() => setTranscriptOpen((open) => !open)}
               >
-                ＋
+                <TranscriptIcon />
+                Transcript
               </button>
             ) : null}
-            <p className="composer-hint">
-              <span>Enter</span> to send · <span>Shift+Enter</span> for a new line
-            </p>
+            <span className="composer-spacer" />
             <button
-              className={credentialPreview ? "primary-button composer-send is-wide" : "primary-button composer-send"}
+              className={credentialPreview ? "primary-button composer-send is-secure" : "primary-button composer-send"}
               type="button"
               aria-label={credentialPreview ? "Send securely" : "Send message"}
               disabled={(!composerValue.trim() && pendingFiles.length === 0) || busy || uploading}
               onClick={() => void sendMessage()}
             >
-              {uploading ? "Reading files…" : credentialPreview ? "Send securely" : <SendIcon />}
+              <SendIcon />
+              {uploading ? "Reading files…" : credentialPreview ? "Send securely" : "Send"}
             </button>
           </div>
+          </div>
+          <p className="composer-tip">
+            Tip: paste credentials, URLs, or screenshots — I&apos;ll understand. Enter sends, Shift+Enter starts a new line.
+          </p>
           </div>
         </div>
       </main>
