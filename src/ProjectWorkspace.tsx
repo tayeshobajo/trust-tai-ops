@@ -1743,7 +1743,25 @@ export function ProjectWorkspace({
         <main className="pw-surface">{secondarySurface}</main>
       ) : (
       <>
-      <main className="pw-chat">
+      <main
+        className={dropActive ? "pw-chat is-drop-active" : "pw-chat"}
+        onDragOver={(event) => {
+          if (!evidenceIntakeAvailable()) return;
+          if (!Array.from(event.dataTransfer?.types ?? []).includes("Files")) return;
+          event.preventDefault();
+          setDropActive(true);
+        }}
+        onDragLeave={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+          setDropActive(false);
+        }}
+        onDrop={(event) => {
+          if (!evidenceIntakeAvailable()) return;
+          event.preventDefault();
+          setDropActive(false);
+          queueFiles(filesFromDataTransfer(event.dataTransfer));
+        }}
+      >
         <header className="pw-chat-head">
           <button className="pw-pane-toggle" type="button" onClick={() => setMobilePane("tasks")}>
             Tasks
@@ -1994,27 +2012,20 @@ export function ProjectWorkspace({
 
         <div
           className={dropActive ? "pw-composer is-drop-active" : "pw-composer"}
-          onDragOver={(event) => {
-            if (!evidenceIntakeAvailable()) return;
-            if (!Array.from(event.dataTransfer?.types ?? []).includes("Files")) return;
-            event.preventDefault();
-            setDropActive(true);
-          }}
-          onDragLeave={(event) => {
-            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-            setDropActive(false);
-          }}
-          onDrop={(event) => {
-            if (!evidenceIntakeAvailable()) return;
-            event.preventDefault();
-            setDropActive(false);
-            queueFiles(filesFromDataTransfer(event.dataTransfer));
-          }}
         >
           {dropActive ? (
             <p className="pw-drop-hint" role="status">
-              Drop files here and I'll read what I can.
+              Drop images or files anywhere here and I&apos;ll read what I can.
             </p>
+          ) : null}
+          {replyTo ? (
+            <div className="pw-reply-chip">
+              <span className="pw-reply-who">Replying to {replyTo.who}</span>
+              <span className="pw-reply-text">{replyTo.text}</span>
+              <button type="button" aria-label="Cancel reply" onClick={() => setReplyTo(null)}>
+                <CloseIcon />
+              </button>
+            </div>
           ) : null}
           {transcriptOpen ? (
             <div className="transcript-intake">
