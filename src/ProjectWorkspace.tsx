@@ -2033,9 +2033,22 @@ export function ProjectWorkspace({
                       ) : (
                         "You"
                       )}
-                      {message.createdAt ? <time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time> : null}
+                      {message.createdAt ? (
+                        <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>
+                          {timeLabel(message.createdAt)}
+                        </time>
+                      ) : null}
                     </span>
+                  ) : message.createdAt ? (
+                    <time
+                      className="pw-msg-time-grouped"
+                      dateTime={message.createdAt}
+                      title={new Date(message.createdAt).toLocaleString()}
+                    >
+                      {timeLabel(message.createdAt)}
+                    </time>
                   ) : null}
+
                   {message.kind === "fix_plan" ? (() => {
                     // Parse the structured fix-plan body:
                     // [0] header, [1] rationale, [2..N-2] numbered steps, [N-1] risk line, [N] approval prompt
