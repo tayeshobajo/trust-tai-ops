@@ -1677,6 +1677,7 @@ export type Database = {
           origin_source_id: string | null
           plan_summary: string
           project_id: string
+          queue_position: number | null
           risk_level: string
           started_at: string
           state: string
@@ -1701,6 +1702,7 @@ export type Database = {
           origin_source_id?: string | null
           plan_summary?: string
           project_id: string
+          queue_position?: number | null
           risk_level: string
           started_at?: string
           state: string
@@ -1725,6 +1727,7 @@ export type Database = {
           origin_source_id?: string | null
           plan_summary?: string
           project_id?: string
+          queue_position?: number | null
           risk_level?: string
           started_at?: string
           state?: string

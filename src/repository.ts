@@ -1,6 +1,6 @@
 import type { PostgrestError } from "@supabase/supabase-js";
 import { hasSupabasePublicConfig, isDemoModeAllowed, resolveOpsEnv } from "./env";
-import { createProjectFromDraft, createRunFromDraft, getActiveRun, getProjectById, injectProjectIntoWorkspace } from "./lib";
+import { createProjectFromDraft, createRunFromDraft, getActiveRun, getProjectById, getQueuedRuns, injectProjectIntoWorkspace, isQueuedRun } from "./lib";
 import { advanceRunState } from "./operations";
 import { createSeedWorkspace } from "./seed";
 import { getSupabaseClient } from "./supabase";
@@ -163,7 +163,9 @@ type RunRow = {
   plan_summary: string;
   started_at: string;
   updated_at: string;
+  queue_position?: number | null;
 };
+
 
 type RunPhaseRow = {
   id: string;
@@ -227,7 +229,18 @@ export interface WorkspaceRepository {
   loadWorkspace(): Promise<Organization>;
   saveWorkspace(workspace: Organization): Promise<void>;
   createProject(draft: ProjectDraft): Promise<Organization>;
-  createRun(projectId: string, draft: RunDraft): Promise<Organization>;
+  /**
+   * Creates a task. When `options.queued` is set the task waits its turn: the
+   * agent only ever works on the one live task in a project.
+   */
+  createRun(projectId: string, draft: RunDraft, options?: { queued?: boolean }): Promise<Organization>;
+  /** Starts a waiting task now, parking whatever was live back at the front of the queue. */
+  promoteQueuedRun(projectId: string, runId: string): Promise<Organization>;
+  /** Moves a waiting task up or down the queue. */
+  moveQueuedRun(projectId: string, runId: string, direction: "up" | "down"): Promise<Organization>;
+  /** Drops a waiting task without ever starting it. */
+  cancelQueuedRun(projectId: string, runId: string): Promise<Organization>;
+
   getProject(projectId: string): Promise<Project | null>;
   getActiveRun(projectId: string): Promise<Run | null>;
   advanceRun(projectId: string, runId: string, targetState: Run["state"]): Promise<Organization>;
@@ -330,7 +343,7 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
   }
 
-  async createRun(projectId: string, draft: RunDraft): Promise<Organization> {
+  async createRun(projectId: string, draft: RunDraft, options?: { queued?: boolean }): Promise<Organization> {
     const workspace = await this.loadWorkspace();
     const project = getProjectById(workspace, projectId);
 
@@ -338,11 +351,73 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
       return workspace;
     }
 
-    const newRun = createRunFromDraft(draft, project);
+    const created = createRunFromDraft(draft, project);
+    const newRun: Run = options?.queued
+      ? { ...created, queuePosition: nextQueuePosition(project) }
+      : created;
     const nextWorkspace = injectRunIntoWorkspace(workspace, projectId, newRun);
     await this.saveWorkspace(nextWorkspace);
+
     return nextWorkspace;
   }
+
+  async promoteQueuedRun(projectId: string, runId: string): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    const project = getProjectById(workspace, projectId);
+    if (!project) return workspace;
+
+    const target = project.runs.find((run) => run.id === runId);
+    if (!target || !isQueuedRun(target)) return workspace;
+
+    const live = getActiveRun(project);
+    const parkLive = live && live.state !== "complete";
+
+    return this.writeRuns(projectId, project.runs.map((run) => {
+      if (run.id === target.id) return { ...run, queuePosition: null };
+      if (parkLive && live && run.id === live.id) return { ...run, queuePosition: -1 };
+      return run;
+    }));
+  }
+
+  async moveQueuedRun(projectId: string, runId: string, direction: "up" | "down"): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    const project = getProjectById(workspace, projectId);
+    if (!project) return workspace;
+
+    const queue = getQueuedRuns(project);
+    const index = queue.findIndex((run) => run.id === runId);
+    const swapWith = direction === "up" ? index - 1 : index + 1;
+    if (index === -1 || swapWith < 0 || swapWith >= queue.length) return workspace;
+
+    const reordered = queue.slice();
+    [reordered[index], reordered[swapWith]] = [reordered[swapWith], reordered[index]];
+    const positions = new Map(reordered.map((run, order) => [run.id, order]));
+
+    return this.writeRuns(projectId, project.runs.map((run) =>
+      positions.has(run.id) ? { ...run, queuePosition: positions.get(run.id) ?? null } : run,
+    ));
+  }
+
+  async cancelQueuedRun(projectId: string, runId: string): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    const project = getProjectById(workspace, projectId);
+    if (!project) return workspace;
+
+    return this.writeRuns(projectId, project.runs.filter((run) => run.id !== runId || !isQueuedRun(run)));
+  }
+
+  private async writeRuns(projectId: string, runs: Run[]): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    const next: Organization = {
+      ...workspace,
+      projects: workspace.projects.map((candidate) =>
+        candidate.id === projectId ? { ...candidate, runs } : candidate,
+      ),
+    };
+    await this.saveWorkspace(next);
+    return next;
+  }
+
 
   async createProject(draft: ProjectDraft): Promise<Organization> {
     const workspace = await this.loadWorkspace();
@@ -1011,7 +1086,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     return;
   }
 
-  async createRun(projectId: string, draft: RunDraft): Promise<Organization> {
+  async createRun(projectId: string, draft: RunDraft, options?: { queued?: boolean }): Promise<Organization> {
     const client = getSupabaseClient();
     const workspace = await this.loadWorkspace();
     const project = getProjectById(workspace, projectId);
@@ -1043,7 +1118,9 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       plan_summary: newRun.planSummary,
       started_at: newRun.startedAt,
       updated_at: newRun.updatedAt,
+      queue_position: options?.queued ? nextQueuePosition(project) : null,
     }] as never);
+
 
     if (runError) {
       throw runError;
@@ -1348,6 +1425,82 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
 
     return this.loadWorkspace();
   }
+
+  async promoteQueuedRun(projectId: string, runId: string): Promise<Organization> {
+    const client = getSupabaseClient();
+    const workspace = await this.loadWorkspace();
+    const project = getProjectById(workspace, projectId);
+    if (!project) return workspace;
+
+    const target = project.runs.find((run) => run.id === runId);
+    if (!target || !isQueuedRun(target)) return workspace;
+
+    const live = getActiveRun(project);
+    const now = new Date().toISOString();
+    const runs = client.from("runs") as unknown as { update: (v: unknown) => { eq: (k: string, v: string) => PromiseLike<unknown> } };
+
+    if (live && live.state !== "complete") {
+      // Park the live task at the front of the queue so nothing is lost.
+      await runs.update({ queue_position: -1, updated_at: now }).eq("id", live.id);
+    }
+
+    await runs.update({ queue_position: null, updated_at: now }).eq("id", runId);
+    return this.loadWorkspace();
+  }
+
+  async moveQueuedRun(projectId: string, runId: string, direction: "up" | "down"): Promise<Organization> {
+    const client = getSupabaseClient();
+    const workspace = await this.loadWorkspace();
+    const project = getProjectById(workspace, projectId);
+    if (!project) return workspace;
+
+    const queue = getQueuedRuns(project);
+    const index = queue.findIndex((run) => run.id === runId);
+    const swapWith = direction === "up" ? index - 1 : index + 1;
+    if (index === -1 || swapWith < 0 || swapWith >= queue.length) return workspace;
+
+    const reordered = queue.slice();
+    [reordered[index], reordered[swapWith]] = [reordered[swapWith], reordered[index]];
+    const runs = client.from("runs") as unknown as { update: (v: unknown) => { eq: (k: string, v: string) => PromiseLike<unknown> } };
+
+    await Promise.all(reordered.map((run, order) => runs.update({ queue_position: order }).eq("id", run.id)));
+    return this.loadWorkspace();
+  }
+
+  async cancelQueuedRun(projectId: string, runId: string): Promise<Organization> {
+    const client = getSupabaseClient();
+    const workspace = await this.loadWorkspace();
+    const project = getProjectById(workspace, projectId);
+    if (!project) return workspace;
+
+    const target = project.runs.find((run) => run.id === runId);
+    if (!target || !isQueuedRun(target)) return workspace;
+
+    const now = new Date().toISOString();
+    // The task never ran, so it is closed rather than deleted: the brief that
+    // created it stays in the conversation.
+    await (client.from("runs") as unknown as { update: (v: unknown) => { eq: (k: string, v: string) => PromiseLike<unknown> } }).update({
+      state: "complete",
+      queue_position: null,
+      next_action: "Removed from the queue before it started.",
+      completed_at: now,
+      updated_at: now,
+    }).eq("id", runId);
+
+    await (client.from("run_phases") as unknown as { update: (v: unknown) => { eq: (k: string, v: string) => PromiseLike<unknown> } })
+      .update({ status: "completed" }).eq("run_id", runId);
+
+    await client.from("run_actions").insert([{
+      id: crypto.randomUUID(),
+      run_id: runId,
+      actor: "operator",
+      summary: "Removed from the queue before it started.",
+      outcome: "succeeded",
+    }] as never);
+
+    return this.loadWorkspace();
+  }
+
 
   async updateQaResult(_projectId: string, _runId: string, resultId: string, result: "passed" | "failed" | "warning" | "skipped", notes: string): Promise<Organization> {
     const client = getSupabaseClient();
@@ -1946,6 +2099,8 @@ function mapRun(
     planSummary: run.plan_summary,
     startedAt: run.started_at,
     updatedAt: run.updated_at,
+    queuePosition: run.queue_position ?? null,
+
     phases: related.phaseRows
       .filter((phase) => phase.run_id === run.id)
       .map((phase) => ({
@@ -1997,6 +2152,12 @@ function mapRun(
       .filter((recommendation) => recommendation.run_id === run.id)
       .map(mapRecommendation),
   };
+}
+
+/** The next free slot at the back of a project's queue. */
+function nextQueuePosition(project: Project): number {
+  const queued = getQueuedRuns(project);
+  return queued.length === 0 ? 0 : (queued[queued.length - 1].queuePosition ?? 0) + 1;
 }
 
 function injectRunIntoWorkspace(workspace: Organization, projectId: string, newRun: Run): Organization {

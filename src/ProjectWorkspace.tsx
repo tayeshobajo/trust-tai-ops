@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildSiteHealth } from "./health";
 import type { AgentEvidence } from "./agent-core/types";
 import type { AccessType, MessageKind, NewProjectMessage, Organization, Project, ProjectMessage, Run, RunDraft } from "./types";
-import { buildThread, draftFromBrief } from "./conversation";
+import { buildThread, draftFromBrief, looksLikeNewTaskBrief } from "./conversation";
+import { getQueuedRuns } from "./lib";
 import { MarkdownBody } from "./markdown";
 import { markdownFromClipboard } from "./richPaste";
 
@@ -321,9 +322,14 @@ export function ProjectWorkspace({
   onWorkspaceUpdate,
 }: ProjectWorkspaceProps) {
   const runs = project.runs;
+  // One task runs at a time. Queued tasks are waiting their turn and are never
+  // opened, narrated, or advanced until they are promoted.
+  const liveRuns = useMemo(() => runs.filter((run) => (run.queuePosition ?? null) === null), [runs]);
+  const queuedRuns = useMemo(() => getQueuedRuns(project), [project]);
   const [activeRunId, setActiveRunId] = useState<string | null>(
-    startInNewTask ? null : runs.find((run) => run.state !== "complete")?.id ?? runs[0]?.id ?? null,
+    startInNewTask ? null : liveRuns.find((run) => run.state !== "complete")?.id ?? liveRuns[0]?.id ?? null,
   );
+
   const [composerValue, setComposerValue] = useState("");
   const [messages, setMessages] = useState<ProjectMessage[]>([]);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
@@ -962,6 +968,50 @@ export function ProjectWorkspace({
     window.setTimeout(() => composerRef.current?.focus(), 0);
   };
 
+  const [queueBusy, setQueueBusy] = useState(false);
+
+  const runQueueAction = async (
+    action: () => Promise<Organization>,
+    onDone?: (next: Organization) => void,
+  ) => {
+    if (queueBusy || !canWrite) return;
+    setQueueBusy(true);
+    try {
+      const next = await action();
+      onWorkspaceUpdate(next);
+      onDone?.(next);
+    } catch {
+      setPersistError("I couldn't change the queue just then. Try again.");
+    } finally {
+      setQueueBusy(false);
+    }
+  };
+
+  const startQueuedNow = (run: Run) =>
+    runQueueAction(() => workspaceRepository.promoteQueuedRun(project.id, run.id), () => {
+      setActiveRunId(run.id);
+      setMobilePane("chat");
+    });
+
+  /**
+   * When the live task finishes, the next thing in the queue starts on its own.
+   * Nothing waits for a person to remember it is there.
+   */
+  useEffect(() => {
+    if (!canWrite || busy || agentBusy || queueBusy) return;
+    if (queuedRuns.length === 0) return;
+    const stillWorking = liveRuns.some((run) => run.state !== "complete");
+    if (stillWorking) return;
+
+    const next = queuedRuns[0];
+    void runQueueAction(() => workspaceRepository.promoteQueuedRun(project.id, next.id), () => {
+      setActiveRunId(next.id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, queuedRuns, liveRuns, canWrite, busy, agentBusy, queueBusy]);
+
+
+
   /**
    * A meeting enters the project as conversation. The agent says it received
    * the transcript, then says what it understood. Nothing is started here.
@@ -1529,7 +1579,59 @@ export function ProjectWorkspace({
       return;
     }
 
+    // A fresh brief arriving mid-task does not derail the task underway. It
+    // becomes the next thing in the queue, and the agent says so plainly.
+    if (
+      typed &&
+      attachments.length === 0 &&
+      activeRun.state !== "complete" &&
+      looksLikeNewTaskBrief(typed)
+    ) {
+      setBusy(true);
+      try {
+        const draft = draftFromBrief(project, typed);
+        const next = await workspaceRepository.createRun(project.id, draft, { queued: true });
+        onWorkspaceUpdate(next);
+        const created = getQueuedRuns(next.projects.find((item) => item.id === project.id) ?? null).slice(-1)[0];
+        const ahead = getQueuedRuns(next.projects.find((item) => item.id === project.id) ?? null).length;
+
+        if (created) {
+          // The brief belongs to the task it created, so opening that task
+          // later shows the request that started it.
+          await emit({
+            runId: created.id,
+            role: "user",
+            kind: "message",
+            body: bodyLines.length > 0 ? bodyLines : [typed],
+            dedupeKey: `${created.id}-brief`,
+            sourceKey: `${created.id}-brief`,
+          });
+        }
+
+        await emit({
+          runId: activeRun.id,
+          role: "agent",
+          kind: "message",
+          body: [
+            `I've put that down as a separate task: **${draft.title}**.`,
+            ahead > 1
+              ? `It's number ${ahead} in the queue. I'll start it once I'm finished here.`
+              : "I'll start it as soon as I'm finished with what I'm on. If it's more urgent, hit “Start now” next to it in the task list.",
+          ],
+          dedupeKey: created ? `queued-${created.id}` : `queued-${Date.now()}`,
+        });
+
+        setComposerValue("");
+      } catch {
+        setPersistError("I couldn't queue that as a new task. Your message is still here — try again.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     setBusy(true);
+
     const stamp = Date.now();
     let savedMessage: ProjectMessage | null = null;
     try {
@@ -1845,8 +1947,57 @@ export function ProjectWorkspace({
 
   // Open work versus finished work. Completed tasks stay reachable but never
   // compete for attention with what is still running.
-  const openRuns = runs.filter((run) => run.state !== "complete");
-  const doneRuns = runs.filter((run) => run.state === "complete");
+  const openRuns = liveRuns.filter((run) => run.state !== "complete");
+  const doneRuns = liveRuns.filter((run) => run.state === "complete");
+
+  const renderQueuedRow = (run: Run, index: number) => (
+    <li key={run.id} className="pw-queued-row">
+      <div className="pw-queued-main">
+        <span className="pw-queued-index" aria-hidden="true">{index + 1}</span>
+        <div>
+          <strong>{run.title}</strong>
+          <p>Waiting its turn</p>
+        </div>
+      </div>
+      <div className="pw-queued-actions">
+        <button
+          type="button"
+          className="pw-queued-move"
+          aria-label={`Move ${run.title} up`}
+          disabled={!canWrite || queueBusy || index === 0}
+          onClick={() => void runQueueAction(() => workspaceRepository.moveQueuedRun(project.id, run.id, "up"))}
+        >
+          ↑
+        </button>
+        <button
+          type="button"
+          className="pw-queued-move"
+          aria-label={`Move ${run.title} down`}
+          disabled={!canWrite || queueBusy || index === queuedRuns.length - 1}
+          onClick={() => void runQueueAction(() => workspaceRepository.moveQueuedRun(project.id, run.id, "down"))}
+        >
+          ↓
+        </button>
+        <button
+          type="button"
+          className="pw-queued-start"
+          disabled={!canWrite || queueBusy}
+          onClick={() => void startQueuedNow(run)}
+        >
+          Start now
+        </button>
+        <button
+          type="button"
+          className="pw-queued-drop"
+          disabled={!canWrite || queueBusy}
+          onClick={() => void runQueueAction(() => workspaceRepository.cancelQueuedRun(project.id, run.id))}
+        >
+          Remove
+        </button>
+      </div>
+    </li>
+  );
+
 
   const renderTaskRow = (run: Run, variant: "rail" | "surface") => {
     const rowSignal = signalForRun(run);
@@ -1896,7 +2047,14 @@ export function ProjectWorkspace({
             ) : (
               <ul className="pw-task-surface">{openRuns.map((run) => renderTaskRow(run, "surface"))}</ul>
             )}
+            {queuedRuns.length > 0 ? (
+              <>
+                <p className="eyebrow pw-task-group">Up next · {queuedRuns.length}</p>
+                <ul className="pw-queue">{queuedRuns.map((run, index) => renderQueuedRow(run, index))}</ul>
+              </>
+            ) : null}
             <p className="eyebrow pw-task-group">Completed · {doneRuns.length}</p>
+
             {doneRuns.length === 0 ? (
               <p className="mem-empty">No completed tasks yet.</p>
             ) : (
@@ -1944,6 +2102,13 @@ export function ProjectWorkspace({
           {runs.length === 0 ? <p className="pw-empty-note">No tasks yet. Describe what you need and I'll start one.</p> : null}
           {openRuns.length > 0 ? <p className="pw-task-group">In progress · {openRuns.length}</p> : null}
           {openRuns.map((run) => renderTaskRow(run, "rail"))}
+          {queuedRuns.length > 0 ? (
+            <>
+              <p className="pw-task-group">Up next · {queuedRuns.length}</p>
+              <ul className="pw-queue">{queuedRuns.map((run, index) => renderQueuedRow(run, index))}</ul>
+            </>
+          ) : null}
+
           {doneRuns.length > 0 ? (
             <>
               <button
