@@ -566,42 +566,234 @@ Deno.serve(async (req) => {
     mode !== "plan_fix" &&
     mode !== "captain_plan" &&
     mode !== "captain_plan_check" &&
+    mode !== "captain_plan_approve" &&
+    mode !== "captain_plan_reject" &&
     mode !== "monitor" &&
     mode !== "record_resolution"
   ) {
     return fail("invalid_input", "I don't know how to think about that.", false);
   }
 
-  if (mode === "captain_plan_check") {
-    // Poll one captain_plan_requests row. The same authorization boundary as
-    // every other mode: the caller must belong to the project the request was
-    // created for. Only the row's status/plan is returned — never the digest,
-    // never internal state.
+  if (mode === "captain_plan_approve" || mode === "captain_plan_reject") {
+    // ── Phase 2: the human approval gate ────────────────────────────────────
+    //
+    // This is the trust boundary of the whole execution loop: nothing runs
+    // until an authenticated team member says so. The identity recorded here
+    // comes from the VERIFIED bearer token (authorizeProject resolved it
+    // above) — the browser never names a decider, it can only BE one.
+    //
+    // authorizeProject already proved: (1) real signed-in caller, (2) the
+    // caller belongs to the organization that owns this project. A caller
+    // outside the project's org never reaches this branch — 403 upstream.
+    const decision = mode === "captain_plan_approve" ? "approved" : "rejected";
     const requestId = typeof body.requestId === "string" ? body.requestId.trim() : "";
     if (!requestId) return fail("invalid_input", "No plan request was named.", false);
-    const { data: row } = await serviceClient()
+    const comment =
+      typeof body.comment === "string" && body.comment.trim()
+        ? body.comment.trim().slice(0, 1000)
+        : null;
+
+    const service = serviceClient();
+
+    // The request must exist, belong to this project, and hold a finished
+    // plan. Approving an unfinished, already-decided, or failed request is a
+    // no-op — idempotent by design, never an error the person has to react to.
+    const { data: row } = await service
       .from("captain_plan_requests")
-      .select("id, project_id, status, plan, source, error_summary")
+      .select("id, project_id, status, plan")
       .eq("id", requestId)
       .maybeSingle();
     if (!row || row.project_id !== projectId) {
       return fail("not_found", "I can't find that plan request on this project.", false);
     }
+
+    // Already decided? Return the standing decision — a second click is a
+    // no-op, not an error.
+    const { data: existingApproval } = await service
+      .from("captain_plan_approvals")
+      .select("decision, decided_by, decided_by_email, created_at")
+      .eq("request_id", requestId)
+      .maybeSingle();
+
+    if (existingApproval) {
+      console.log(
+        `captain_plan ${decision} repeat on ${requestId} — standing decision ${existingApproval.decision} by ${existingApproval.decided_by}`,
+      );
+      return Response.json(
+        {
+          ok: true,
+          mode,
+          requestId,
+          decision: existingApproval.decision,
+          alreadyDecided: true,
+          decidedBy: existingApproval.decided_by,
+          decidedByEmail: existingApproval.decided_by_email ?? null,
+          decidedAt: existingApproval.created_at,
+        },
+        { headers: corsHeaders },
+      );
+    }
+
+    // Only a finished plan can be decided. pending/in_progress = the plan
+    // hasn't landed yet; failed/expired = there is nothing to approve.
+    if (row.status !== "done") {
+      return Response.json(
+        {
+          ok: true,
+          mode,
+          requestId,
+          decision: null,
+          alreadyDecided: false,
+          reason: `plan_not_decidable`,
+          planStatus: row.status,
+        },
+        { headers: corsHeaders },
+      );
+    }
+
+    // Record the approval with the verified identity, then flip the queue row.
+    // Unique index on request_id is the idempotency anchor: a double-click
+    // race produces one row; the loser reads it back as alreadyDecided.
+    const { error: insertError } = await service.from("captain_plan_approvals").insert({
+      request_id: requestId,
+      project_id: projectId,
+      decision,
+      comment,
+      decided_by: authz.caller.userId,
+      decided_by_email: authz.caller.email,
+    });
+    if (insertError) {
+      if (String(insertError.code) === "23505") {
+        // Lost a double-click race — the standing decision stands.
+        const { data: standing } = await service
+          .from("captain_plan_approvals")
+          .select("decision, decided_by, decided_by_email, created_at")
+          .eq("request_id", requestId)
+          .maybeSingle();
+        return Response.json(
+          {
+            ok: true,
+            mode,
+            requestId,
+            decision: standing?.decision ?? decision,
+            alreadyDecided: true,
+            decidedBy: standing?.decided_by ?? null,
+            decidedByEmail: standing?.decided_by_email ?? null,
+            decidedAt: standing?.created_at ?? null,
+          },
+          { headers: corsHeaders },
+        );
+      }
+      console.error(`captain_plan approval insert failed: ${insertError.message}`);
+      return fail("approval_write_failed", "I couldn't record that decision.", true);
+    }
+
+    // Flip the queue row. Approved rows are claimed by the daemon for the
+    // execution turn; rejected rows are terminal — nothing ever executes.
+    const { error: flipError } = await service
+      .from("captain_plan_requests")
+      .update({ status: decision })
+      .eq("id", requestId)
+      .eq("status", "done");
+    if (flipError) {
+      console.error(`captain_plan status flip failed: ${flipError.message}`);
+      return fail("approval_write_failed", "I recorded the decision but couldn't update the plan request.", true);
+    }
+
+    console.log(
+      `captain_plan ${decision} ${requestId} uid=${authz.caller.userId} email=${authz.caller.email} project=${projectId}`,
+    );
+    return Response.json(
+      {
+        ok: true,
+        mode,
+        requestId,
+        decision,
+        alreadyDecided: false,
+        decidedBy: authz.caller.userId,
+        decidedByEmail: authz.caller.email,
+        decidedAt: new Date().toISOString(),
+      },
+      { headers: corsHeaders },
+    );
+  }
+
+  if (mode === "captain_plan_check") {
+    // Poll one captain_plan_requests row. The same authorization boundary as
+    // every other mode: the caller must belong to the project the request was
+    // created for. Only the row's status/plan is returned — never the digest,
+    // never internal state. Phase 2: the approval decision and execution
+    // state ride along so the UI can render the gate and progress from one
+    // poll.
+    const requestId = typeof body.requestId === "string" ? body.requestId.trim() : "";
+    if (!requestId) return fail("invalid_input", "No plan request was named.", false);
+    const service = serviceClient();
+    const { data: row } = await service
+      .from("captain_plan_requests")
+      .select(
+        "id, project_id, status, plan, source, error_summary, execution_started_at, execution_finished_at, execution_summary",
+      )
+      .eq("id", requestId)
+      .maybeSingle();
+    if (!row || row.project_id !== projectId) {
+      return fail("not_found", "I can't find that plan request on this project.", false);
+    }
+
+    // The standing human decision, if any — who clicked, what they chose.
+    const { data: approval } = await service
+      .from("captain_plan_approvals")
+      .select("decision, decided_by, decided_by_email, created_at, comment")
+      .eq("request_id", requestId)
+      .maybeSingle();
+    const decision = approval
+      ? {
+          decision: String(approval.decision),
+          decidedBy: String(approval.decided_by),
+          decidedByEmail: approval.decided_by_email ?? null,
+          decidedAt: approval.created_at ?? null,
+          comment: approval.comment ?? null,
+        }
+      : null;
+
     if (row.status === "done" && row.plan) {
       const plan = parseCaptainPlan(JSON.stringify(row.plan));
       if (!plan) {
         return Response.json(
-          { ok: true, mode, requestId, status: "failed", reason: "plan_unreadable" },
+          { ok: true, mode, requestId, status: "failed", reason: "plan_unreadable", decision },
           { headers: corsHeaders },
         );
       }
       return Response.json(
-        { ok: true, mode, requestId, status: "done", captain_plan: plan, source: row.source ?? "openclaw" },
+        {
+          ok: true,
+          mode,
+          requestId,
+          status: "done",
+          captain_plan: plan,
+          source: row.source ?? "openclaw",
+          decision,
+        },
         { headers: corsHeaders },
       );
     }
+    // Terminal/progressing states pass through: pending, in_progress, failed,
+    // expired, approved, rejected, executing, executed, execution_failed.
     return Response.json(
-      { ok: true, mode, requestId, status: row.status },
+      {
+        ok: true,
+        mode,
+        requestId,
+        status: row.status,
+        decision,
+        execution: row.status.startsWith("execut") || row.execution_started_at
+          ? {
+              startedAt: row.execution_started_at ?? null,
+              finishedAt: row.execution_finished_at ?? null,
+              summary: row.execution_summary ?? null,
+            }
+          : null,
+        reason: row.status === "execution_failed" ? row.error_summary ?? "execution_failed" : undefined,
+      },
       { headers: corsHeaders },
     );
   }

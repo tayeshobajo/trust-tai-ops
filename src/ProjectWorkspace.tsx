@@ -28,7 +28,8 @@ import { ProjectPipelineSummary } from "./ProjectPipelineSummary";
 import { validateAdvance } from "./operations";
 import { projectHasUsableAccess } from "./agent";
 import { composeReply } from "./reply";
-import { agentStepIdentity, executeAgentStep, respondToUserMessage, sendToCaptain } from "./agentExecutor";
+import { agentStepIdentity, executeAgentStep, respondToUserMessage, sendToCaptain, watchCaptainExecution } from "./agentExecutor";
+import { executionGateway } from "./agent-core/gateway";
 import type { CaptainPlanResult } from "./agent-core/gateway";
 import { ProjectAccessPanel } from "./ProjectAccessPanel";
 import type { AccessEvent } from "./ProjectAccessPanel";
@@ -376,6 +377,11 @@ export function ProjectWorkspace({
   // Captain planning surface.
   const [captainBusy, setCaptainBusy] = useState(false);
   const [captainError, setCaptainError] = useState<string | null>(null);
+  // Captain approval gate (Phase 2): requestId → standing decision state.
+  const [captainDecisions, setCaptainDecisions] = useState<
+    Record<string, { decision: "approved" | "rejected"; by: string | null; busy?: boolean }>
+  >({});
+  const [captainDecisionBusy, setCaptainDecisionBusy] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Writes text at the caret (replacing any selection) and leaves the caret
@@ -1100,6 +1106,67 @@ export function ProjectWorkspace({
       }
     } finally {
       setCaptainBusy(false);
+    }
+  };
+
+  /**
+   * Phase 2 approval gate. The click is authenticated — the server resolves
+   * who clicked from the session, proves they belong to this project's org,
+   * and records the decision with that identity. A second click is a no-op
+   * against the standing decision. On approve, the daemon picks the row up
+   * for the execution turn and this component starts watching for progress.
+   */
+  const decideCaptainPlan = async (
+    requestId: string,
+    decision: "approved" | "rejected",
+    messageKey: string,
+  ) => {
+    if (!canWrite || captainDecisionBusy) return;
+    setCaptainDecisionBusy(requestId);
+    try {
+      const gateway = executionGateway();
+      const result = await gateway.captainPlanDecide(project.id, requestId, decision);
+      if (!result.ok) {
+        setCaptainError(result.summary);
+        return;
+      }
+      // planStatus guard: the plan wasn't in a decidable state (e.g. still
+      // pending, or already failed). Nothing was recorded.
+      if (result.reason === "plan_not_decidable") {
+        setCaptainError("That plan isn't ready for a decision yet — it may still be planning.");
+        return;
+      }
+      setCaptainDecisions((current) => ({
+        ...current,
+        [requestId]: { decision: result.decision === "rejected" ? "rejected" : "approved", by: result.decidedByEmail },
+      }));
+
+      await emit({
+        runId: activeRun?.id ?? null,
+        role: "user",
+        kind: "decision_response",
+        body: [
+          result.decision === "approved"
+            ? "Approved Captain's plan. Proceed with execution."
+            : "Rejected Captain's plan.",
+        ],
+        dedupeKey: `captain-decision-${decision}-${messageKey}`,
+      });
+
+      if (result.decision === "approved") {
+        // Watch the execution turn and surface progress in chat. Fire and
+        // forget — the watcher emits through the same dedupe-disciplined path.
+        void watchCaptainExecution({
+          project,
+          run: activeRun,
+          requestId,
+          emit,
+        });
+      }
+    } catch {
+      setCaptainError("I couldn't record that decision just now.");
+    } finally {
+      setCaptainDecisionBusy(null);
     }
   };
 
@@ -2393,81 +2460,54 @@ export function ProjectWorkspace({
                           <strong>Overall risk:</strong> {plan.risk}
                           {plan.readyToExecute ? null : " — not yet ready to execute"}
                         </p>
-                        {canWrite ? (
-                          <div className="decision-actions">
-                            <button
-                              className="primary-button"
-                              type="button"
-                              disabled={busy || agentBusy}
-                              onClick={async () => {
-                                if (!activeRun) return;
-                                setBusy(true);
-                                try {
-                                  // Persist the user approval first.
-                                  const saved = await emit({
-                                    runId: activeRun.id,
-                                    role: "user",
-                                    kind: "decision_response",
-                                    body: ["Approved Captain's plan. Proceed."],
-                                    dedupeKey: `captain-approve-${message.key}`,
-                                  });
-                                  if (!saved) return;
-                                  // Hand off to the agent so it reads the approval
-                                  // in context and takes the next real step.
-                                  setAgentBusy(true);
-                                  try {
-                                    const outcome = await respondToUserMessage({
-                                      project,
-                                      run: activeRun,
-                                      emit,
-                                      onWorkspaceUpdate,
-                                      recentMessages: [
-                                        ...messages.filter((m) => m.runId === activeRun.id),
-                                        saved,
-                                      ],
-                                      memory: project.memoryEntries,
-                                      onStream: setStreamingText,
-                                      onEvidence: collectEvidence,
-                                    });
-                                    if (!outcome.spoke) {
-                                      await emit({
-                                        runId: activeRun.id,
-                                        role: "agent",
-                                        kind: "message",
-                                        body: ["Understood — I'll proceed with the plan."],
-                                        dedupeKey: `captain-approve-ack-${message.key}`,
-                                      });
-                                    }
-                                  } finally {
-                                    setStreamingText("");
-                                    setAgentBusy(false);
-                                  }
-                                } finally {
-                                  setBusy(false);
-                                }
-                              }}
-                            >
-                              Approve plan
-                            </button>
-                            <button
-                              className="ghost-button"
-                              type="button"
-                              disabled={busy || agentBusy}
-                              onClick={async () => {
-                                await emit({
-                                  runId: activeRun?.id ?? null,
-                                  role: "user",
-                                  kind: "decision_response",
-                                  body: ["Revising Captain's plan — see my notes below."],
-                                  dedupeKey: `captain-revise-${message.key}`,
-                                });
-                                window.setTimeout(() => composerRef.current?.focus(), 0);
-                              }}
-                            >
-                              Revise
-                            </button>
-                          </div>
-                        ) : null}
+                        {(() => {
+                          // Phase 2 gate: body[1] carries the queue requestId
+                          // when the plan came through the async queue path.
+                          const planRequestId =
+                            message.body.length > 1 && typeof message.body[1] === "string"
+                              ? message.body[1]
+                              : null;
+                          const standing = planRequestId ? captainDecisions[planRequestId] : undefined;
+                          const gateBusy = planRequestId ? captainDecisionBusy === planRequestId : false;
+                          if (standing && !standing.busy) {
+                            return (
+                              <p className={`pw-captain-risk tone-${standing.decision === "approved" ? "good" : "bad"}`}>
+                                <strong>
+                                  {standing.decision === "approved" ? "Approved" : "Rejected"}
+                                  {standing.by ? ` by ${standing.by}` : ""}.
+                                </strong>
+                                {standing.decision === "approved"
+                                  ? " Captain is executing — progress will appear here."
+                                  : " Nothing will execute."}
+                              </p>
+                            );
+                          }
+                          return (
+                            <div className="decision-actions">
+                              <button
+                                className="primary-button"
+                                type="button"
+                                disabled={busy || agentBusy || gateBusy || !planRequestId}
+                                onClick={() => planRequestId && decideCaptainPlan(planRequestId, "approved", message.key)}
+                              >
+                                {gateBusy ? "Recording…" : "Approve plan"}
+                              </button>
+                              <button
+                                className="ghost-button"
+                                type="button"
+                                disabled={busy || agentBusy || gateBusy || !planRequestId}
+                                onClick={() => planRequestId && decideCaptainPlan(planRequestId, "rejected", message.key)}
+                              >
+                                Reject
+                              </button>
+                              {!planRequestId ? (
+                                <span className="pw-captain-step-detail">
+                                  Legacy plan (no request id) — reply in chat instead.
+                                </span>
+                              ) : null}
+                            </div>
+                          );
+                        })()}
                       </>
                     );
                   })() : message.kind === "fix_plan" ? (() => {

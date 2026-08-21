@@ -724,7 +724,10 @@ export const sendToCaptain = async (params: {
             runId: run?.id ?? null,
             role: "agent",
             kind: "captain_plan",
-            body: [JSON.stringify(check.plan)],
+            // body[0] = plan JSON, body[1] = requestId (Phase 2 approval gate
+            // key — the UI reads it back to wire Approve/Reject to this exact
+            // request).
+            body: [JSON.stringify(check.plan), requestId],
             dedupeKey: `captain-plan-${requestId}`,
           });
           return check.plan;
@@ -762,6 +765,8 @@ export const sendToCaptain = async (params: {
       runId: run?.id ?? null,
       role: "agent",
       kind: "captain_plan",
+      // body[1] absent — legacy sync path has no queue requestId; the UI
+      // degrades to the old chat-only approval behavior.
       body: [JSON.stringify(result)],
       dedupeKey: `captain-plan-${project.id}-${run?.id ?? "project"}-${Date.now()}`,
     });
@@ -770,6 +775,105 @@ export const sendToCaptain = async (params: {
   } catch {
     return null;
   }
+};
+
+/**
+ * Phase 2 — post-approve execution watch.
+ *
+ * After a plan is approved, the daemon runs the Captain execution turn and
+ * writes progress into the queue row. This polls the row and reflects state
+ * changes into the chat as status_update messages, ending with a final
+ * summary message when the turn finishes (executed) or fails.
+ *
+ * Idempotent by dedupe keys: every emitted line keys off requestId + state, so
+ * a remount or re-poll can never duplicate a line.
+ */
+export const watchCaptainExecution = async (params: {
+  project: Project;
+  run: Run | null;
+  requestId: string;
+  emit: AgentEmit;
+}): Promise<void> => {
+  const { project, run, requestId, emit } = params;
+  const gateway = executionGateway();
+
+  // A Captain execution turn may run minutes. 12 min window covers the 7 min
+  // turn cap with margin for queue latency.
+  const deadline = Date.now() + 12 * 60_000;
+  const pollInterval = 7_000;
+  let lastState = "approved";
+  let announced = new Set<string>();
+
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+    const check = await gateway.captainPlanCheck(project.id, requestId);
+    if (!check) continue; // transient poll failure — try again
+
+    if (check.status === "executing" && lastState !== "executing") {
+      lastState = "executing";
+      if (!announced.has("started")) {
+        announced.add("started");
+        await emit({
+          runId: run?.id ?? null,
+          role: "agent",
+          kind: "status_update",
+          body: ["Approved — Captain is executing the plan now. I'll report progress as it lands."],
+          dedupeKey: `captain-exec-started-${requestId}`,
+        });
+      }
+      continue;
+    }
+
+    if (check.status === "executed") {
+      await emit({
+        runId: run?.id ?? null,
+        role: "agent",
+        kind: "message",
+        body: [
+          check.execution?.summary
+            ? `Captain finished executing the approved plan.\n\n${check.execution.summary}`
+            : "Captain finished executing the approved plan.",
+        ],
+        dedupeKey: `captain-exec-done-${requestId}`,
+      });
+      return;
+    }
+
+    if (check.status === "execution_failed") {
+      const reason = check.status === "execution_failed" && (check as { reason?: unknown }).reason;
+      await emit({
+        runId: run?.id ?? null,
+        role: "agent",
+        kind: "message",
+        body: [
+          `Captain's execution turn failed${typeof reason === "string" && reason ? `: ${reason}` : "."} The approval stands — you can ask me to send it again.`,
+        ],
+        dedupeKey: `captain-exec-failed-${requestId}`,
+      });
+      return;
+    }
+
+    // rejected here means someone else (another tab/user) rejected it — stop.
+    if (check.status === "rejected") {
+      await emit({
+        runId: run?.id ?? null,
+        role: "agent",
+        kind: "status_update",
+        body: ["This plan was rejected — nothing will execute."],
+        dedupeKey: `captain-exec-rejected-${requestId}`,
+      });
+      return;
+    }
+  }
+
+  // Window elapsed without a terminal state. Say so honestly.
+  await emit({
+    runId: run?.id ?? null,
+    role: "agent",
+    kind: "status_update",
+    body: ["I stopped watching Captain's execution after a while — check back on the task, or ask me for its status."],
+    dedupeKey: `captain-exec-watch-timeout-${requestId}`,
+  });
 };
 
 export const executeAgentStep = async (context: AgentStepContext): Promise<AgentStepResult> => {

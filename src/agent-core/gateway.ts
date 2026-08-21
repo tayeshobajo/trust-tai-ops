@@ -78,12 +78,26 @@ export interface ExecutionGateway {
   /**
    * Poll an enqueued Captain plan. Returns pending | in_progress | done (with
    * plan) | failed | expired. Null when the poll itself fails.
+   * Phase 2: decision + execution state ride along when present.
    */
   captainPlanCheck(projectId: string, requestId: string): Promise<
-    | { status: "pending" | "in_progress" | "expired" }
-    | { status: "done"; plan: CaptainPlanResult; source: string }
-    | { status: "failed"; reason: string }
+    | { status: "pending" | "in_progress" | "expired" | "approved" | "rejected" | "executing" | "executed" | "execution_failed"; decision: CaptainDecision | null; execution: CaptainExecution | null }
+    | { status: "done"; plan: CaptainPlanResult; source: string; decision: CaptainDecision | null; execution: CaptainExecution | null }
+    | { status: "failed"; reason: string; decision: CaptainDecision | null; execution: CaptainExecution | null }
     | null
+  >;
+  /**
+   * Phase 2 approval gate: record the authenticated caller's decision on a
+   * Captain plan. Identity is resolved server-side from the verified session.
+   */
+  captainPlanDecide(
+    projectId: string,
+    requestId: string,
+    decision: "approved" | "rejected",
+    comment?: string | null,
+  ): Promise<
+    | { ok: true; decision: string; alreadyDecided: boolean; decidedByEmail: string | null; decidedAt: string | null; reason?: string; planStatus?: string }
+    | { ok: false; summary: string }
   >;
 
   /**
@@ -140,6 +154,22 @@ export type CaptainPlanResult = {
   risk: "low" | "medium" | "high";
   readyToExecute: boolean;
 };
+
+/** Phase 2: the standing human decision on a plan request, if any. */
+export type CaptainDecision = {
+  decision: string;
+  decidedBy: string;
+  decidedByEmail: string | null;
+  decidedAt: string | null;
+  comment: string | null;
+};
+
+/** Phase 2: execution progress on an approved request. */
+export type CaptainExecution = {
+  startedAt: string | null;
+  finishedAt: string | null;
+  summary: string | null;
+} | null;
 
 const UNAVAILABLE: GatewayResponse = {
   ok: false,
@@ -303,9 +333,9 @@ class SupabaseFunctionGateway implements ExecutionGateway {
     projectId: string,
     requestId: string,
   ): Promise<
-    | { status: "pending" | "in_progress" | "expired" }
-    | { status: "done"; plan: CaptainPlanResult; source: string }
-    | { status: "failed"; reason: string }
+    | { status: "pending" | "in_progress" | "expired" | "approved" | "rejected" | "executing" | "executed" | "execution_failed"; decision: CaptainDecision | null; execution: CaptainExecution | null }
+    | { status: "done"; plan: CaptainPlanResult; source: string; decision: CaptainDecision | null; execution: CaptainExecution | null }
+    | { status: "failed"; reason: string; decision: CaptainDecision | null; execution: CaptainExecution | null }
     | null
   > {
     if (!this.available()) return null;
@@ -315,26 +345,77 @@ class SupabaseFunctionGateway implements ExecutionGateway {
         body: { projectId, mode: "captain_plan_check", requestId },
       });
       if (error) return null;
-      const payload = data as { ok?: boolean; status?: unknown; captain_plan?: unknown; source?: unknown; reason?: unknown } | null;
+      const payload = data as { ok?: boolean; status?: unknown; captain_plan?: unknown; source?: unknown; reason?: unknown; decision?: unknown; execution?: unknown } | null;
       if (!payload?.ok || typeof payload.status !== "string") return null;
+      const decision: CaptainDecision | null =
+        payload.decision && typeof payload.decision === "object"
+          ? payload.decision as CaptainDecision
+          : null;
+      const execution: CaptainExecution =
+        payload.execution && typeof payload.execution === "object"
+          ? payload.execution as CaptainExecution
+          : null;
       if (payload.status === "done") {
         const cp = payload.captain_plan as Record<string, unknown> | undefined;
-        if (!cp || !Array.isArray(cp.steps) || cp.steps.length === 0) return { status: "failed", reason: "plan_unreadable" };
+        if (!cp || !Array.isArray(cp.steps) || cp.steps.length === 0) return { status: "failed", reason: "plan_unreadable", decision, execution };
         return {
           status: "done",
           plan: payload.captain_plan as CaptainPlanResult,
           source: typeof payload.source === "string" ? payload.source : "openclaw",
+          decision,
+          execution,
         };
       }
       if (payload.status === "failed") {
-        return { status: "failed", reason: typeof payload.reason === "string" ? payload.reason : "captain_failed" };
+        return { status: "failed", reason: typeof payload.reason === "string" ? payload.reason : "captain_failed", decision, execution };
       }
-      if (payload.status === "pending" || payload.status === "in_progress" || payload.status === "expired") {
-        return { status: payload.status };
+      if (["pending", "in_progress", "expired", "approved", "rejected", "executing", "executed", "execution_failed"].includes(payload.status)) {
+        return { status: payload.status as "pending" | "in_progress" | "expired" | "approved" | "rejected" | "executing" | "executed" | "execution_failed", decision, execution };
       }
       return null;
     } catch {
       return null;
+    }
+  }
+
+  async captainPlanDecide(
+    projectId: string,
+    requestId: string,
+    decision: "approved" | "rejected",
+    comment?: string | null,
+  ): Promise<
+    | { ok: true; decision: string; alreadyDecided: boolean; decidedByEmail: string | null; decidedAt: string | null; reason?: string; planStatus?: string }
+    | { ok: false; summary: string }
+  > {
+    if (!this.available()) return { ok: false, summary: "I can't reach the decision service from here." };
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke("agent-reason", {
+        body: {
+          projectId,
+          mode: decision === "approved" ? "captain_plan_approve" : "captain_plan_reject",
+          requestId,
+          ...(comment ? { comment } : {}),
+        },
+      });
+      if (error) return { ok: false, summary: "I couldn't reach the decision service just now." };
+      const payload = data as
+        | { ok?: boolean; decision?: unknown; alreadyDecided?: unknown; decidedByEmail?: unknown; decidedAt?: unknown; reason?: unknown; planStatus?: unknown; summary?: unknown }
+        | null;
+      if (!payload?.ok || typeof payload.decision !== "string") {
+        return { ok: false, summary: typeof payload?.summary === "string" ? payload.summary : "That decision didn't go through." };
+      }
+      return {
+        ok: true,
+        decision: payload.decision,
+        alreadyDecided: payload.alreadyDecided === true,
+        decidedByEmail: typeof payload.decidedByEmail === "string" ? payload.decidedByEmail : null,
+        decidedAt: typeof payload.decidedAt === "string" ? payload.decidedAt : null,
+        ...(typeof payload.reason === "string" ? { reason: payload.reason } : {}),
+        ...(typeof payload.planStatus === "string" ? { planStatus: payload.planStatus } : {}),
+      };
+    } catch {
+      return { ok: false, summary: "I couldn't reach the decision service just now." };
     }
   }
 
