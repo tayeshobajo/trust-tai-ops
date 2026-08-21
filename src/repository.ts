@@ -361,6 +361,64 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     return nextWorkspace;
   }
 
+  async promoteQueuedRun(projectId: string, runId: string): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    const project = getProjectById(workspace, projectId);
+    if (!project) return workspace;
+
+    const target = project.runs.find((run) => run.id === runId);
+    if (!target || !isQueuedRun(target)) return workspace;
+
+    const live = getActiveRun(project);
+    const parkLive = live && live.state !== "complete";
+
+    return this.writeRuns(projectId, project.runs.map((run) => {
+      if (run.id === target.id) return { ...run, queuePosition: null };
+      if (parkLive && live && run.id === live.id) return { ...run, queuePosition: -1 };
+      return run;
+    }));
+  }
+
+  async moveQueuedRun(projectId: string, runId: string, direction: "up" | "down"): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    const project = getProjectById(workspace, projectId);
+    if (!project) return workspace;
+
+    const queue = getQueuedRuns(project);
+    const index = queue.findIndex((run) => run.id === runId);
+    const swapWith = direction === "up" ? index - 1 : index + 1;
+    if (index === -1 || swapWith < 0 || swapWith >= queue.length) return workspace;
+
+    const reordered = queue.slice();
+    [reordered[index], reordered[swapWith]] = [reordered[swapWith], reordered[index]];
+    const positions = new Map(reordered.map((run, order) => [run.id, order]));
+
+    return this.writeRuns(projectId, project.runs.map((run) =>
+      positions.has(run.id) ? { ...run, queuePosition: positions.get(run.id) ?? null } : run,
+    ));
+  }
+
+  async cancelQueuedRun(projectId: string, runId: string): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    const project = getProjectById(workspace, projectId);
+    if (!project) return workspace;
+
+    return this.writeRuns(projectId, project.runs.filter((run) => run.id !== runId || !isQueuedRun(run)));
+  }
+
+  private async writeRuns(projectId: string, runs: Run[]): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    const next: Organization = {
+      ...workspace,
+      projects: workspace.projects.map((candidate) =>
+        candidate.id === projectId ? { ...candidate, runs } : candidate,
+      ),
+    };
+    await this.saveWorkspace(next);
+    return next;
+  }
+
+
   async createProject(draft: ProjectDraft): Promise<Organization> {
     const workspace = await this.loadWorkspace();
     const newProject = createProjectFromDraft(draft);
