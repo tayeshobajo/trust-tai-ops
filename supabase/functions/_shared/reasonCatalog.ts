@@ -31,7 +31,12 @@ export type ReasonStepId =
   | "wp-cli-user-roles"
   | "wp-cli-db-size"
   | "wp-cli-debug-log-setting"
-  | "read-error-log";
+  | "read-error-log"
+  | "seo-pagespeed"
+  | "seo-schema-validate"
+  | "seo-sitemap-audit"
+  | "seo-search-console"
+  | "security-headers";
 
 export type ReasonStepSpec = {
   id: ReasonStepId;
@@ -203,6 +208,41 @@ export const REASON_STEPS: Record<ReasonStepId, ReasonStepSpec> = {
     serverResolvedTarget: true,
     commandId: "config.get_debug_log",
     purpose: "Check whether error logging is switched on before looking for a log.",
+  },
+  "seo-pagespeed": {
+    id: "seo-pagespeed",
+    toolId: "seo.pagespeed",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    purpose: "Run a full PageSpeed Insights audit — Core Web Vitals, Lighthouse scores, and top performance/SEO opportunities for mobile and desktop.",
+  },
+  "seo-schema-validate": {
+    id: "seo-schema-validate",
+    toolId: "seo.schema_validate",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    purpose: "Extract and validate all JSON-LD structured data on the page — confirms schema types, missing required fields, and AI-visibility gaps.",
+  },
+  "seo-sitemap-audit": {
+    id: "seo-sitemap-audit",
+    toolId: "seo.sitemap_audit",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    purpose: "Fetch and parse the full sitemap tree — every listed URL, lastmod dates, child sitemaps, and thin or malformed sitemap flags.",
+  },
+  "seo-search-console": {
+    id: "seo-search-console",
+    toolId: "seo.search_console",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    purpose: "Query Google Search Console for index coverage, crawl errors, impressions, clicks, and Core Web Vitals. Requires a GSC OAuth token in the project credentials.",
+  },
+  "security-headers": {
+    id: "security-headers",
+    toolId: "security.headers",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    purpose: "Inspect HTTP security headers — grades HSTS, CSP, X-Frame-Options, referrer policy, and permissions policy.",
   },
 };
 

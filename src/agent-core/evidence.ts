@@ -344,3 +344,181 @@ export const findingFromEvidence = (
   }
   return null;
 };
+
+// Findings for SEO + Security tools — called by findingFromEvidence below.
+const findingFromPageSpeed = (evidence: AgentEvidence) => {
+  const mobile = evidence.data.mobile as Record<string, unknown> | null;
+  const perf = mobile ? (mobile.performanceScore as number | null) : null;
+  if (perf !== null && perf < 50) {
+    return {
+      severity: "high" as const,
+      title: "Mobile performance score is critically low",
+      summary: safeSummary(`PageSpeed Insights scored mobile performance at ${perf}/100. Scores below 50 directly hurt search rankings and user experience.`),
+    };
+  }
+  if (perf !== null && perf < 70) {
+    return {
+      severity: "medium" as const,
+      title: "Mobile performance score needs improvement",
+      summary: safeSummary(`PageSpeed Insights scored mobile performance at ${perf}/100. Google uses Core Web Vitals as a ranking signal.`),
+    };
+  }
+  return null;
+};
+
+const findingFromSchemaValidation = (evidence: AgentEvidence) => {
+  const count = num(evidence.data.blockCount) ?? 0;
+  const issues = Array.isArray(evidence.data.issues) ? evidence.data.issues as string[] : [];
+  if (count === 0) {
+    return {
+      severity: "high" as const,
+      title: "No structured data found on the page",
+      summary: safeSummary("The page has no JSON-LD structured data. AI platforms and search engines rely on schema markup to understand, cite, and feature businesses in AI-generated answers."),
+    };
+  }
+  if (issues.length >= 2) {
+    return {
+      severity: "medium" as const,
+      title: "Structured data has multiple issues",
+      summary: safeSummary(`Found ${issues.length} schema issues: ${issues.slice(0, 2).join("; ")}.`),
+    };
+  }
+  return null;
+};
+
+const findingFromSitemapAudit = (evidence: AgentEvidence) => {
+  const total = num(evidence.data.totalUrls) ?? 0;
+  if (total === 0) {
+    return {
+      severity: "high" as const,
+      title: "Sitemap exists but contains no URLs",
+      summary: safeSummary("The sitemap is empty. Search engines and AI crawlers use the sitemap to discover content. An empty sitemap means pages won't be found."),
+    };
+  }
+  if (total <= 5) {
+    return {
+      severity: "medium" as const,
+      title: "Sitemap is very thin",
+      summary: safeSummary(`Only ${total} URL(s) are in the sitemap. For a site that has been through SEO optimization, this suggests pages may have been created but not added to the sitemap.`),
+    };
+  }
+  return null;
+};
+
+const findingFromSecurityHeaders = (evidence: AgentEvidence) => {
+  const grade = str(evidence.data.grade);
+  const fails = num(evidence.data.fails) ?? 0;
+  if (grade === "D" || fails > 0) {
+    return {
+      severity: "medium" as const,
+      title: "Critical security headers are missing",
+      summary: safeSummary(`Security header grade: ${grade ?? "?"} with ${fails} critical failure(s). Missing headers can affect site trust signals and SEO.`),
+    };
+  }
+  return null;
+};
+
+// Patch findingFromEvidence to cover new tool ids.
+const _originalFindingFromEvidence = findingFromEvidence;
+/** @internal — overrides the export below with SEO tool support. */
+export const findingFromEvidenceExtended = (evidence: AgentEvidence) => {
+  switch (evidence.toolId) {
+    case "seo.pagespeed": return findingFromPageSpeed(evidence);
+    case "seo.schema_validate": return findingFromSchemaValidation(evidence);
+    case "seo.sitemap_audit": return findingFromSitemapAudit(evidence);
+    case "security.headers": return findingFromSecurityHeaders(evidence);
+    default: return _originalFindingFromEvidence(evidence);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// SEO + Security tool evidence summarizers
+// ---------------------------------------------------------------------------
+
+export const describePageSpeed = (evidence: AgentEvidence): string[] => {
+  const lines: string[] = [];
+  const mobile = evidence.data.mobile as Record<string, unknown> | null;
+  const desktop = evidence.data.desktop as Record<string, unknown> | null;
+  if (!mobile && !desktop) return ["PageSpeed Insights returned no data."];
+
+  for (const [label, res] of [["Mobile", mobile], ["Desktop", desktop]] as const) {
+    if (!res || res.error) { lines.push(`${label}: unavailable.`); continue; }
+    const perf = res.performanceScore as number | null;
+    const seoScore = res.seoScore as number | null;
+    const cwv = res.cwv as Record<string, string> | null;
+    lines.push(`${label} — Performance: ${perf ?? "n/a"}/100, SEO: ${seoScore ?? "n/a"}/100.`);
+    if (cwv) {
+      const parts = [
+        cwv.lcp ? `LCP ${cwv.lcp}` : null,
+        cwv.cls ? `CLS ${cwv.cls}` : null,
+        cwv.fcp ? `FCP ${cwv.fcp}` : null,
+        cwv.tbt ? `TBT ${cwv.tbt}` : null,
+      ].filter(Boolean);
+      if (parts.length) lines.push(`  Core Web Vitals: ${parts.join(", ")}.`);
+    }
+    const opps = res.opportunities as Array<Record<string, unknown>> | null;
+    if (opps && opps.length > 0) {
+      lines.push(`  Top opportunities: ${opps.map((o) => String(o.title ?? "")).filter(Boolean).join("; ")}.`);
+    }
+  }
+  return lines;
+};
+
+export const describeSchemaValidation = (evidence: AgentEvidence): string[] => {
+  const lines: string[] = [];
+  const count = num(evidence.data.blockCount) ?? 0;
+  const typesFound = Array.isArray(evidence.data.typesFound) ? evidence.data.typesFound as string[] : [];
+  const issues = Array.isArray(evidence.data.issues) ? evidence.data.issues as string[] : [];
+  const missing = Array.isArray(evidence.data.highValueMissing) ? evidence.data.highValueMissing as string[] : [];
+
+  if (count === 0) {
+    lines.push("No structured data (JSON-LD) found on the page. This is a significant AI visibility gap — search engines and AI platforms rely on schema to understand and cite the business.");
+  } else {
+    lines.push(`Found ${count} JSON-LD schema block(s): ${typesFound.join(", ") || "types undetected"}.`);
+  }
+  if (issues.length > 0) lines.push(`Schema issues: ${issues.join("; ")}.`);
+  if (missing.length > 0 && missing.length <= 5) lines.push(`Missing high-value schema types: ${missing.join(", ")}.`);
+  return lines;
+};
+
+export const describeSitemapAudit = (evidence: AgentEvidence): string[] => {
+  const lines: string[] = [];
+  const total = num(evidence.data.totalUrls) ?? 0;
+  const recent = num(evidence.data.recentlyUpdated) ?? 0;
+  const issues = Array.isArray(evidence.data.issues) ? evidence.data.issues as string[] : [];
+  const sitemapUrl = str(evidence.data.sitemapUrl);
+
+  lines.push(`Sitemap: ${total} URL(s) found${sitemapUrl ? ` at ${sitemapUrl}` : ""}. ${recent} updated in last 60 days.`);
+  if (issues.length > 0) lines.push(`Issues: ${issues.join("; ")}.`);
+  return lines;
+};
+
+export const describeSearchConsole = (evidence: AgentEvidence): string[] => {
+  const lines: string[] = [];
+  const indexStatus = str(evidence.data.indexStatus);
+  const last90 = evidence.data.last90Days as Record<string, unknown> | null;
+
+  if (indexStatus) lines.push(`Index status: ${indexStatus}.`);
+  if (last90) {
+    const clicks = num(last90.clicks) ?? 0;
+    const impressions = num(last90.impressions) ?? 0;
+    lines.push(`Last 90 days: ${clicks} clicks, ${impressions} impressions.`);
+  }
+  return lines;
+};
+
+export const describeSecurityHeaders = (evidence: AgentEvidence): string[] => {
+  const lines: string[] = [];
+  const grade = str(evidence.data.grade) ?? "?";
+  const passes = num(evidence.data.passes) ?? 0;
+  const warns = num(evidence.data.warns) ?? 0;
+  const fails = num(evidence.data.fails) ?? 0;
+  const checks = Array.isArray(evidence.data.checks)
+    ? (evidence.data.checks as Array<Record<string, unknown>>)
+    : [];
+
+  lines.push(`Security headers: Grade ${grade} — ${passes} pass, ${warns} warn, ${fails} fail.`);
+  const failedChecks = checks.filter((c) => c.grade === "fail").map((c) => String(c.note ?? c.header));
+  if (failedChecks.length > 0) lines.push(`Critical missing: ${failedChecks.join("; ")}.`);
+  return lines;
+};

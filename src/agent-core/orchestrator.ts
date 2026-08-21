@@ -17,7 +17,12 @@ import {
   describePublicSurface,
   describeSiteInspection,
   describeSeoSurface,
-  findingFromEvidence,
+  describePageSpeed,
+  describeSchemaValidation,
+  describeSitemapAudit,
+  describeSearchConsole,
+  describeSecurityHeaders,
+  findingFromEvidenceExtended as findingFromEvidence,
 } from "./evidence";
 import { evaluateAction } from "./policy";
 import { getTool } from "./registry";
@@ -229,6 +234,16 @@ const describe = (evidence: AgentEvidence): string[] => {
       return describeErrorLog(evidence);
     case "browser.inspect_page_readonly":
       return describePageInspection(evidence);
+    case "seo.pagespeed":
+      return describePageSpeed(evidence);
+    case "seo.schema_validate":
+      return describeSchemaValidation(evidence);
+    case "seo.sitemap_audit":
+      return describeSitemapAudit(evidence);
+    case "seo.search_console":
+      return describeSearchConsole(evidence);
+    case "security.headers":
+      return describeSecurityHeaders(evidence);
     default:
       return [evidence.summary];
   }

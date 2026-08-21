@@ -60,6 +60,11 @@ check(
     JSON.stringify([
       "browser.inspect_page_readonly",
       "public_http.inspect_site",
+      "security.headers",
+      "seo.pagespeed",
+      "seo.schema_validate",
+      "seo.search_console",
+      "seo.sitemap_audit",
       "wordpress.inspect_public_surface",
       "wordpress.list_plugins",
       "wordpress.read_error_log",

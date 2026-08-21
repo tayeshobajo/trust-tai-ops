@@ -35,6 +35,7 @@ import { buildWpCliWriteCommand } from "../_shared/wpCliWriteCatalog.ts";
 import { denoSftpTransport, denoSshTransport } from "../_shared/sshTransport.ts";
 import { readWordPressErrorLog } from "../_shared/errorLog.ts";
 import { isBrowserViewport, runBrowserInspection, sanitizeElementQuery } from "../_shared/browserInspect.ts";
+import { runPageSpeed, runSchemaValidate, runSitemapAudit, runSearchConsole, runSecurityHeaders } from "../_shared/seoTools.ts";
 
 const fail = (code: string, summary: string, retryable: boolean) =>
   Response.json({ ok: false, code, summary, retryable }, { headers: corsHeaders });
@@ -1107,6 +1108,43 @@ Deno.serve(async (req) => {
       return await purgeCache(wpProjectId, canonicalUrl, authorizedProjectId);
     case "wordpress.wpcode_snippet":
       return await wpCodeSnippet(wpProjectId, args, canonicalUrl, authorizedProjectId);
+    case "seo.pagespeed": {
+      const psiUrl = canonicalUrl ?? clientUrl;
+      if (!psiUrl) return fail("invalid_input", "That request was missing the page address.", false);
+      const psiResult = await runPageSpeed(psiUrl);
+      if (!psiResult.ok) return fail(psiResult.code, psiResult.summary, psiResult.retryable);
+      return Response.json({ ok: true, summary: psiResult.summary, data: psiResult.data }, { headers: corsHeaders });
+    }
+    case "seo.schema_validate": {
+      const schemaUrl = canonicalUrl ?? clientUrl;
+      if (!schemaUrl) return fail("invalid_input", "That request was missing the page address.", false);
+      const schemaResult = await runSchemaValidate(schemaUrl);
+      if (!schemaResult.ok) return fail(schemaResult.code, schemaResult.summary, schemaResult.retryable);
+      return Response.json({ ok: true, summary: schemaResult.summary, data: schemaResult.data }, { headers: corsHeaders });
+    }
+    case "seo.sitemap_audit": {
+      const sitemapUrl = canonicalUrl ?? clientUrl;
+      if (!sitemapUrl) return fail("invalid_input", "That request was missing the site address.", false);
+      const sitemapResult = await runSitemapAudit(sitemapUrl);
+      if (!sitemapResult.ok) return fail(sitemapResult.code, sitemapResult.summary, sitemapResult.retryable);
+      return Response.json({ ok: true, summary: sitemapResult.summary, data: sitemapResult.data }, { headers: corsHeaders });
+    }
+    case "seo.search_console": {
+      const gscUrl = canonicalUrl ?? clientUrl;
+      if (!gscUrl) return fail("invalid_input", "That request was missing the site address.", false);
+      // GSC token resolved from the project's stored credentials (optional — tool reports honestly if absent).
+      const gscToken = await resolveRawSecret(secretStoreDeps(), wpProjectId, "gsc_oauth_token").catch(() => null);
+      const gscResult = await runSearchConsole(gscUrl, gscToken);
+      if (!gscResult.ok) return fail(gscResult.code, gscResult.summary, gscResult.retryable);
+      return Response.json({ ok: true, summary: gscResult.summary, data: gscResult.data }, { headers: corsHeaders });
+    }
+    case "security.headers": {
+      const headersUrl = canonicalUrl ?? clientUrl;
+      if (!headersUrl) return fail("invalid_input", "That request was missing the page address.", false);
+      const headersResult = await runSecurityHeaders(headersUrl);
+      if (!headersResult.ok) return fail(headersResult.code, headersResult.summary, headersResult.retryable);
+      return Response.json({ ok: true, summary: headersResult.summary, data: headersResult.data }, { headers: corsHeaders });
+    }
     default:
       return fail("not_implemented", "That capability is not enabled yet.", false);
   }

@@ -53,6 +53,36 @@ export const REASON_STEPS: Record<string, ReasonStepSpec> = {
     viewport: "desktop",
     purpose: "Load the page in a real browser and find the page elements named in the task (buttons, links, text) — returns the actual HTML of matching elements. Use this FIRST whenever the task names specific page elements.",
   },
+  "seo-pagespeed": {
+    toolId: "seo.pagespeed",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    purpose: "Run a full PageSpeed Insights audit — Core Web Vitals, Lighthouse scores, and top performance/SEO opportunities for both mobile and desktop.",
+  },
+  "seo-schema-validate": {
+    toolId: "seo.schema_validate",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    purpose: "Extract and validate all JSON-LD structured data on the page — confirms schema types present, detects missing required fields, and flags AI-visibility gaps like missing LocalBusiness or FAQPage schema.",
+  },
+  "seo-sitemap-audit": {
+    toolId: "seo.sitemap_audit",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    purpose: "Fetch and parse the full sitemap tree — returns every listed URL, lastmod dates, child sitemaps, and flags thin or malformed sitemaps that limit crawlability.",
+  },
+  "seo-search-console": {
+    toolId: "seo.search_console",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    purpose: "Query Google Search Console for index coverage, crawl errors, impressions, clicks, and Core Web Vitals. Requires a GSC OAuth token stored in the project's credentials.",
+  },
+  "security-headers": {
+    toolId: "security.headers",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    purpose: "Inspect HTTP security headers — grades HSTS, CSP, X-Frame-Options, referrer policy, and permissions policy. Flags missing headers that affect trust and SEO signals.",
+  },
   "inspect-wp-public": {
     toolId: "wordpress.inspect_public_surface",
     capability: "public_internet",
