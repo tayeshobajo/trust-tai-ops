@@ -26,6 +26,7 @@ export type StepVerification = {
  */
 const EXPECTED_SIGNAL: Record<ToolId, string[]> = {
   "public_http.inspect_site": ["status", "statusCode", "reachable"],
+  "public_http.inspect_seo_surface": ["status", "title", "sitemapUrlCount", "robotsTxtPresent"],
   "browser.inspect_page_readonly": ["status", "timing", "metrics", "consoleErrors"],
   "wordpress.inspect_public_surface": ["wordpressDetected", "generator", "restApiAvailable"],
   "wordpress.list_plugins": ["plugins"],
