@@ -324,6 +324,50 @@ const titleFromBrief = (brief: string) => {
   return clipped || "New task";
 };
 
+/**
+ * Does this message start a second piece of work, or does it belong to the
+ * task already underway?
+ *
+ * The agent runs one task at a time. When someone pastes a fresh brief in the
+ * middle of something else, that brief becomes a queued task rather than
+ * derailing the live one. The test is deliberately conservative: anything that
+ * reads like an answer, a correction, or a short aside stays in the thread.
+ */
+export const looksLikeNewTaskBrief = (message: string): boolean => {
+  const text = message.trim();
+  if (text.length < 60) return false;
+
+  const lower = text.toLowerCase();
+
+  // Replies, answers and asides continue the current task.
+  if (/^(yes|no|ok|okay|sure|thanks|thank you|correct|that's right|go ahead|do it|continue|proceed|wait|stop|hold on)\b/.test(lower)) {
+    return false;
+  }
+  if (/^(here|here's|here is|attached|the password|the login|it's|its|i mean|actually|sorry)\b/.test(lower)) {
+    return false;
+  }
+  // Quoted replies are always about the thing being quoted.
+  if (text.startsWith(">")) return false;
+  if (/\b(that|this|it|the above|your last|you said|earlier)\b/.test(lower.slice(0, 40)) && text.length < 200) {
+    return false;
+  }
+
+  const briefSignals = [
+    /\bnew task\b/,
+    /\bseparate (task|piece of work|job)\b/,
+    /\bnext,? (i|we|can you|could you)\b/,
+    /\balso,? (i|we) (want|need|would like)\b/,
+    /\b(i|we) (want|need|would like) (you )?to\b/,
+    /\bcan you (also )?(look at|fix|build|set up|improve|audit|review)\b/,
+    /\bplease (fix|build|set up|improve|audit|review|migrate|optimi[sz]e)\b/,
+    /\b(brief|scope|objective|deliverable|requirement)s?\b/,
+  ];
+
+  const structured = text.split("\n").filter((line) => line.trim().length > 0).length >= 4;
+
+  return structured || briefSignals.some((pattern) => pattern.test(lower));
+};
+
 export const draftFromBrief = (project: Project, brief: string): RunDraft => {
   const primaryEnvironment =
     project.environments.find((environment) => environment.type === "production") ?? project.environments[0];
