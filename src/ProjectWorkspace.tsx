@@ -2634,6 +2634,46 @@ export function ProjectWorkspace({
               Drop images or files anywhere here and I&apos;ll read what I can.
             </p>
           ) : null}
+          {taskOffer ? (
+            <div className="pw-task-offer" role="group" aria-label="Open as a task">
+              <span className="pw-task-offer-text">Open that as a task and start work?</span>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={busy}
+                onClick={async () => {
+                  const brief = taskOffer;
+                  setTaskOffer(null);
+                  setBusy(true);
+                  try {
+                    const next = await workspaceRepository.createRun(project.id, draftFromBrief(project, brief));
+                    onWorkspaceUpdate(next);
+                    const created = next.projects.find((item) => item.id === project.id)?.runs[0];
+                    setActiveRunId(created?.id ?? null);
+                    if (created) {
+                      await emit({
+                        runId: created.id,
+                        role: "user",
+                        kind: "message",
+                        body: [brief],
+                        dedupeKey: `${created.id}-brief`,
+                        sourceKey: `${created.id}-brief`,
+                      });
+                    }
+                  } catch {
+                    setPersistError("I couldn't start that task. Try again.");
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Yes, start it
+              </button>
+              <button type="button" className="ghost-button" onClick={() => setTaskOffer(null)}>
+                No, just talking
+              </button>
+            </div>
+          ) : null}
           {replyTo ? (
             <div className="pw-reply-chip">
               <span className="pw-reply-who">Replying to {replyTo.who}</span>
