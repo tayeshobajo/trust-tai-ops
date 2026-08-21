@@ -4,6 +4,8 @@ import type { AgentEvidence } from "./agent-core/types";
 import type { AccessType, MessageKind, NewProjectMessage, Organization, Project, ProjectMessage, Run, RunDraft } from "./types";
 import { buildThread, draftFromBrief } from "./conversation";
 import { MarkdownBody } from "./markdown";
+import { markdownFromClipboard } from "./richPaste";
+
 import type { DecisionKind, ThreadCard, ThreadDiff, ThreadMessage } from "./conversation";
 import { constraintAlreadyStored, detectConstraints } from "./agent-core/constraints";
 import {
@@ -365,6 +367,26 @@ export function ProjectWorkspace({
   const [captainBusy, setCaptainBusy] = useState(false);
   const [captainError, setCaptainError] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Writes text at the caret (replacing any selection) and leaves the caret
+  // after it, exactly as a native paste would.
+  const insertIntoComposer = useCallback((text: string) => {
+    const node = composerRef.current;
+    setComposerValue((current) => {
+      const start = node?.selectionStart ?? current.length;
+      const end = node?.selectionEnd ?? current.length;
+      const next = `${current.slice(0, start)}${text}${current.slice(end)}`;
+      const caret = start + text.length;
+      window.requestAnimationFrame(() => {
+        if (!node) return;
+        node.focus();
+        node.setSelectionRange(caret, caret);
+      });
+      return next;
+    });
+  }, []);
+
+
 
   // The composer grows with what is being written, up to a calm ceiling, then
   // scrolls. It never leaves an oversized empty box behind after sending.
@@ -2498,14 +2520,23 @@ export function ProjectWorkspace({
               }
             }}
             onPaste={(event) => {
-              // Only intercept when the clipboard actually carries an image;
-              // ordinary text paste must behave exactly as it always did.
-              if (!evidenceIntakeAvailable()) return;
-              const images = imageFilesFromClipboard(event.clipboardData);
-              if (images.length === 0) return;
+              // Images become attachments.
+              if (evidenceIntakeAvailable()) {
+                const images = imageFilesFromClipboard(event.clipboardData);
+                if (images.length > 0) {
+                  event.preventDefault();
+                  queueFiles(images);
+                  return;
+                }
+              }
+              // Rich text (Google Docs, Notion, email) keeps its links and
+              // emphasis by arriving as Markdown, which the thread renders.
+              const markdown = markdownFromClipboard(event.clipboardData);
+              if (!markdown) return;
               event.preventDefault();
-              queueFiles(images);
+              insertIntoComposer(markdown);
             }}
+
           />
           {pendingFiles.length > 0 ? (
             <ul className="pw-pending-files">
