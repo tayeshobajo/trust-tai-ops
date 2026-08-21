@@ -7557,6 +7557,70 @@ p, li {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--tt-royal) 16%, transparent);
 }
 
+.pw-phase-step.is-working .pw-phase-dot {
+  animation: pw-phase-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pw-phase-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--tt-royal) 14%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--tt-royal) 8%, transparent); }
+}
+
+.pw-phase-state {
+  margin-left: 6px;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--tt-royal) 78%, var(--tt-ink));
+}
+
+.pw-phase-caption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  font-size: 0.74rem;
+  color: var(--tt-muted);
+}
+
+.pw-phase-spinner {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  border-radius: var(--tt-radius-pill);
+  border: 1.5px solid color-mix(in srgb, var(--tt-royal) 25%, transparent);
+  border-top-color: var(--tt-royal);
+  animation: pw-phase-spin 0.8s linear infinite;
+}
+
+@keyframes pw-phase-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Timestamp on grouped follow-on lines, kept quiet until hovered. */
+.pw-msg-time-grouped {
+  display: block;
+  font-size: 0.66rem;
+  color: color-mix(in srgb, var(--tt-muted) 70%, transparent);
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+  opacity: 0.55;
+  transition: opacity 120ms ease;
+}
+
+.pw-msg:hover .pw-msg-time-grouped {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pw-phase-spinner,
+  .pw-phase-step.is-working .pw-phase-dot {
+    animation: none;
+  }
+}
+
+
 /* Right-rail checklist reads the same language. */
 .pw-phases .pw-phase {
   display: flex;

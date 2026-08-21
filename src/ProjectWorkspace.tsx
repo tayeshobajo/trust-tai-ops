@@ -209,22 +209,61 @@ const UserAvatar = ({ muted = false }: { muted?: boolean }) => (
   </span>
 );
 
-const PhaseStrip = ({ phase }: { phase: string | null }) => {
+/** Plain-English explanation of what each phase actually means. */
+const PHASE_MEANING: Record<string, { doing: string; done: string }> = {
+  Understanding: { doing: "Reading the brief and the project history", done: "Brief understood" },
+  Investigating: { doing: "Looking through the site to find the cause", done: "Investigation done" },
+  Resolving: { doing: "Applying the fix", done: "Fix applied" },
+  Checking: { doing: "Running the final checks", done: "Checks run" },
+  Completed: { doing: "Writing up the result", done: "Completed" },
+};
+
+const PhaseStrip = ({
+  phase,
+  working = false,
+  detail,
+}: {
+  phase: string | null;
+  working?: boolean;
+  detail?: string | null;
+}) => {
   const currentIndex = phase ? HUMAN_PHASES.indexOf(phase as (typeof HUMAN_PHASES)[number]) : -1;
+  const current = currentIndex >= 0 ? HUMAN_PHASES[currentIndex] : null;
+  const caption =
+    detail?.trim() ||
+    (current ? (working ? PHASE_MEANING[current].doing : PHASE_MEANING[current].done) : null);
+
   return (
-    <ol className="pw-phase-strip" aria-label="Task progress">
-      {HUMAN_PHASES.map((item, index) => {
-        const state = index < currentIndex ? "done" : index === currentIndex ? "now" : "next";
-        return (
-          <li key={item} className={`pw-phase-step is-${state}`}>
-            <span className="pw-phase-dot" aria-hidden="true" />
-            {item}
-          </li>
-        );
-      })}
-    </ol>
+    <div className={working ? "pw-phase-block is-working" : "pw-phase-block"}>
+      <ol className="pw-phase-strip" aria-label="Task progress">
+        {HUMAN_PHASES.map((item, index) => {
+          const state = index < currentIndex ? "done" : index === currentIndex ? "now" : "next";
+          return (
+            <li
+              key={item}
+              className={`pw-phase-step is-${state}${state === "now" && working ? " is-working" : ""}`}
+              aria-current={state === "now" ? "step" : undefined}
+              title={state === "done" ? PHASE_MEANING[item].done : PHASE_MEANING[item].doing}
+            >
+              <span className="pw-phase-dot" aria-hidden="true" />
+              {item}
+              {state === "now" ? (
+                <span className="pw-phase-state">{working ? "in progress" : "waiting on you"}</span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+      {caption ? (
+        <p className="pw-phase-caption" aria-live="polite">
+          {working ? <span className="pw-phase-spinner" aria-hidden="true" /> : null}
+          {caption}
+        </p>
+      ) : null}
+    </div>
   );
 };
+
 
 /** A calm "agent is working" cue that replaces the silent disabled send state. */
 const TypingIndicator = ({ label }: { label: string }) => (
@@ -1994,9 +2033,22 @@ export function ProjectWorkspace({
                       ) : (
                         "You"
                       )}
-                      {message.createdAt ? <time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time> : null}
+                      {message.createdAt ? (
+                        <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>
+                          {timeLabel(message.createdAt)}
+                        </time>
+                      ) : null}
                     </span>
+                  ) : message.createdAt ? (
+                    <time
+                      className="pw-msg-time-grouped"
+                      dateTime={message.createdAt}
+                      title={new Date(message.createdAt).toLocaleString()}
+                    >
+                      {timeLabel(message.createdAt)}
+                    </time>
                   ) : null}
+
                   {message.kind === "fix_plan" ? (() => {
                     // Parse the structured fix-plan body:
                     // [0] header, [1] rationale, [2..N-2] numbered steps, [N-1] risk line, [N] approval prompt
@@ -2078,7 +2130,14 @@ export function ProjectWorkspace({
                     </ul>
                   ) : null}
                   {activeRun && message.decision ? renderDecision(activeRun, message.decision) : null}
-                  {isLastAgentTurn && signal ? <PhaseStrip phase={signal.phase ?? null} /> : null}
+                  {isLastAgentTurn && signal ? (
+                    <PhaseStrip
+                      phase={signal.phase ?? null}
+                      working={busy || agentBusy}
+                      detail={signal.detail ?? null}
+                    />
+                  ) : null}
+
                   <div className="pw-msg-actions">
                     <button
                       type="button"
