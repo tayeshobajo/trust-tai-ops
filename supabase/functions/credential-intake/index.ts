@@ -658,6 +658,16 @@ Deno.serve(async (req) => {
       verifiedAt,
     );
     await audit("ftp", "ftp_password", verification === "verified" ? "verified" : "stored", { verification });
+    await rememberAccess(
+      "ftp",
+      [
+        ["Host:", destination.host],
+        ["Port:", destination.port],
+        ["User:", user.username],
+        ["Transport:", check.ok && check.security === "ftps" ? "FTPS" : "FTP"],
+      ],
+      verification,
+    );
 
     stored.push({
       accessType: "ftp",
