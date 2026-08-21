@@ -698,29 +698,32 @@ export const parseCredentialText = (rawInput: string): ParsedIntake => {
 // Sanitized rendering
 // ---------------------------------------------------------------------------
 
-export const accessLabel = (type: IntakeAccessType): string =>
-  type === "wordpress_admin"
-    ? "WordPress Admin"
-    : type === "ssh"
-      ? "SSH"
-      : type === "sftp"
-        ? "SFTP"
-        : type === "google_search_console"
-          ? "Google Search Console"
-          : "FTP";
+const ACCESS_LABELS: Record<IntakeAccessType, string> = {
+  wordpress_admin: "WordPress Admin",
+  ssh: "SSH",
+  sftp: "SFTP",
+  ftp: "FTP",
+  google_search_console: "Google Search Console",
+  hosting_portal: "Hosting control panel",
+  database: "Database",
+  cdn: "Cloudflare / CDN",
+};
 
-export const providerLabel = (provider: CredentialProvider): string =>
-  provider === "wordpress_application_password"
-    ? "Application Password"
-    : provider === "wordpress_login_password"
-      ? "normal login password"
-      : provider === "ssh_private_key"
-        ? "private key"
-        : provider === "sftp_password"
-          ? "password"
-          : provider === "google_service_account"
-            ? "service account key"
-            : "password";
+export const accessLabel = (type: IntakeAccessType): string => ACCESS_LABELS[type] ?? "Access";
+
+const PROVIDER_LABELS: Record<CredentialProvider, string> = {
+  wordpress_application_password: "Application Password",
+  wordpress_login_password: "normal login password",
+  ssh_private_key: "private key",
+  sftp_password: "password",
+  ftp_password: "password",
+  google_service_account: "service account key",
+  hosting_panel_password: "panel password",
+  database_password: "database password",
+  api_token: "API token",
+};
+
+export const providerLabel = (provider: CredentialProvider): string => PROVIDER_LABELS[provider] ?? "password";
 
 /**
  * The message that replaces the raw paste in the conversation. Intent and
