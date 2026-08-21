@@ -56,7 +56,7 @@ import {
 } from "./evidence";
 import type { QueuedFile, QueuedState } from "./evidence";
 import type { ProjectEvidence } from "./types";
-import { containsSecretMaterial } from "./agent-core/secretGuard";
+import { containsSecretMaterial, looksLikeAccessText } from "./agent-core/secretGuard";
 import { describeCredentialText } from "./agent-core/credentialPreview";
 import type { RunPlan } from "./agent-core/plan";
 import { credentialIntakeAvailable, submitCredentialText } from "./agent-core/credentialIntake";
@@ -463,7 +463,7 @@ export function ProjectWorkspace({
   // Presentation only: what the typed text looks like, with the secret masked.
   // Nothing here is stored, sent or logged — the secure intake still owns it.
   const credentialPreview = useMemo(
-    () => (containsSecretMaterial(composerValue) ? describeCredentialText(composerValue) : null),
+    () => (looksLikeAccessText(composerValue) ? describeCredentialText(composerValue) : null),
     [composerValue],
   );
 
@@ -1595,7 +1595,7 @@ export function ProjectWorkspace({
     // Credential-shaped text never becomes a stored message. It goes straight
     // to the authorized server intake, which parses, authorizes and seals it,
     // and returns a sanitized replacement for the conversation.
-    if (typed && containsSecretMaterial(typed)) {
+    if (typed && looksLikeAccessText(typed)) {
       await handleCredentialPaste(typed);
       return;
     }
