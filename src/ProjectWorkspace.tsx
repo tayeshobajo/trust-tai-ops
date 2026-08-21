@@ -112,25 +112,23 @@ type ViewItem = {
   decision?: DecisionKind;
 };
 
+/** The header chip reads from the same signal as the strip and the rail. */
+const PHASE_CHIP: Record<string, string> = {
+  Understanding: "Getting started",
+  Investigating: "Investigating",
+  Planning: "Working out a fix",
+  Resolving: "Applying fix",
+  Checking: "Running final checks",
+  Completed: "Ready",
+};
+
 const agentStateLabel = (run: Run | null) => {
   if (!run) return "Ready";
   const signal = signalForRun(run);
   if (signal.agentState === "needs_you") return "Waiting for you";
-  switch (run.state) {
-    case "execution":
-      return "Applying fix";
-    case "qa":
-      return "Running final checks";
-    case "recommendations":
-      return "Wrapping up";
-    case "intake":
-    case "access_check":
-      return "Getting started";
-    case "complete":
-      return "Ready";
-    default:
-      return "Investigating";
-  }
+  if (run.state === "complete") return "Ready";
+  if (run.state === "recommendations") return "Wrapping up";
+  return (signal.phase && PHASE_CHIP[signal.phase]) || "Investigating";
 };
 
 const agentStateTone = (run: Run | null) => {
