@@ -413,6 +413,16 @@ Deno.serve(async (req) => {
     await audit("wordpress_admin", bundle.provider, verification === "verified" ? "verified" : "stored", {
       verification,
     });
+    await rememberAccess(
+      "wordpress_admin",
+      [
+        ["User:", bundle.username],
+        ["Sign-in:", isAppPassword ? "application password" : "login password"],
+        ["Admin address:", bundle.adminUrl ?? bundle.siteUrl ?? ""],
+      ],
+      verification,
+    );
+
 
     stored.push({
       accessType: "wordpress_admin",
