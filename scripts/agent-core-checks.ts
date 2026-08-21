@@ -36,6 +36,7 @@ const { invocationKeyFor, planAction, toolIsUsable, TOOL_REGISTRY } = await impo
 const { deterministicReasoner, isValidPlan } = await import("../src/agent-core/reasoner.ts");
 const { setExecutionGateway } = await import("../src/agent-core/gateway.ts");
 const { runAgentTurn } = await import("../src/agent-core/orchestrator.ts");
+const { writeTargetFor } = await import("../src/agent-core/precondition.ts");
 const { createSeedWorkspace } = await import("../src/seed.ts");
 
 console.log("\nrisk classification");
@@ -59,6 +60,11 @@ check(
   ) ===
     JSON.stringify([
       "browser.inspect_page_readonly",
+      "filesystem.list",
+      "filesystem.read",
+      "filesystem.rename",
+      "filesystem.write",
+      "public_http.inspect_seo_surface",
       "public_http.inspect_site",
       "security.headers",
       "seo.pagespeed",
@@ -72,9 +78,18 @@ check(
       "wordpress.run_wp_cli_readonly",
     ]),
 );
+// File repair is deliberately implemented, because a site that is down cannot
+// be fixed through a read. Every mutating tool must still be change-class, so
+// the approval and read-before-write gates apply to it.
 check(
-  "no mutating tool has been implemented",
-  Object.values(TOOL_REGISTRY).every((tool) => !tool.implemented || tool.readOnly),
+  "every implemented mutating tool is change-class",
+  Object.values(TOOL_REGISTRY).every((tool) => !tool.implemented || tool.readOnly || tool.risk !== "read_only"),
+);
+check(
+  "file repair names a target the read-before-write gate can check",
+  ["filesystem.write", "filesystem.rename"].every(
+    (id) => writeTargetFor(id as never, { path: "wp-content/x.php", from: "wp-content/x", to: "wp-content/x.off" }) !== null,
+  ),
 );
 
 console.log("\nurl / SSRF validation");

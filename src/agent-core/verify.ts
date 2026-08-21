@@ -39,8 +39,10 @@ const EXPECTED_SIGNAL: Record<ToolId, string[]> = {
   "wordpress.read_error_log": ["lines", "entries", "logFound"],
   "wordpress.run_wp_cli_readonly": ["stdout", "rows", "output"],
   "wordpress.execute_wp_cli": ["stdout", "output"],
-  "filesystem.read": ["contents", "contentHash"],
-  "filesystem.write": ["written", "contentHash"],
+  "filesystem.list": ["entries"],
+  "filesystem.read": ["content", "bytesRead"],
+  "filesystem.rename": ["from", "to"],
+  "filesystem.write": ["bytesWritten", "path"],
   "database.query_readonly": ["rows", "contentHash"],
   "database.execute": ["rowsAffected"],
 };

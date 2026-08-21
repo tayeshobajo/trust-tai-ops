@@ -76,7 +76,8 @@ export type OrchestratorInput = {
 
 const ACCESS_LABELS: Record<AccessType, string> = {
   wordpress_admin: "WordPress admin",
-  sftp: "SFTP/FTP",
+  sftp: "SFTP",
+  ftp: "FTP/FTPS",
   ssh: "SSH",
   hosting_portal: "hosting",
   database: "database",

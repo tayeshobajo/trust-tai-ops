@@ -50,7 +50,7 @@ export const stackCopy: Record<ProjectStack, StackCopy> = {
       { key: "wordpress", label: "WordPress version", placeholder: "6.7.1" },
       { key: "php", label: "PHP version", placeholder: "8.2" },
     ],
-    accessTypes: ["wordpress_admin", "sftp", "ssh", "hosting_portal", "google_search_console"],
+    accessTypes: ["wordpress_admin", "sftp", "ftp", "ssh", "hosting_portal", "google_search_console"],
     adminQaDescription:
       "WordPress admin should remain reachable after any change touching plugins, auth, or configuration.",
   },
@@ -191,7 +191,8 @@ export const isDeployTask = (taskType: TaskType): boolean => taskType === "deplo
 /** Access labels for every type, including the deploy-era connections. */
 export const accessTypeLabels: Record<AccessType, string> = {
   wordpress_admin: "WordPress Admin",
-  sftp: "SFTP / FTP",
+  sftp: "SFTP",
+  ftp: "FTP / FTPS",
   ssh: "SSH Access",
   hosting_portal: "Hosting / Other",
   database: "Database",

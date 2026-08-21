@@ -32,6 +32,12 @@ export type ReasonStepId =
   | "wp-cli-db-size"
   | "wp-cli-debug-log-setting"
   | "read-error-log"
+  | "list-site-root"
+  | "list-plugins-dir"
+  | "list-mu-plugins-dir"
+  | "list-themes-dir"
+  | "read-debug-log"
+  | "read-wp-config"
   | "seo-pagespeed"
   | "seo-schema-validate"
   | "seo-sitemap-audit"
@@ -41,6 +47,10 @@ export type ReasonStepId =
 export type ReasonStepSpec = {
   id: ReasonStepId;
   toolId: string;
+  /** Fixed relative path, for file steps only. Never planner-authored. */
+  path?: string;
+  /** Which end of the file a read starts from, for file reads only. */
+  from?: "start" | "tail";
   /** Capability that must already be present before this step may be chosen. */
   capability: string;
   /** True when the tool resolves its own target server-side. */
@@ -209,6 +219,56 @@ export const REASON_STEPS: Record<ReasonStepId, ReasonStepSpec> = {
     commandId: "config.get_debug_log",
     purpose: "Check whether error logging is switched on before looking for a log.",
   },
+  "list-site-root": {
+    id: "list-site-root",
+    toolId: "filesystem.list",
+    capability: "sftp",
+    serverResolvedTarget: true,
+    path: "",
+    purpose: "List the files at the site root over the server file access — works even when WordPress itself is down.",
+  },
+  "list-plugins-dir": {
+    id: "list-plugins-dir",
+    toolId: "filesystem.list",
+    capability: "sftp",
+    serverResolvedTarget: true,
+    path: "wp-content/plugins",
+    purpose: "List the installed plugin folders directly on disk. Use this when the site is down and wp-admin cannot be reached.",
+  },
+  "list-mu-plugins-dir": {
+    id: "list-mu-plugins-dir",
+    toolId: "filesystem.list",
+    capability: "sftp",
+    serverResolvedTarget: true,
+    path: "wp-content/mu-plugins",
+    purpose: "List must-use plugins on disk — a common source of post-migration breakage.",
+  },
+  "list-themes-dir": {
+    id: "list-themes-dir",
+    toolId: "filesystem.list",
+    capability: "sftp",
+    serverResolvedTarget: true,
+    path: "wp-content/themes",
+    purpose: "List the installed themes on disk.",
+  },
+  "read-debug-log": {
+    id: "read-debug-log",
+    toolId: "filesystem.read",
+    capability: "sftp",
+    serverResolvedTarget: true,
+    path: "wp-content/debug.log",
+    from: "tail",
+    purpose: "Read the tail of WordPress's debug log straight off disk — the fastest route to a fatal error's file and line.",
+  },
+  "read-wp-config": {
+    id: "read-wp-config",
+    toolId: "filesystem.read",
+    capability: "sftp",
+    serverResolvedTarget: true,
+    path: "wp-config.php",
+    from: "start",
+    purpose: "Read wp-config.php to check debug settings and constants. Credential-shaped values are removed before you see it.",
+  },
   "seo-pagespeed": {
     id: "seo-pagespeed",
     toolId: "seo.pagespeed",
@@ -370,7 +430,10 @@ export type WriteStepId =
   | "deactivate-plugin"
   | "flush-rewrites"
   | "enable-maintenance"
-  | "disable-maintenance";
+  | "disable-maintenance"
+  | "disable-plugin-by-rename"
+  | "restore-renamed-path"
+  | "patch-file";
 
 export type WriteStepSpec = {
   id: WriteStepId;
@@ -385,6 +448,28 @@ export type WriteStepSpec = {
 };
 
 export const WRITE_STEPS: Record<WriteStepId, WriteStepSpec> = {
+  "disable-plugin-by-rename": {
+    id: "disable-plugin-by-rename",
+    toolId: "filesystem.rename",
+    purpose:
+      "Switch a plugin off by renaming its folder on disk (e.g. wp-content/plugins/wp-rocket to wp-content/plugins/wp-rocket.disabled). The only safe way to disable a plugin when the site is down and wp-admin cannot load. Fully reversible.",
+    requiresConfirmation: true,
+    requiresEvidence: true,
+  },
+  "restore-renamed-path": {
+    id: "restore-renamed-path",
+    toolId: "filesystem.rename",
+    purpose: "Put a renamed folder or file back to its original name, undoing a previous disable.",
+    requiresConfirmation: true,
+    requiresEvidence: true,
+  },
+  "patch-file": {
+    id: "patch-file",
+    toolId: "filesystem.write",
+    purpose: "Replace the contents of a file on the server, keeping a copy of what was there before. Works over FTP, FTPS, SFTP or SSH.",
+    requiresConfirmation: true,
+    requiresEvidence: true,
+  },
   "fix-via-rest-api": {
     id: "fix-via-rest-api",
     toolId: "wordpress.rest_api_write",

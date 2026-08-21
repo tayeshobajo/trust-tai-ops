@@ -14,6 +14,14 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { authorizeProject } from "../_shared/authz.ts";
 import { authzDeps, executionContextConfigured, secretStoreDeps, stackDeps } from "../_shared/clients.ts";
 import { authorizeToolForStack, isWordPressTool } from "../_shared/stackGuard.ts";
+import {
+  defaultFileTransports,
+  listDirectory,
+  readFileSlice,
+  renamePath,
+  writeFileContent,
+  type FileToolResult,
+} from "../_shared/fileAccess.ts";
 import { fetchSafely, readBounded, redact, safeHeaders, validatePublicUrl } from "../_shared/net.ts";
 import { capabilityTruth, resolveCredential, resolveRawSecret } from "../_shared/secretStore.ts";
 import { loginPathFromConfig } from "../_shared/verification.ts";
@@ -41,6 +49,14 @@ import { getGscAccessToken } from "../_shared/gscAuth.ts";
 const fail = (code: string, summary: string, retryable: boolean) =>
   Response.json({ ok: false, code, summary, retryable }, { headers: corsHeaders });
 
+/** Built per request so no socket state is shared between invocations. */
+const fileTransports = () => defaultFileTransports();
+
+const fileResponse = (result: FileToolResult) =>
+  result.ok
+    ? Response.json({ ok: true, summary: result.summary, data: result.data }, { headers: corsHeaders })
+    : fail(result.code, result.summary, result.retryable);
+
 const AUTH_FAIL_SUMMARY: Record<string, string> = {
   unauthorized: "I need you to be signed in before I can use private access.",
   forbidden: "This account isn't allowed to work on that project.",
@@ -51,14 +67,26 @@ const PRIVATE_TOOLS = new Set([
   "wordpress.list_plugins",
   "wordpress.run_wp_cli_readonly",
   "wordpress.read_error_log",
+  "filesystem.list",
+  "filesystem.read",
+  "filesystem.rename",
+  "filesystem.write",
 ]);
 
 /** Every access type whose credential the server can actually resolve. */
-const EXECUTABLE_ACCESS_TYPES = ["wordpress_admin", "ssh", "sftp", "google_search_console"];
+const EXECUTABLE_ACCESS_TYPES = ["wordpress_admin", "ssh", "sftp", "ftp", "google_search_console"];
 
 /** SFTP and SSH are one server capability as far as the tool catalog is concerned. */
 const withServerCapability = (list: string[]): string[] =>
   list.includes("sftp") && !list.includes("ssh") ? [...list, "ssh"] : list;
+
+/**
+ * File access is one capability with several doors: FTP, FTPS, SFTP and SSH
+ * all reach the same files. The planner reasons about "sftp" and the server
+ * decides which door it actually opens.
+ */
+const withFileCapability = (list: string[]): string[] =>
+  list.includes("ftp") && !list.includes("sftp") ? [...list, "sftp"] : list;
 
 /**
  * One authenticated reader for the whole request.
@@ -1047,8 +1075,8 @@ Deno.serve(async (req) => {
         data: {
           // Password-based SFTP reaches the same server over the same SSH
           // transport, so it satisfies the "ssh" capability the tools ask for.
-          capabilities: withServerCapability(truth.stored),
-          verifiedCapabilities: withServerCapability(truth.verified),
+          capabilities: withFileCapability(withServerCapability(truth.stored)),
+          verifiedCapabilities: withFileCapability(withServerCapability(truth.verified)),
         },
       },
       { headers: corsHeaders },
@@ -1098,6 +1126,36 @@ Deno.serve(async (req) => {
       return await runWpCli(wpProjectId, args);
     case "wordpress.read_error_log":
       return await readErrorLog(wpProjectId);
+    // --- File tools (FTP / FTPS / SFTP / SSH, whichever the project holds) ---
+    case "filesystem.list":
+      if (!authorizedProjectId) return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
+      return fileResponse(await listDirectory(secretStoreDeps(), fileTransports(), {
+        projectId: authorizedProjectId,
+        path: args.path ?? "",
+      }));
+    case "filesystem.read":
+      if (!authorizedProjectId) return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
+      return fileResponse(await readFileSlice(secretStoreDeps(), fileTransports(), {
+        projectId: authorizedProjectId,
+        path: args.path,
+        maxBytes: args.maxBytes,
+        from: args.from,
+      }));
+    case "filesystem.rename":
+      if (!authorizedProjectId) return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
+      return fileResponse(await renamePath(secretStoreDeps(), fileTransports(), {
+        projectId: authorizedProjectId,
+        from: args.from,
+        to: args.to,
+      }));
+    case "filesystem.write":
+      if (!authorizedProjectId) return fail("unauthorized", AUTH_FAIL_SUMMARY.unauthorized, false);
+      return fileResponse(await writeFileContent(secretStoreDeps(), fileTransports(), {
+        projectId: authorizedProjectId,
+        path: args.path,
+        content: args.content,
+        backupFirst: args.backupFirst,
+      }));
     // --- Write tools ---
     case "wordpress.rest_api_write":
       return await restApiWrite(wpProjectId, args, authorizedProjectId, canonicalUrl);

@@ -45,6 +45,7 @@ export type EnvironmentType = "production" | "staging" | "development";
 export type AccessType =
   | "wordpress_admin"
   | "sftp"
+  | "ftp"
   | "ssh"
   | "hosting_portal"
   | "database"

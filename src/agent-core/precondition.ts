@@ -40,6 +40,10 @@ export const writeTargetFor = (toolId: ToolId, args: AgentActionArguments): stri
       const path = text(args.path);
       return path ? `file:${path}` : null;
     }
+    case "filesystem.rename": {
+      const from = text(args.from);
+      return from ? `file:${from}` : null;
+    }
     case "database.execute": {
       const table = text(args.table);
       return table ? `table:${table.toLowerCase()}` : null;
@@ -74,6 +78,20 @@ export const observedTargets = (item: AgentEvidence): Array<{ target: string; ha
 
   const table = text(data.table);
   if (table && contentHash) found.push({ target: `table:${table.toLowerCase()}`, hash: contentHash });
+
+  // A directory listing observes each file it named: name, size and modified
+  // time are the state a rename would be racing against.
+  const entries = Array.isArray(data.entries) ? data.entries : [];
+  const base = path ? `${path}/` : "";
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    const name = text(row.name);
+    if (!name) continue;
+    const size = typeof row.size === "number" ? String(row.size) : "unknown";
+    const modified = text(row.modifiedAt) ?? "unknown";
+    found.push({ target: `file:${base}${name}`, hash: `${size}/${modified}` });
+  }
 
   // A plugin listing observes every plugin it returned. Version plus active
   // state is the state a change would be racing against.

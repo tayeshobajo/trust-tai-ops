@@ -402,10 +402,17 @@ check("private reads are planned once admin access is confirmed", plannedTools.i
 check("plugin listing carries no client-supplied url", JSON.stringify(withAccess.actions.at(-1)?.args) === "{}");
 check("every planned action stays read-only", withAccess.actions.every((action: { readOnly: boolean }) => action.readOnly));
 
-console.log("\nno mutation surface");
+console.log("\nmutation surface stays gated");
+// Repair tools exist, because a site that is down cannot be fixed by reading.
+// What must never happen is a mutating tool that classifies as read-only and
+// so slips past the approval and read-before-write gates.
 check(
-  "no write tool is implemented",
-  Object.values(TOOL_REGISTRY).every((tool) => !tool.implemented || tool.readOnly),
+  "no mutating tool is classified read-only",
+  Object.values(TOOL_REGISTRY).every((tool) => !tool.implemented || tool.readOnly || tool.risk !== "read_only"),
+);
+check(
+  "the deterministic reasoner still plans reads only",
+  withAccess.actions.every((action: { readOnly: boolean }) => action.readOnly),
 );
 
 // --- browser retains nothing ---------------------------------------------------
