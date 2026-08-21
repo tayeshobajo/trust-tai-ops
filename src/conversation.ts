@@ -198,14 +198,12 @@ export const buildThread = (_project: Project, run: Run): ThreadMessage[] => {
             : fixPlanDiff,
           decision: "approval",
         });
-      } else {
-        messages.push({ id: `${run.id}-plan-working`, role: "agent", body: ["I'll carry on and apply the fix now."] });
       }
       break;
     }
     case "qa": {
-      // If execution had failures, surface a rollback decision alongside the
-      // normal re-observation so the user can choose immediately.
+      // If execution had failures, surface a rollback decision so the user can
+      // choose immediately. Ordinary progress is narrated by the agent itself.
       const hasFailedExecution = run.artifacts.some((a) => a.type === "execution_failed");
       if (hasFailedExecution) {
         messages.push({
@@ -217,47 +215,22 @@ export const buildThread = (_project: Project, run: Run): ThreadMessage[] => {
           ],
           decision: "rollback",
         });
-      } else {
-        messages.push({
-          id: `${run.id}-qa-working`,
-          role: "agent",
-          body: ["Give me a moment while I confirm the site is behaving properly, then I'll write up the result."],
-        });
       }
       break;
     }
-    case "complete":
-      messages.push({
-        id: `${run.id}-complete`,
-        role: "agent",
-        body: [
-          "All done. " + (run.qaReport.summary || "The work is finished and verified."),
-          "Everything is in project memory, so I'll remember it next time you need something here.",
-        ],
-      });
-      break;
     case "paused":
     case "escalated":
     case "failed":
-      messages.push({
-        id: `${run.id}-decision-human`,
-        role: "agent",
-        body: [run.operatorPrompt || "I've stopped here on purpose and need a decision from you before continuing."],
-      });
-      break;
-    case "rolled_back":
-      messages.push({
-        id: `${run.id}-rolled-back`,
-        role: "agent",
-        body: ["I reversed the change and put the site back the way it was. Tell me how you'd like to approach it instead."],
-      });
+      if (run.operatorPrompt) {
+        messages.push({
+          id: `${run.id}-decision-human`,
+          role: "agent",
+          body: [run.operatorPrompt],
+        });
+      }
       break;
     default:
-      messages.push({
-        id: `${run.id}-working`,
-        role: "agent",
-        body: [run.nextAction || "I'm working through this now."],
-      });
+      break;
   }
 
   return messages;
