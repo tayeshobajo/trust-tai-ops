@@ -33,11 +33,20 @@ export const autoAdvanceTarget = (project: Project, run: Run): RunState | null =
 
   if (run.state === "access_check" && !projectHasUsableAccess(project)) return null;
 
-  if (run.state === "plan" && run.approvalRequired) {
-    const approved = run.approvals.some(
-      (approval) => approval.type === "high_risk_execution" && approval.status === "approved",
-    );
-    if (!approved) return null;
+  // Nothing moves from planning into applying a fix without a stored,
+  // executable plan and a human go-ahead. Read-only work has no fix to apply,
+  // so it passes through without ever claiming one.
+  if (run.state === "plan") {
+    const readOnly = run.taskType === "qa_only";
+    const storedPlan = run.artifacts.some((artifact) => artifact.type === "fix_plan");
+
+    if (!readOnly) {
+      if (!storedPlan) return null;
+      const approved = run.approvals.some(
+        (approval) => approval.type === "high_risk_execution" && approval.status === "approved",
+      );
+      if (!approved) return null;
+    }
   }
 
   const next = getNextPhase(run.state);
