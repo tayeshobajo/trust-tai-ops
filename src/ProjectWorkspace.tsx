@@ -389,6 +389,10 @@ export function ProjectWorkspace({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
+  // Opening a project should always land on the latest message, even when the
+  // conversation is long. This flag makes the first successful load scroll to
+  // the end before the smart "stay where you are" behaviour takes over.
+  const initialScrollPending = useRef(true);
   const attemptedRef = useRef<Set<string>>(new Set());
   const memoryRef = useRef<Set<string>>(new Set());
   const emitRef = useRef<Set<string>>(new Set());
