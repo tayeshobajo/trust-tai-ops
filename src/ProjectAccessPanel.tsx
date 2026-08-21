@@ -136,6 +136,29 @@ const CONNECTION_TYPES: ConnectionDefinition[] = [
     ],
   },
   {
+    type: "google_search_console",
+    label: "Google Search Console",
+    blurb: "Search performance data, index coverage, and crawl issues — straight from Google.",
+    authMethod: "Service account key",
+    executable: true,
+    fields: [
+      {
+        key: "user",
+        label: "Service account email",
+        kind: "text",
+        placeholder: "my-agent@my-project.iam.gserviceaccount.com",
+        hint: "The client_email from the JSON key file. The agent uses this to identify itself to Google.",
+      },
+      {
+        key: "secret",
+        label: "Service account JSON key",
+        kind: "secret_multiline",
+        placeholder: '{"type": "service_account", "project_id": "..."}',
+        hint: 'Google Cloud Console → IAM & Admin → Service Accounts → your account → Keys → Add Key → JSON. Paste the entire file contents. The agent needs the service account added as a property user in Search Console first.',
+      },
+    ],
+  },
+  {
     type: "hosting_portal",
     label: "Hosting account / Other",
     blurb: "Useful for backups, restores, and host-level verification.",
@@ -373,8 +396,22 @@ export function ProjectAccessPanel({
       const username = (values.user ?? "").trim();
       const secret = values.secret ?? "";
       const isSsh = definition.type === "ssh";
+      const isGsc = definition.type === "google_search_console";
 
-      if (!username || secret.trim().length < 8) {
+      if (isGsc) {
+        if (!username || !username.includes("@")) {
+          setDrawerNotice({ message: "I need the service account email address.", tone: "warning" });
+          return;
+        }
+        const trimmed = secret.trim();
+        if (!trimmed.startsWith("{") || trimmed.length < 100) {
+          setDrawerNotice({
+            message: 'Paste the whole JSON key file — it starts with { and contains the private_key field.',
+            tone: "warning",
+          });
+          return;
+        }
+      } else if (!username || secret.trim().length < 8) {
         setDrawerNotice({
           message: isSsh
             ? "I need the SSH username and the whole private key."
@@ -393,7 +430,7 @@ export function ProjectAccessPanel({
       try {
         stored = await submitCredential({
           projectId: project.id,
-          accessType: isSsh ? "ssh" : "wordpress_admin",
+          accessType: isGsc ? "google_search_console" : isSsh ? "ssh" : "wordpress_admin",
           username,
           secret,
           ...(isSsh
@@ -472,7 +509,11 @@ export function ProjectAccessPanel({
     try {
       const outcome = await verifyStoredCredential(
         project.id,
-        definition.type === "ssh" ? "ssh" : "wordpress_admin",
+        definition.type === "ssh"
+          ? "ssh"
+          : definition.type === "google_search_console"
+            ? "google_search_console"
+            : "wordpress_admin",
       );
       setNotice({
         message: outcome.summary,

@@ -227,6 +227,10 @@ Deno.serve(async (req) => {
       });
       continue;
     }
+    if (bundle.accessType === "google_search_console") {
+      await storeGSC(bundle);
+      continue;
+    }
     await storeServerAccess(bundle);
   }
 
@@ -303,6 +307,51 @@ Deno.serve(async (req) => {
       mode: isAppPassword ? "Application Password" : "Login password",
       verification,
       note,
+    });
+  }
+
+  async function storeGSC(bundle: ParsedBundle) {
+    // Validate: must look like a service account JSON with a private_key field.
+    const secret = bundle.secret.trim();
+    if (!secret.startsWith("{") || secret.length < 100 || !secret.includes("\"private_key\"")) {
+      rejectedBundles.push({
+        accessType: "google_search_console",
+        reason: "That doesn't look like a complete service account JSON key. Download it from Google Cloud Console and paste the whole file.",
+      });
+      return;
+    }
+
+    const result = await storeCredential(deps, {
+      projectId: project.projectId,
+      accessType: "google_search_console",
+      provider: bundle.provider,
+      username: bundle.username,
+      secret,
+      config: { mode: "service_account" },
+    });
+    if (!result.ok) {
+      rejectedBundles.push({
+        accessType: "google_search_console",
+        reason: "The secure credential store isn't configured, so I did not store anything.",
+      });
+      return;
+    }
+
+    await persistAccessMethod(
+      "google_search_console",
+      "Google Search Console",
+      "Service account",
+      `Service account key shared in conversation. Email: ${bundle.username}.`,
+      null,
+    );
+    await audit("google_search_console", bundle.provider, "stored", { verification: "unverified" });
+
+    stored.push({
+      accessType: "google_search_console",
+      provider: bundle.provider,
+      mode: "Service account",
+      verification: "unverified",
+      note: "Service account key stored securely. The Search Console data access will be confirmed on the first agent run.",
     });
   }
 

@@ -22,7 +22,7 @@ import { validateWpBinary, validateWpRoot } from "../_shared/wpCliCatalog.ts";
 const fail = (code: string, summary: string, status = 200) =>
   Response.json({ ok: false, code, summary }, { status, headers: corsHeaders });
 
-const SUPPORTED = new Set(["wordpress_admin", "ssh", "sftp"]);
+const SUPPORTED = new Set(["wordpress_admin", "ssh", "sftp", "google_search_console"]);
 
 const AUTH_FAIL_SUMMARY: Record<string, string> = {
   unauthorized: "Please sign in before sharing access.",
@@ -193,6 +193,73 @@ Deno.serve(async (req) => {
           accessType,
           provider: "ssh_private_key",
           username: user.username,
+          verificationState: "unverified",
+          lastVerifiedAt: null,
+        },
+      },
+      { headers: corsHeaders },
+    );
+  }
+
+  // --- Google Search Console -------------------------------------------
+  //
+  // The credential is a Google service account JSON key. The entire JSON blob
+  // is sealed as the secret; the service account email is the username.
+  if (accessType === "google_search_console") {
+    const authz = await authorizeProject(req.headers.get("Authorization"), projectId, authzDeps());
+    if (!authz.ok) return fail(authz.code, AUTH_FAIL_SUMMARY[authz.code]);
+
+    if (mode === "verify") {
+      // Verification requires a live GSC API call; not yet implemented.
+      return fail(
+        "not_implemented",
+        "Live Search Console verification isn't available yet. The agent will confirm access on its first run.",
+      );
+    }
+
+    if (mode === "details") {
+      // Already handled by the top-level details branch above; belt-and-suspenders.
+      return fail("invalid_input", "That request could not be read.");
+    }
+
+    // store mode
+    if (!secret.trim().startsWith("{") || secret.length < 100 || !secret.includes('"private_key"')) {
+      return fail(
+        "invalid_input",
+        "Paste the whole service account JSON key file. Download it from Google Cloud Console → Service Accounts → Keys.",
+      );
+    }
+    if (!username || username.length > 200) {
+      return fail("invalid_input", "I need the service account email address for that access.");
+    }
+
+    let storedGsc: Awaited<ReturnType<typeof storeCredential>>;
+    try {
+      storedGsc = await storeCredential(secretStoreDeps(), {
+        projectId: authz.project.projectId,
+        accessType: "google_search_console",
+        provider: "google_service_account",
+        username,
+        secret: secret.trim(),
+        config: { mode: "service_account" },
+      });
+    } catch {
+      return fail("secret_store_unavailable", "I couldn't store that access just now, so nothing was saved.");
+    }
+
+    if (!storedGsc.ok) {
+      return fail(storedGsc.code, "The secure credential store isn't configured, so I did not store anything.");
+    }
+
+    return Response.json(
+      {
+        ok: true,
+        summary: "Google Search Console service account is stored securely. The agent will confirm data access on its first run.",
+        data: {
+          secretReference: secretReferenceFor(authz.project.projectId, "google_search_console"),
+          accessType: "google_search_console",
+          provider: "google_service_account",
+          username,
           verificationState: "unverified",
           lastVerifiedAt: null,
         },

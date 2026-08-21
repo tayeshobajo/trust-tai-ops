@@ -51,7 +51,8 @@ export type AccessType =
   | "cdn"
   | "server_pm2"
   | "ci_cd"
-  | "container";
+  | "container"
+  | "google_search_console";
 
 export type AccessStatus = "available" | "stale" | "missing";
 

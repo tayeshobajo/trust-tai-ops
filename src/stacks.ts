@@ -50,7 +50,7 @@ export const stackCopy: Record<ProjectStack, StackCopy> = {
       { key: "wordpress", label: "WordPress version", placeholder: "6.7.1" },
       { key: "php", label: "PHP version", placeholder: "8.2" },
     ],
-    accessTypes: ["wordpress_admin", "sftp", "ssh", "hosting_portal"],
+    accessTypes: ["wordpress_admin", "sftp", "ssh", "hosting_portal", "google_search_console"],
     adminQaDescription:
       "WordPress admin should remain reachable after any change touching plugins, auth, or configuration.",
   },
@@ -65,7 +65,7 @@ export const stackCopy: Record<ProjectStack, StackCopy> = {
       { key: "node", label: "Node version", placeholder: "22.22.1" },
       { key: "mongo", label: "MongoDB version", placeholder: "8.2.3" },
     ],
-    accessTypes: ["ssh", "server_pm2", "ci_cd", "database", "hosting_portal"],
+    accessTypes: ["ssh", "server_pm2", "ci_cd", "database", "hosting_portal", "google_search_console"],
     adminQaDescription:
       "The application should stay reachable and the app process should stay healthy after any change.",
   },
@@ -79,7 +79,7 @@ export const stackCopy: Record<ProjectStack, StackCopy> = {
       { key: "nextjs", label: "Next.js version", placeholder: "15.1" },
       { key: "node", label: "Node version", placeholder: "22.x" },
     ],
-    accessTypes: ["ci_cd", "hosting_portal", "ssh", "container"],
+    accessTypes: ["ci_cd", "hosting_portal", "ssh", "container", "google_search_console"],
     adminQaDescription: "The deployed application should stay reachable after any change.",
   },
   custom: {
@@ -92,7 +92,7 @@ export const stackCopy: Record<ProjectStack, StackCopy> = {
       { key: "version", label: "Application version", placeholder: "1.0" },
       { key: "runtime", label: "Runtime", placeholder: "Node 22, Python 3.12..." },
     ],
-    accessTypes: ["ssh", "hosting_portal", "ci_cd", "database"],
+    accessTypes: ["ssh", "hosting_portal", "ci_cd", "database", "google_search_console"],
     adminQaDescription: "The application should stay reachable after any change.",
   },
 };

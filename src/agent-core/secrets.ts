@@ -10,7 +10,7 @@ import { hasSupabasePublicConfig, resolveOpsEnv } from "../env";
 import { getSupabaseClient } from "../supabase";
 
 /** Access types with a credential the server can actually execute with. */
-export type ExecutableAccessType = "wordpress_admin" | "ssh";
+export type ExecutableAccessType = "wordpress_admin" | "ssh" | "google_search_console";
 
 export type SubmitCredentialInput = {
   projectId: string;

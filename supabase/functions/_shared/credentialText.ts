@@ -10,14 +10,15 @@
  * that text with every secret value removed.
  */
 
-export type IntakeAccessType = "wordpress_admin" | "ssh" | "sftp" | "ftp";
+export type IntakeAccessType = "wordpress_admin" | "ssh" | "sftp" | "ftp" | "google_search_console";
 
 export type CredentialProvider =
   | "wordpress_application_password"
   | "wordpress_login_password"
   | "ssh_private_key"
   | "sftp_password"
-  | "ftp_password";
+  | "ftp_password"
+  | "google_service_account";
 
 export type ParsedBundle = {
   accessType: IntakeAccessType;
@@ -299,7 +300,24 @@ const readLabel = (line: string): LabelHit | null => {
   return null;
 };
 
-const HEADING = /^\s*(sftp|ftp|ssh|wordpress|wp[ _-]?admin)\b[^A-Za-z0-9]*$/i;
+const HEADING = /^\s*(sftp|ftp|ssh|wordpress|wp[ _-]?admin|google[ _-]?search[ _-]?console|gsc|search[ _-]?console)\b[^A-Za-z0-9]*$/i;
+
+/** True when text looks like a Google service account JSON blob. */
+const isServiceAccountJson = (text: string): boolean => {
+  const t = text.trim();
+  if (!t.startsWith("{")) return false;
+  return /"type"\s*:\s*"service_account"/.test(t) && /"private_key"\s*:/.test(t) && /"client_email"\s*:/.test(t);
+};
+
+/** Extracts client_email from a service account JSON string. Never throws. */
+const extractServiceAccountEmail = (json: string): string => {
+  try {
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    return typeof parsed.client_email === "string" ? parsed.client_email : "";
+  } catch {
+    return "";
+  }
+};
 
 const URL_ANYWHERE = /https?:\/\/[^\s<>"')]+/gi;
 
@@ -414,9 +432,34 @@ export const parseCredentialText = (rawInput: string): ParsedIntake => {
   mention(/\bsftp\b/, "sftp");
   mention(/(^|[^s])\bftp\b/, "ftp");
   mention(/\bssh\b/, "ssh");
+  mention(/\bgoogle[ _-]?search[ _-]?console\b|\bsearch[ _-]?console\b|\bgsc\b/, "google_search_console");
 
   // -- bundles ---------------------------------------------------------------
   const bundles: ParsedBundle[] = [];
+
+  // Google Search Console — detect a service account JSON blob anywhere in input.
+  // The whole JSON blob is the secret; client_email becomes the username.
+  const gscJsonMatch = (() => {
+    // Match a top-level JSON object that starts with { and contains the
+    // service_account type marker. We capture the first such block.
+    const jsonRe = /\{[\s\S]*?"type"\s*:\s*"service_account"[\s\S]*?\}/g;
+    for (const match of (rawInput.match(jsonRe) ?? [])) {
+      if (isServiceAccountJson(match)) return match;
+    }
+    return null;
+  })();
+
+  if (gscJsonMatch) {
+    const email = extractServiceAccountEmail(gscJsonMatch);
+    bundles.push({
+      accessType: "google_search_console",
+      provider: "google_service_account",
+      username: email || "service-account",
+      secret: gscJsonMatch,
+    });
+    // Ensure it was requested if not already picked up by keyword scan.
+    if (!requested.includes("google_search_console")) requested.push("google_search_console");
+  }
 
   if (wp.identity && (wp.appPassword || wp.password)) {
     bundles.push({
@@ -496,7 +539,15 @@ export const parseCredentialText = (rawInput: string): ParsedIntake => {
 // ---------------------------------------------------------------------------
 
 export const accessLabel = (type: IntakeAccessType): string =>
-  type === "wordpress_admin" ? "WordPress Admin" : type === "ssh" ? "SSH" : type === "sftp" ? "SFTP" : "FTP";
+  type === "wordpress_admin"
+    ? "WordPress Admin"
+    : type === "ssh"
+      ? "SSH"
+      : type === "sftp"
+        ? "SFTP"
+        : type === "google_search_console"
+          ? "Google Search Console"
+          : "FTP";
 
 export const providerLabel = (provider: CredentialProvider): string =>
   provider === "wordpress_application_password"
@@ -507,7 +558,9 @@ export const providerLabel = (provider: CredentialProvider): string =>
         ? "private key"
         : provider === "sftp_password"
           ? "password"
-          : "password";
+          : provider === "google_service_account"
+            ? "service account key"
+            : "password";
 
 /**
  * The message that replaces the raw paste in the conversation. Intent and

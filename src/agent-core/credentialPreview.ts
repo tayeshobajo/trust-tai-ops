@@ -7,7 +7,7 @@
  * authorization and sealing stay server-side in `credential-intake`.
  */
 
-export type CredentialKind = "wordpress" | "sftp" | "ssh" | "login" | "unknown";
+export type CredentialKind = "wordpress" | "sftp" | "ssh" | "google_search_console" | "login" | "unknown";
 
 export type CredentialPreviewField = {
   label: string;
@@ -73,6 +73,24 @@ export const describeCredentialText = (raw: string): CredentialPreview | null =>
   const isWordPress = /wp-admin|wp-login|wordpress/.test(lower);
   const isSftp = /\bs?ftp\b/.test(lower);
   const isSsh = /\bssh\b/.test(lower) || hasPrivateKey;
+  const isGsc =
+    /"type"\s*:\s*"service_account"/.test(text) &&
+    /"private_key"\s*:/.test(text) &&
+    /"client_email"\s*:/.test(text);
+
+  if (isGsc) {
+    const emailMatch = text.match(/"client_email"\s*:\s*"([^"]+)"/);
+    const projectMatch = text.match(/"project_id"\s*:\s*"([^"]+)"/);
+    push("Service account", emailMatch?.[1] ?? "");
+    push("Project", projectMatch?.[1] ?? "");
+    fields.push({ label: "Private key", value: MASK, secret: true });
+    return {
+      kind: "google_search_console",
+      title: "Google service account key detected",
+      fields,
+      ambiguous: fields.length < 2,
+    };
+  }
 
   if (isWordPress) {
     push("Site", url ? prettyHost(url) : host ?? "");
