@@ -1947,8 +1947,57 @@ export function ProjectWorkspace({
 
   // Open work versus finished work. Completed tasks stay reachable but never
   // compete for attention with what is still running.
-  const openRuns = runs.filter((run) => run.state !== "complete");
-  const doneRuns = runs.filter((run) => run.state === "complete");
+  const openRuns = liveRuns.filter((run) => run.state !== "complete");
+  const doneRuns = liveRuns.filter((run) => run.state === "complete");
+
+  const renderQueuedRow = (run: Run, index: number) => (
+    <li key={run.id} className="pw-queued-row">
+      <div className="pw-queued-main">
+        <span className="pw-queued-index" aria-hidden="true">{index + 1}</span>
+        <div>
+          <strong>{run.title}</strong>
+          <p>Waiting its turn</p>
+        </div>
+      </div>
+      <div className="pw-queued-actions">
+        <button
+          type="button"
+          className="pw-queued-move"
+          aria-label={`Move ${run.title} up`}
+          disabled={!canWrite || queueBusy || index === 0}
+          onClick={() => void runQueueAction(() => workspaceRepository.moveQueuedRun(project.id, run.id, "up"))}
+        >
+          ↑
+        </button>
+        <button
+          type="button"
+          className="pw-queued-move"
+          aria-label={`Move ${run.title} down`}
+          disabled={!canWrite || queueBusy || index === queuedRuns.length - 1}
+          onClick={() => void runQueueAction(() => workspaceRepository.moveQueuedRun(project.id, run.id, "down"))}
+        >
+          ↓
+        </button>
+        <button
+          type="button"
+          className="pw-queued-start"
+          disabled={!canWrite || queueBusy}
+          onClick={() => void startQueuedNow(run)}
+        >
+          Start now
+        </button>
+        <button
+          type="button"
+          className="pw-queued-drop"
+          disabled={!canWrite || queueBusy}
+          onClick={() => void runQueueAction(() => workspaceRepository.cancelQueuedRun(project.id, run.id))}
+        >
+          Remove
+        </button>
+      </div>
+    </li>
+  );
+
 
   const renderTaskRow = (run: Run, variant: "rail" | "surface") => {
     const rowSignal = signalForRun(run);
