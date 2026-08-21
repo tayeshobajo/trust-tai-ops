@@ -343,7 +343,7 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
   }
 
-  async createRun(projectId: string, draft: RunDraft): Promise<Organization> {
+  async createRun(projectId: string, draft: RunDraft, options?: { queued?: boolean }): Promise<Organization> {
     const workspace = await this.loadWorkspace();
     const project = getProjectById(workspace, projectId);
 
@@ -351,9 +351,13 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
       return workspace;
     }
 
-    const newRun = createRunFromDraft(draft, project);
+    const created = createRunFromDraft(draft, project);
+    const newRun: Run = options?.queued
+      ? { ...created, queuePosition: nextQueuePosition(project) }
+      : created;
     const nextWorkspace = injectRunIntoWorkspace(workspace, projectId, newRun);
     await this.saveWorkspace(nextWorkspace);
+
     return nextWorkspace;
   }
 
