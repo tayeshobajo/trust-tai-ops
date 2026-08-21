@@ -8,13 +8,20 @@ export const getProjectById = (workspace: Organization, projectId: string | null
 /** A task waiting its turn. The agent never works on one of these. */
 export const isQueuedRun = (run: Run): boolean => (run.queuePosition ?? null) !== null;
 
+/** States where a task is parked on a human and cannot progress by itself. */
+const PARKED_STATES: RunState[] = ["paused", "escalated", "failed", "rolled_back"];
+
 export const getActiveRun = (project: Project | null): Run | null => {
   if (!project) {
     return null;
   }
 
   const live = project.runs.filter((run) => !isQueuedRun(run));
-  return live.find((run) => run.state !== "complete") ?? live[0] ?? null;
+  const open = live.filter((run) => run.state !== "complete");
+  // A task stuck on a human decision must not hold the workspace hostage: if
+  // something else can actually move, that becomes the live task.
+  const movable = open.find((run) => !PARKED_STATES.includes(run.state));
+  return movable ?? open[0] ?? live[0] ?? null;
 };
 
 /** Waiting tasks, in the order they will be started. */
