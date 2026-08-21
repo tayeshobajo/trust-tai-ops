@@ -2154,6 +2154,12 @@ function mapRun(
   };
 }
 
+/** The next free slot at the back of a project's queue. */
+function nextQueuePosition(project: Project): number {
+  const queued = getQueuedRuns(project);
+  return queued.length === 0 ? 0 : (queued[queued.length - 1].queuePosition ?? 0) + 1;
+}
+
 function injectRunIntoWorkspace(workspace: Organization, projectId: string, newRun: Run): Organization {
   return {
     ...workspace,
