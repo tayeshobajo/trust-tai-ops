@@ -1086,7 +1086,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     return;
   }
 
-  async createRun(projectId: string, draft: RunDraft): Promise<Organization> {
+  async createRun(projectId: string, draft: RunDraft, options?: { queued?: boolean }): Promise<Organization> {
     const client = getSupabaseClient();
     const workspace = await this.loadWorkspace();
     const project = getProjectById(workspace, projectId);
