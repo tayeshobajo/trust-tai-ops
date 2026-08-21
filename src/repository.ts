@@ -234,6 +234,11 @@ export interface WorkspaceRepository {
   confirmBackup(projectId: string, runId: string, note: string): Promise<Organization>;
   approveRun(projectId: string, runId: string, approvalType: "high_risk_execution" | "qa_waiver" | "rollback", decision: "approved" | "rejected", reason: string): Promise<Organization>;
   rollbackRun(projectId: string, runId: string, reason: string): Promise<Organization>;
+  /**
+   * A human declaring the work already done outside the agent. It closes the
+   * task without pretending the agent verified anything, so Ops stops raising it.
+   */
+  closeRunManually(projectId: string, runId: string, note: string): Promise<Organization>;
   updateQaResult(projectId: string, runId: string, resultId: string, result: "passed" | "failed" | "warning" | "skipped", notes: string): Promise<Organization>;
   setQaVerdict(projectId: string, runId: string, verdict: "passed" | "failed" | "partial" | "waived", summary: string): Promise<Organization>;
   addEvidence(projectId: string, runId: string, artifactType: "backup_note" | "scan_result" | "diff_summary" | "qa_capture" | "report" | "fix_plan" | "execution_failed", title: string, summary: string): Promise<Organization>;
