@@ -2498,14 +2498,23 @@ export function ProjectWorkspace({
               }
             }}
             onPaste={(event) => {
-              // Only intercept when the clipboard actually carries an image;
-              // ordinary text paste must behave exactly as it always did.
-              if (!evidenceIntakeAvailable()) return;
-              const images = imageFilesFromClipboard(event.clipboardData);
-              if (images.length === 0) return;
+              // Images become attachments.
+              if (evidenceIntakeAvailable()) {
+                const images = imageFilesFromClipboard(event.clipboardData);
+                if (images.length > 0) {
+                  event.preventDefault();
+                  queueFiles(images);
+                  return;
+                }
+              }
+              // Rich text (Google Docs, Notion, email) keeps its links and
+              // emphasis by arriving as Markdown, which the thread renders.
+              const markdown = markdownFromClipboard(event.clipboardData);
+              if (!markdown) return;
               event.preventDefault();
-              queueFiles(images);
+              insertIntoComposer(markdown);
             }}
+
           />
           {pendingFiles.length > 0 ? (
             <ul className="pw-pending-files">
