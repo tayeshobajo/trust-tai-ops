@@ -436,6 +436,8 @@ export function ProjectWorkspace({
 
   const activeRun = runs.find((run) => run.id === activeRunId) ?? null;
   const signal = activeRun ? signalForRun(activeRun) : null;
+  // One track for the strip and the rail, so they can never disagree.
+  const phaseTrack = phasesForRun(activeRun);
   const [runPlan, setRunPlan] = useState<RunPlan | null>(null);
   // Health facts observed this session, keyed by tool so the newest read wins.
   const [healthEvidence, setHealthEvidence] = useState<AgentEvidence[]>([]);
