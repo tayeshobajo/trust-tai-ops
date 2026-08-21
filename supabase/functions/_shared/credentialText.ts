@@ -350,6 +350,82 @@ const emptyFileSection = () => ({
 
 type FileSection = ReturnType<typeof emptyFileSection>;
 
+const emptyPanelSection = () => ({ url: "", username: "", password: "", token: "", note: "" });
+type PanelSection = ReturnType<typeof emptyPanelSection>;
+
+/**
+ * `sftp://user:pass@host:2222` and friends become labelled lines, so the
+ * line-based parser sees the same shape it always does. Credentials inside a
+ * URL are extremely common in host welcome emails.
+ */
+const CONNECTION_URL = /\b(sftp|ftp|ftps|ssh|mysql):\/\/([^\s:@/]+)(?::([^\s@/]+))?@([A-Za-z0-9.-]+)(?::(\d{1,5}))?/gi;
+
+export const expandConnectionUrls = (input: string): string => {
+  const lines: string[] = [];
+  let sawAny = false;
+  const rewritten = input.replace(
+    CONNECTION_URL,
+    (_match, scheme: string, user: string, pass: string | undefined, host: string, port: string | undefined) => {
+      sawAny = true;
+      const kind = scheme.toLowerCase();
+      const heading = kind === "mysql" ? "Database" : kind === "ftps" ? "FTP" : kind.toUpperCase();
+      lines.push(heading);
+      lines.push(`Host: ${host}`);
+      if (port) lines.push(`Port: ${port}`);
+      lines.push(`Username: ${decodeURIComponent(user)}`);
+      if (pass) lines.push(`Password: ${decodeURIComponent(pass)}`);
+      return "";
+    },
+  );
+  if (!sawAny) return input;
+  return [rewritten.trim(), ...lines].filter(Boolean).join("\n");
+};
+
+const HOSTNAME_LINE = /^(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}$/;
+const IP_LINE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+const USERNAME_LINE = /^[A-Za-z0-9._@-]{2,64}$/;
+
+/**
+ * A bare paste with no labels at all — a host line, a user line and a secret
+ * line — is still access, and must never be allowed to land in the
+ * conversation as plain text. Deliberately conservative: three or four short
+ * lines, no prose, one recognisable host.
+ */
+export const inferBareBundle = (
+  input: string,
+): { host: string; username: string; secret: string } | null => {
+  const lines = input
+    .split(/\r?\n/)
+    .map((line) => normalizeLine(line).trim())
+    .filter(Boolean);
+  if (lines.length < 3 || lines.length > 5) return null;
+  // Any prose or any label at all disqualifies the guess.
+  if (lines.some((line) => /\s/.test(line) || line.includes(":") || line.includes("="))) return null;
+
+  const hostIndex = lines.findIndex((line) => HOSTNAME_LINE.test(line) || IP_LINE.test(line));
+  if (hostIndex < 0) return null;
+  const rest = lines.filter((_, index) => index !== hostIndex);
+
+  const userIndex = rest.findIndex((line) => USERNAME_LINE.test(line) && !/[!#$%^&*()+]/.test(line));
+  if (userIndex < 0) return null;
+  const secret = rest.filter((_, index) => index !== userIndex).find((line) => line.length >= 6);
+  if (!secret) return null;
+
+  return { host: lines[hostIndex], username: rest[userIndex], secret };
+};
+
+/**
+ * The single question the composer asks before sending anything: could this
+ * text be site access? True for labelled secrets, PEM blocks, credential URLs
+ * and bare host/user/secret pastes.
+ */
+export const looksLikeAccessText = (input: string): boolean => {
+  if (containsSecretMaterial(input)) return true;
+  CONNECTION_URL.lastIndex = 0;
+  if (CONNECTION_URL.test(input)) return true;
+  return inferBareBundle(input) !== null;
+};
+
 export const parseCredentialText = (rawInput: string): ParsedIntake => {
   const input = expandInlineLabels(rawInput);
   const rawLines = input.split(/\r?\n/);
