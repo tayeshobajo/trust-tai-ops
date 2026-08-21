@@ -612,6 +612,41 @@ export const parseCredentialText = (rawInput: string): ParsedIntake => {
     }
   }
 
+  // Hosting panel, database and CDN. Stored and remembered, even where Ops
+  // cannot execute against them yet.
+  const panelKinds = [
+    { key: "hosting", type: "hosting_portal", provider: "hosting_panel_password" },
+    { key: "database", type: "database", provider: "database_password" },
+    { key: "cdn", type: "cdn", provider: "api_token" },
+  ] as const;
+  for (const kind of panelKinds) {
+    const panel = panels[kind.key];
+    const secret = panel.password || panel.token;
+    if (!secret) continue;
+    if (kind.key !== "cdn" && !panel.username) continue;
+    bundles.push({
+      accessType: kind.type,
+      provider: kind.provider,
+      username: panel.username || "api-token",
+      secret,
+      host: panel.note || undefined,
+      siteUrl: panel.url || undefined,
+    });
+  }
+
+  // A bare, unlabelled paste. Never guessed when anything was already parsed.
+  const bare = bundles.length === 0 ? inferBareBundle(rawInput) : null;
+  if (bare) {
+    bundles.push({
+      accessType: requested.includes("ftp") ? "ftp" : "sftp",
+      provider: requested.includes("ftp") ? "ftp_password" : "sftp_password",
+      username: bare.username,
+      secret: bare.secret,
+      host: bare.host,
+      port: requested.includes("ftp") ? 21 : 22,
+    });
+  }
+
   // -- what is missing -------------------------------------------------------
   const missing: MissingCredential[] = [];
   for (const type of requested) {
@@ -624,8 +659,21 @@ export const parseCredentialText = (rawInput: string): ParsedIntake => {
       if (fields.length) missing.push({ accessType: type, fields });
       continue;
     }
+    if (type === "google_search_console") {
+      missing.push({ accessType: type, fields: ["the service account JSON key file"] });
+      continue;
+    }
+    if (type === "hosting_portal" || type === "database" || type === "cdn") {
+      const panel = panels[type === "hosting_portal" ? "hosting" : type];
+      const fields = [
+        type === "cdn" ? "" : panel.username ? "" : "username",
+        panel.password || panel.token ? "" : type === "cdn" ? "API token" : "password",
+      ].filter(Boolean);
+      if (fields.length) missing.push({ accessType: type, fields });
+      continue;
+    }
     // ssh/sftp/ftp all need the same minimum shape.
-    const bucket = files[type === "wordpress_admin" ? "ssh" : type];
+    const bucket = files[type];
     const fields = [
       bucket.host ? "" : "host",
       bucket.username ? "" : "username",
@@ -635,7 +683,9 @@ export const parseCredentialText = (rawInput: string): ParsedIntake => {
   }
 
   return {
-    containsSecrets: containsSecretMaterial(input),
+    // A bare bundle carries no label, so the labelled-secret test never sees
+    // it. It is still a credential and must never be persisted as chat text.
+    containsSecrets: containsSecretMaterial(input) || bare !== null,
     requested,
     bundles,
     missing,
