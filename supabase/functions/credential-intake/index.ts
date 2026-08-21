@@ -282,7 +282,69 @@ Deno.serve(async (req) => {
       await storeGSC(bundle);
       continue;
     }
+    if (
+      bundle.accessType === "hosting_portal" ||
+      bundle.accessType === "database" ||
+      bundle.accessType === "cdn"
+    ) {
+      await storePanelAccess(bundle);
+      continue;
+    }
     await storeServerAccess(bundle);
+  }
+
+  /**
+   * Hosting control panel, database and CDN credentials. Ops cannot execute
+   * against these yet; they are stored, remembered and said out loud, rather
+   * than silently dropped.
+   */
+  async function storePanelAccess(bundle: ParsedBundle) {
+    const accessType = bundle.accessType;
+    if (bundle.secret.length < 4 || bundle.secret.length > 4096 || bundle.username.length > 200) {
+      rejectedBundles.push({ accessType, reason: "Those details didn't look complete, so I didn't store them." });
+      return;
+    }
+
+    const result = await storeCredential(deps, {
+      projectId: project.projectId,
+      accessType,
+      provider: bundle.provider,
+      username: bundle.username,
+      secret: bundle.secret,
+      config: {
+        url: bundle.siteUrl ?? "",
+        host: bundle.host ?? "",
+        mode: bundle.provider === "api_token" ? "api_token" : "password",
+      },
+    });
+    if (!result.ok) {
+      rejectedBundles.push({
+        accessType,
+        reason: "The secure credential store isn't configured, so I did not store anything.",
+      });
+      return;
+    }
+
+    const mode = bundle.provider === "api_token" ? "API token" : "Password";
+    await persistAccessMethod(accessType, accessLabel(accessType), mode, "Shared in conversation.", null);
+    await audit(accessType, bundle.provider, "stored", { verification: "unsupported" });
+    await rememberAccess(
+      accessType,
+      [
+        ["User:", bundle.username],
+        ["Address:", bundle.siteUrl ?? bundle.host ?? ""],
+      ],
+      "unsupported",
+    );
+
+    stored.push({
+      accessType,
+      provider: bundle.provider,
+      mode,
+      verification: "unsupported",
+      note:
+        "Stored securely and remembered. I can't sign in to that myself yet, so I'll reference it when advising rather than acting on it.",
+    });
   }
 
   async function storeWordPress(bundle: ParsedBundle) {
