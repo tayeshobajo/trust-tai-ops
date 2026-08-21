@@ -1900,28 +1900,24 @@ export function ProjectWorkspace({
 
         <div className="pw-task-list">
           {runs.length === 0 ? <p className="pw-empty-note">No tasks yet. Describe what you need and I'll start one.</p> : null}
-          {runs.map((run) => {
-            const rowSignal = signalForRun(run);
-            return (
+          {openRuns.length > 0 ? <p className="pw-task-group">In progress · {openRuns.length}</p> : null}
+          {openRuns.map((run) => renderTaskRow(run, "rail"))}
+          {doneRuns.length > 0 ? (
+            <>
               <button
-                key={run.id}
                 type="button"
-                className={`pw-task-row ${run.id === activeRunId ? "is-active" : ""}`}
-                onClick={() => {
-                  setActiveRunId(run.id);
-                  setMobilePane("chat");
-                }}
+                className="pw-task-group is-toggle"
+                aria-expanded={showDone}
+                onClick={() => setShowDone((open) => !open)}
               >
-                <div className="pw-task-row-top">
-                  <strong>{run.title}</strong>
-                  <span className="pw-stamp">{formatActivityStamp(run.updatedAt)}</span>
-                </div>
-                <p>{rowSignal.status}</p>
-                {rowSignal.agentState === "needs_you" ? <span className="pw-attention" aria-label="Needs you" /> : null}
+                Completed · {doneRuns.length}
+                <span aria-hidden="true">{showDone ? "▾" : "▸"}</span>
               </button>
-            );
-          })}
+              {showDone ? doneRuns.map((run) => renderTaskRow(run, "rail")) : null}
+            </>
+          ) : null}
         </div>
+
 
         {renderProjectNav("rail")}
       </aside>
