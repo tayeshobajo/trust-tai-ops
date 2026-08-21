@@ -459,7 +459,6 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
       state: "complete",
       phases: run.phases.map((phase) => ({ ...phase, status: "completed" })),
       nextAction: "Closed by the operator. Nothing further is queued.",
-      completedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       actions: [...run.actions, {
         id: `action-${runId}-${Date.now()}`,
@@ -1319,6 +1318,31 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       run_id: runId,
       actor: "operator",
       summary: `Rolled back: ${reason}`,
+      outcome: "succeeded",
+    }] as never);
+
+    return this.loadWorkspace();
+  }
+
+  async closeRunManually(_projectId: string, runId: string, note: string): Promise<Organization> {
+    const client = getSupabaseClient();
+    const now = new Date().toISOString();
+
+    await (client.from("runs") as unknown as { update: (v: unknown) => { eq: (k: string, v: string) => unknown } }).update({
+      state: "complete",
+      next_action: "Closed by the operator. Nothing further is queued.",
+      completed_at: now,
+      updated_at: now,
+    }).eq("id", runId);
+
+    await (client.from("run_phases") as unknown as { update: (v: unknown) => { eq: (k: string, v: string) => unknown } })
+      .update({ status: "completed" }).eq("run_id", runId);
+
+    await client.from("run_actions").insert([{
+      id: crypto.randomUUID(),
+      run_id: runId,
+      actor: "operator",
+      summary: note,
       outcome: "succeeded",
     }] as never);
 
