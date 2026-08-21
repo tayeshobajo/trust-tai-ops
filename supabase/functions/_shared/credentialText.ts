@@ -157,6 +157,10 @@ export const redactSecrets = (text: string): string =>
     .replace(PEM_BLOCK, "[private key redacted]")
     .replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*/g, "[private key redacted]")
     .replace(BEARER_INLINE, "Bearer [redacted]")
+    .replace(
+      /\b(sftp|ftp|ftps|ssh|mysql):\/\/([^\s:@/]+):[^\s@/]+@/gi,
+      (_match, scheme: string, user: string) => `${scheme}://${user}:[redacted]@`,
+    )
     .replace(LABELLED_SECRET, (_match, lead: string, label: string) => `${lead}${label}: [redacted]`);
 
 export const redactBody = (body: string[]): string[] => body.map((line) => redactSecrets(line));
