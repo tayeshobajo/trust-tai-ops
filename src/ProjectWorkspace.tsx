@@ -2865,9 +2865,9 @@ export function ProjectWorkspace({
             <h3>{activeRun.title}</h3>
 
             <ol className="pw-phases">
-              {HUMAN_PHASES.map((phase) => {
-                const currentIndex = signal.phase ? HUMAN_PHASES.indexOf(signal.phase) : -1;
-                const index = HUMAN_PHASES.indexOf(phase);
+              {phaseTrack.map((phase) => {
+                const currentIndex = signal.phase ? phaseTrack.indexOf(signal.phase) : -1;
+                const index = phaseTrack.indexOf(phase);
                 const state = index < currentIndex ? "done" : index === currentIndex ? "now" : "next";
                 return (
                   <li key={phase} className={`pw-phase is-${state}`}>
