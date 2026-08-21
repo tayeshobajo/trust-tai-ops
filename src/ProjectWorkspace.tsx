@@ -321,9 +321,14 @@ export function ProjectWorkspace({
   onWorkspaceUpdate,
 }: ProjectWorkspaceProps) {
   const runs = project.runs;
+  // One task runs at a time. Queued tasks are waiting their turn and are never
+  // opened, narrated, or advanced until they are promoted.
+  const liveRuns = useMemo(() => runs.filter((run) => (run.queuePosition ?? null) === null), [runs]);
+  const queuedRuns = useMemo(() => getQueuedRuns(project), [project]);
   const [activeRunId, setActiveRunId] = useState<string | null>(
-    startInNewTask ? null : runs.find((run) => run.state !== "complete")?.id ?? runs[0]?.id ?? null,
+    startInNewTask ? null : liveRuns.find((run) => run.state !== "complete")?.id ?? liveRuns[0]?.id ?? null,
   );
+
   const [composerValue, setComposerValue] = useState("");
   const [messages, setMessages] = useState<ProjectMessage[]>([]);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
