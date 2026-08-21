@@ -259,7 +259,7 @@ export const REASON_INTENTS = [
 export type ReasonIntent = (typeof REASON_INTENTS)[number];
 
 /** Access the agent is allowed to ask a human for. Nothing else is offered. */
-export const REQUESTABLE_ACCESS = ["wordpress_admin", "sftp", "ssh", "hosting_portal"] as const;
+export const REQUESTABLE_ACCESS = ["wordpress_admin", "sftp", "ssh", "hosting_portal", "google_search_console"] as const;
 
 /** The maximum number of inspections one turn may plan. */
 export const MAX_STEPS_PER_TURN = 4;

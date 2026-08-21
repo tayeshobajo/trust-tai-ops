@@ -12,7 +12,7 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { authorizeProject } from "../_shared/authz.ts";
 import { authzDeps, executionContextConfigured, secretStoreDeps } from "../_shared/clients.ts";
-import { secretReferenceFor, storeCredential } from "../_shared/secretStore.ts";
+import { resolveRawSecret, secretReferenceFor, storeCredential } from "../_shared/secretStore.ts";
 import { verifyStoredWordPressCredential } from "../_shared/verification.ts";
 import { runReadOnlyWpCli } from "../_shared/wpCli.ts";
 import { denoSshTransport } from "../_shared/sshTransport.ts";
@@ -221,7 +221,6 @@ Deno.serve(async (req) => {
       }
 
       // Decrypt the stored JSON.
-      const { resolveRawSecret } = await import("../_shared/secretStore.ts");
       const rawResult = await resolveRawSecret(deps, authz.project.projectId, "google_search_console");
       if (!rawResult.ok) {
         return fail(rawResult.code, "The stored service account key could not be decrypted.");

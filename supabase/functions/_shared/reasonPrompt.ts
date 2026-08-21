@@ -95,6 +95,7 @@ const KNOWN_CAPABILITIES = [
   "hosting_portal",
   "database",
   "cdn",
+  "google_search_console",
 ] as const;
 
 /** Normalizes and bounds whatever the browser sent. Never throws. */
