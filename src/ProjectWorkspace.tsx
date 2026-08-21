@@ -2095,6 +2095,13 @@ export function ProjectWorkspace({
           {runs.length === 0 ? <p className="pw-empty-note">No tasks yet. Describe what you need and I'll start one.</p> : null}
           {openRuns.length > 0 ? <p className="pw-task-group">In progress · {openRuns.length}</p> : null}
           {openRuns.map((run) => renderTaskRow(run, "rail"))}
+          {queuedRuns.length > 0 ? (
+            <>
+              <p className="pw-task-group">Up next · {queuedRuns.length}</p>
+              <ul className="pw-queue">{queuedRuns.map((run, index) => renderQueuedRow(run, index))}</ul>
+            </>
+          ) : null}
+
           {doneRuns.length > 0 ? (
             <>
               <button
