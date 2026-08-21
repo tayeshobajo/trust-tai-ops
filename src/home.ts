@@ -1,8 +1,32 @@
 import type { Project, Run } from "./types";
 import { getActiveRun } from "./lib";
 
-export const HUMAN_PHASES = ["Understanding", "Investigating", "Resolving", "Checking", "Completed"] as const;
+export const HUMAN_PHASES = [
+  "Understanding",
+  "Investigating",
+  "Planning",
+  "Resolving",
+  "Checking",
+  "Completed",
+] as const;
 export type HumanPhase = (typeof HUMAN_PHASES)[number];
+
+/**
+ * Work that only reads never plans or applies a fix, so it must never show a
+ * phase that promises one. Audits, reviews and verification runs go
+ * Understanding → Investigating → Checking → Completed.
+ */
+export const READ_ONLY_PHASES: HumanPhase[] = ["Understanding", "Investigating", "Checking", "Completed"];
+
+export const isReadOnlyTask = (run: Run): boolean => run.taskType === "qa_only";
+
+/** A stored, executable fix plan is the only thing that licenses "Resolving". */
+export const hasStoredFixPlan = (run: Run): boolean =>
+  run.artifacts.some((artifact) => artifact.type === "fix_plan");
+
+/** The phase track a given task actually travels through. */
+export const phasesForRun = (run: Run | null): readonly HumanPhase[] =>
+  run && isReadOnlyTask(run) && !hasStoredFixPlan(run) ? READ_ONLY_PHASES : HUMAN_PHASES;
 
 export type AgentState = "ready" | "working" | "needs_you";
 
@@ -19,6 +43,8 @@ const shortTitle = (run: Run) => run.title.replace(/\.$/, "").toLowerCase();
 
 export const signalForRun = (run: Run): ProjectSignal => {
   const base = { updatedAt: run.updatedAt } as const;
+  // A read-only task with nothing to apply never claims to be fixing anything.
+  const readOnly = isReadOnlyTask(run) && !hasStoredFixPlan(run);
 
   switch (run.state) {
     case "intake":
@@ -31,11 +57,17 @@ export const signalForRun = (run: Run): ProjectSignal => {
     case "diagnosis":
       return { ...base, status: `Investigating ${shortTitle(run)}`, detail: run.diagnosisSummary || run.taskSummary, phase: "Investigating", agentState: "working", needsYou: null };
     case "plan":
+      if (readOnly) {
+        return { ...base, status: `Investigating ${shortTitle(run)}`, detail: run.diagnosisSummary || run.taskSummary, phase: "Investigating", agentState: "working", needsYou: null };
+      }
       return run.approvalRequired
-        ? { ...base, status: `Needs approval on ${shortTitle(run)}`, detail: run.planSummary || run.operatorPrompt, phase: "Resolving", agentState: "needs_you", needsYou: run.nextAction }
-        : { ...base, status: `Preparing a fix for ${shortTitle(run)}`, detail: run.planSummary || run.taskSummary, phase: "Resolving", agentState: "working", needsYou: null };
+        ? { ...base, status: `Needs your go-ahead on ${shortTitle(run)}`, detail: run.planSummary || run.operatorPrompt, phase: "Planning", agentState: "needs_you", needsYou: run.nextAction }
+        : { ...base, status: `Working out the safest fix for ${shortTitle(run)}`, detail: run.planSummary || run.taskSummary, phase: "Planning", agentState: "working", needsYou: null };
     case "execution":
-      return { ...base, status: `Working on ${shortTitle(run)}`, detail: run.planSummary || run.taskSummary, phase: "Resolving", agentState: "working", needsYou: null };
+      if (readOnly) {
+        return { ...base, status: `Checking ${shortTitle(run)}`, detail: run.diagnosisSummary || run.taskSummary, phase: "Checking", agentState: "working", needsYou: null };
+      }
+      return { ...base, status: `Applying the fix for ${shortTitle(run)}`, detail: run.planSummary || run.taskSummary, phase: "Resolving", agentState: "working", needsYou: null };
     case "qa":
       return { ...base, status: "Running final checks", detail: run.qaReport.summary || "Verifying the site behaves correctly after the work.", phase: "Checking", agentState: "working", needsYou: null };
     case "recommendations":
