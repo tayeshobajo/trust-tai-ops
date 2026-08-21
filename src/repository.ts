@@ -1948,6 +1948,8 @@ function mapRun(
     planSummary: run.plan_summary,
     startedAt: run.started_at,
     updatedAt: run.updated_at,
+    queuePosition: run.queue_position ?? null,
+
     phases: related.phaseRows
       .filter((phase) => phase.run_id === run.id)
       .map((phase) => ({
