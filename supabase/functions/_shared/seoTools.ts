@@ -303,6 +303,48 @@ export const runSitemapAudit = async (rawUrl: string): Promise<OkResult | FailRe
 // 4. Google Search Console
 // ---------------------------------------------------------------------------
 
+/**
+ * Try a GSC Search Analytics query against a property string.
+ * Returns the raw response JSON on success, null on any failure.
+ */
+const gscAnalyticsQuery = async (
+  property: string,
+  startDate: string,
+  endDate: string,
+  token: string,
+): Promise<Record<string, unknown> | null> => {
+  const res = await timedFetch(
+    `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(property)}/searchAnalytics/query`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ startDate, endDate, dimensions: ["page", "query"], rowLimit: 25 }),
+      timeoutMs: 15_000,
+    },
+  );
+  if (!res?.ok) return null;
+  try { return await res.json() as Record<string, unknown>; } catch { return null; }
+};
+
+/** URL Inspection API — returns inspection result or null. */
+const gscInspect = async (
+  property: string,
+  inspectionUrl: string,
+  token: string,
+): Promise<Record<string, unknown> | null> => {
+  const res = await timedFetch(
+    "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ inspectionUrl, siteUrl: property }),
+      timeoutMs: 15_000,
+    },
+  );
+  if (!res?.ok) return null;
+  try { return await res.json() as Record<string, unknown>; } catch { return null; }
+};
+
 export const runSearchConsole = async (rawUrl: string, gscToken: string | null): Promise<OkResult | FailResult> => {
   const resolved = safeUrl(rawUrl);
   if (!("url" in resolved)) return resolved;
@@ -311,57 +353,89 @@ export const runSearchConsole = async (rawUrl: string, gscToken: string | null):
   if (!gscToken) {
     return fail(
       "no_gsc_credential",
-      "Google Search Console requires an OAuth access token stored in the project's credentials. Add it through Access & Connections first.",
+      "Google Search Console access requires a service account key stored in Access & Connections. Add it there first.",
       false,
     );
   }
 
   const host = resolved.url.host.replace(/^www\./, "");
-  const property = `sc-domain:${host}`;
+  const domainProperty = `sc-domain:${host}`;
+  // URL-prefix property is the canonical origin (scheme + host, no path)
+  const originProperty = `${resolved.url.protocol}//${resolved.url.host}/`;
 
   const start = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const end = new Date().toISOString().slice(0, 10);
 
-  const analyticsRes = await timedFetch(
-    `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(property)}/searchAnalytics/query`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${gscToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ startDate: start, endDate: end, dimensions: ["page"], rowLimit: 20 }),
-      timeoutMs: 15_000,
-    },
-  );
+  // Try sc-domain first (broader, covers all URL variants). Fall back to URL-prefix.
+  let analyticsData = await gscAnalyticsQuery(domainProperty, start, end, gscToken);
+  let activeProperty = domainProperty;
+  if (!analyticsData) {
+    analyticsData = await gscAnalyticsQuery(originProperty, start, end, gscToken);
+    if (analyticsData) activeProperty = originProperty;
+  }
 
-  const analyticsData = analyticsRes?.ok
-    ? await analyticsRes.json() as Record<string, unknown>
-    : null;
-
-  const inspectRes = await timedFetch(
-    `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(property)}/urlInspection/index:inspect`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${gscToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ inspectionUrl: url, siteUrl: property }),
-      timeoutMs: 15_000,
-    },
-  );
-
-  const inspectData = inspectRes?.ok
-    ? await inspectRes.json() as Record<string, unknown>
-    : null;
+  // URL inspection via the v1 API
+  const inspectData = await gscInspect(activeProperty, url, gscToken);
 
   const rows = (analyticsData?.rows as Array<Record<string, unknown>>) ?? [];
+
+  // Aggregate totals
   const clicks = rows.reduce((s, r) => s + (Number(r.clicks) || 0), 0);
   const impressions = rows.reduce((s, r) => s + (Number(r.impressions) || 0), 0);
-  const indexResult = inspectData?.inspectionResult as Record<string, unknown> | null;
-  const indexStatus = (indexResult?.indexStatusResult as Record<string, unknown>)?.coverageState ?? "Unknown";
+  const avgCtr = rows.length > 0
+    ? rows.reduce((s, r) => s + (Number(r.ctr) || 0), 0) / rows.length
+    : 0;
+  const avgPosition = rows.length > 0
+    ? rows.reduce((s, r) => s + (Number(r.position) || 0), 0) / rows.length
+    : 0;
 
-  return ok(
-    analyticsData
-      ? `GSC (90d): ${clicks} clicks, ${impressions} impressions across ${rows.length} pages. Index: ${indexStatus}.`
-      : `GSC analytics unavailable — check OAuth token. Index status: ${indexStatus}.`,
-    { property, indexStatus, last90Days: { clicks, impressions, topPages: rows.slice(0, 10) }, coverageData: indexResult },
-  );
+  // Top pages by clicks
+  const topPages = rows
+    .sort((a, b) => (Number(b.clicks) || 0) - (Number(a.clicks) || 0))
+    .slice(0, 10)
+    .map((r) => ({
+      page: String((r.keys as string[])?.[0] ?? ""),
+      query: String((r.keys as string[])?.[1] ?? ""),
+      clicks: Number(r.clicks) || 0,
+      impressions: Number(r.impressions) || 0,
+      ctr: Number(r.ctr) || 0,
+      position: Number(r.position) || 0,
+    }));
+
+  const indexResult = inspectData?.inspectionResult as Record<string, unknown> | null;
+  const indexStatusResult = indexResult?.indexStatusResult as Record<string, unknown> | null;
+  const indexStatus = String(indexStatusResult?.coverageState ?? "Unknown");
+  const robotsAllowed = indexStatusResult?.robotsTxtState === "ALLOWED";
+  const lastCrawl = String(indexStatusResult?.lastCrawlTime ?? "");
+
+  const issues: string[] = [];
+  if (!analyticsData) issues.push("Search Analytics unavailable — service account may not have property access.");
+  if (avgPosition > 20) issues.push(`Average position ${avgPosition.toFixed(1)} — most content is past page 2.`);
+  if (avgCtr < 0.02 && impressions > 100) issues.push("CTR below 2% — titles and meta descriptions likely need work.");
+  if (!robotsAllowed && indexStatus !== "Unknown") issues.push("robots.txt may be blocking indexing.");
+
+  const summaryParts: string[] = [];
+  if (analyticsData) {
+    summaryParts.push(
+      `GSC (90d): ${clicks.toLocaleString()} clicks, ${impressions.toLocaleString()} impressions across ${rows.length} pages`,
+      `avg position ${avgPosition.toFixed(1)}, avg CTR ${(avgCtr * 100).toFixed(1)}%`,
+    );
+  } else {
+    summaryParts.push("GSC Search Analytics unavailable");
+  }
+  summaryParts.push(`Index: ${indexStatus}`);
+  if (issues.length) summaryParts.push(`${issues.length} issue(s) flagged`);
+
+  return ok(summaryParts.join(" · "), {
+    property: activeProperty,
+    propertyFallback: activeProperty === originProperty,
+    indexStatus,
+    robotsAllowed,
+    lastCrawl,
+    last90Days: { clicks, impressions, avgCtr, avgPosition, topPages },
+    issues,
+    coverageData: indexStatusResult,
+  });
 };
 
 // ---------------------------------------------------------------------------

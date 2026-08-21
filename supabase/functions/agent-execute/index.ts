@@ -36,6 +36,7 @@ import { denoSftpTransport, denoSshTransport } from "../_shared/sshTransport.ts"
 import { readWordPressErrorLog } from "../_shared/errorLog.ts";
 import { isBrowserViewport, runBrowserInspection, sanitizeElementQuery } from "../_shared/browserInspect.ts";
 import { runPageSpeed, runSchemaValidate, runSitemapAudit, runSearchConsole, runSecurityHeaders } from "../_shared/seoTools.ts";
+import { getGscAccessToken } from "../_shared/gscAuth.ts";
 
 const fail = (code: string, summary: string, retryable: boolean) =>
   Response.json({ ok: false, code, summary, retryable }, { headers: corsHeaders });
@@ -53,7 +54,7 @@ const PRIVATE_TOOLS = new Set([
 ]);
 
 /** Every access type whose credential the server can actually resolve. */
-const EXECUTABLE_ACCESS_TYPES = ["wordpress_admin", "ssh", "sftp"];
+const EXECUTABLE_ACCESS_TYPES = ["wordpress_admin", "ssh", "sftp", "google_search_console"];
 
 /** SFTP and SSH are one server capability as far as the tool catalog is concerned. */
 const withServerCapability = (list: string[]): string[] =>
@@ -1132,9 +1133,23 @@ Deno.serve(async (req) => {
     case "seo.search_console": {
       const gscUrl = canonicalUrl ?? clientUrl;
       if (!gscUrl) return fail("invalid_input", "That request was missing the site address.", false);
-      // GSC token resolved from the project's stored credentials (optional — tool reports honestly if absent).
-      const gscToken = await resolveRawSecret(secretStoreDeps(), wpProjectId, "gsc_oauth_token").catch(() => null);
-      const gscResult = await runSearchConsole(gscUrl, gscToken);
+
+      // Resolve the stored service account JSON, exchange it for an access token.
+      // The tool runs honestly without one — it just reports what's missing.
+      let gscAccessToken: string | null = null;
+      const rawGsc = await resolveRawSecret(secretStoreDeps(), wpProjectId, "google_search_console").catch(() => null);
+      if (rawGsc?.ok) {
+        const tokenResult = await getGscAccessToken(rawGsc.plaintext);
+        if (tokenResult.ok) {
+          gscAccessToken = tokenResult.accessToken;
+        } else {
+          // Non-fatal: tool will report the specific auth failure in its summary.
+          // Don't block the whole request — return a structured failure instead.
+          return fail(tokenResult.code, tokenResult.summary, false);
+        }
+      }
+
+      const gscResult = await runSearchConsole(gscUrl, gscAccessToken);
       if (!gscResult.ok) return fail(gscResult.code, gscResult.summary, gscResult.retryable);
       return Response.json({ ok: true, summary: gscResult.summary, data: gscResult.data }, { headers: corsHeaders });
     }

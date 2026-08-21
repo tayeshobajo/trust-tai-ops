@@ -478,7 +478,9 @@ export function ProjectAccessPanel({
       definition.executable
         ? definition.type === "ssh"
           ? `${definition.label} is stored securely and can never be read back. I haven't connected yet — use Verify access, and I'll record the server's identity on that first connection.`
-          : `${definition.label} is stored securely and can never be read back. It hasn't been checked with WordPress yet — use Verify access when you're ready.`
+          : definition.type === "google_search_console"
+            ? `${definition.label} service account is stored securely and can never be read back. Use Verify access to confirm the key is accepted and the service account has property access.`
+            : `${definition.label} is stored securely and can never be read back. It hasn't been checked with WordPress yet — use Verify access when you're ready.`
         : `${definition.label} connection details saved.`,
       { type: definition.type, label: definition.label, action: existing ? "replaced" : "added" },
     );
@@ -724,7 +726,9 @@ export function ProjectAccessPanel({
                   ? stack === "wordpress"
                     ? "The private key is sent straight to the secure store and is never shown again. Only a fixed list of read-only WP-CLI inspections can ever be run with it."
                     : "The private key is sent straight to the secure store and is never shown again. It can be checked against the server's identity; running commands on this stack isn't enabled yet."
-                  : "The password is sent straight to the secure store and is never shown again."
+                  : activeDefinition.type === "google_search_console"
+                    ? "The service account JSON key is sent straight to the secure store and is never shown again. Only read-only Search Console queries are ever run with it."
+                    : "The password is sent straight to the secure store and is never shown again."
                 : "Connection details only. Don't paste a password here — it wouldn't be stored securely yet."}
             </p>
 

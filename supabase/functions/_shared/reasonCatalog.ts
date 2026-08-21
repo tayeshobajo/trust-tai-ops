@@ -233,9 +233,9 @@ export const REASON_STEPS: Record<ReasonStepId, ReasonStepSpec> = {
   "seo-search-console": {
     id: "seo-search-console",
     toolId: "seo.search_console",
-    capability: "public_internet",
+    capability: "google_search_console",
     serverResolvedTarget: false,
-    purpose: "Query Google Search Console for index coverage, crawl errors, impressions, clicks, and Core Web Vitals. Requires a GSC OAuth token in the project credentials.",
+    purpose: "Query Google Search Console for index coverage, crawl stats, impressions, clicks, average position, CTR, and top pages. Requires a service account key stored in Access & Connections.",
   },
   "security-headers": {
     id: "security-headers",

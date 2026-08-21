@@ -18,6 +18,7 @@ import { runReadOnlyWpCli } from "../_shared/wpCli.ts";
 import { denoSshTransport } from "../_shared/sshTransport.ts";
 import { validatePrivateKey, validateSshDestination, validateSshUsername } from "../_shared/sshSafety.ts";
 import { validateWpBinary, validateWpRoot } from "../_shared/wpCliCatalog.ts";
+import { getGscAccessToken } from "../_shared/gscAuth.ts";
 
 const fail = (code: string, summary: string, status = 200) =>
   Response.json({ ok: false, code, summary }, { status, headers: corsHeaders });
@@ -210,10 +211,68 @@ Deno.serve(async (req) => {
     if (!authz.ok) return fail(authz.code, AUTH_FAIL_SUMMARY[authz.code]);
 
     if (mode === "verify") {
-      // Verification requires a live GSC API call; not yet implemented.
-      return fail(
-        "not_implemented",
-        "Live Search Console verification isn't available yet. The agent will confirm access on its first run.",
+      // Resolve the stored service account JSON and attempt a token exchange.
+      // A successful token exchange proves the key is valid and not revoked.
+      // A live property-list check confirms the service account has GSC access.
+      const deps = secretStoreDeps();
+      const raw = await deps.loadRow(authz.project.projectId, "google_search_console").catch(() => null);
+      if (!raw) {
+        return fail("capability_unavailable", "No service account key is stored for this project yet.");
+      }
+
+      // Decrypt the stored JSON.
+      const { resolveRawSecret } = await import("../_shared/secretStore.ts");
+      const rawResult = await resolveRawSecret(deps, authz.project.projectId, "google_search_console");
+      if (!rawResult.ok) {
+        return fail(rawResult.code, "The stored service account key could not be decrypted.");
+      }
+
+      // Exchange JWT for access token.
+      const tokenResult = await getGscAccessToken(rawResult.plaintext);
+      if (!tokenResult.ok) {
+        await deps.markVerification?.(authz.project.projectId, "google_search_console", "rejected", null);
+        return Response.json(
+          {
+            ok: false,
+            code: tokenResult.code,
+            summary: tokenResult.summary,
+            data: { accessType, verificationState: "rejected", lastVerifiedAt: null },
+          },
+          { headers: corsHeaders },
+        );
+      }
+
+      // Verify the service account actually has access to at least one GSC property.
+      let propertyAccess = false;
+      try {
+        const sitesRes = await fetch(
+          "https://www.googleapis.com/webmasters/v3/sites",
+          { headers: { Authorization: `Bearer ${tokenResult.accessToken}` } },
+        );
+        if (sitesRes.ok) {
+          const sitesData = await sitesRes.json() as Record<string, unknown>;
+          const sites = (sitesData.siteEntry as Array<Record<string, unknown>>) ?? [];
+          propertyAccess = sites.length > 0;
+        }
+      } catch { /* token exchange already proved the key is valid; property check is best-effort */ }
+
+      const verifiedAt = new Date().toISOString();
+      await deps.markVerification?.(authz.project.projectId, "google_search_console", "verified", verifiedAt);
+
+      return Response.json(
+        {
+          ok: true,
+          summary: propertyAccess
+            ? "Service account authenticated and has Search Console property access."
+            : "Service account authenticated. No Search Console properties are visible yet — make sure to add it as a user on the property in GSC settings.",
+          data: {
+            accessType,
+            verificationState: "verified",
+            lastVerifiedAt: verifiedAt,
+            propertyAccess,
+          },
+        },
+        { headers: corsHeaders },
       );
     }
 
