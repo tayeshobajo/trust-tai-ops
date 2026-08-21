@@ -20,6 +20,7 @@ import { verifyStoredWordPressCredential } from "../_shared/verification.ts";
 import { verifyWordPressLogin } from "../_shared/wpLogin.ts";
 import { validatePrivateKey, validateSshDestination, validateSshUsername } from "../_shared/sshSafety.ts";
 import { denoFtpTransport } from "../_shared/ftpTransport.ts";
+import { verifyServerAccess } from "../_shared/serverAccessVerify.ts";
 import {
   accessLabel,
   hostOf,
