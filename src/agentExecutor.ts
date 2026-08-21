@@ -402,7 +402,10 @@ const runQaStep = async (context: AgentStepContext): Promise<AgentStepResult> =>
 };
 
 const runAdvanceStep = async (context: AgentStepContext, target: RunState): Promise<AgentStepResult> => {
-  const narration = workingNarration(target);
+  // "Preparing the fix" / "applying the fix" are only true when an executable
+  // plan exists. Those states narrate themselves from the fix-plan and
+  // execution paths, so nothing is announced here.
+  const narration = target === "plan" || target === "execution" ? null : workingNarration(target);
   if (narration) {
     await sayStep(context, target, [narration], "status_update");
   }
@@ -422,8 +425,10 @@ const runAdvanceStep = async (context: AgentStepContext, target: RunState): Prom
 const executeFixPlan = async (context: AgentStepContext): Promise<AgentStepResult> => {
   const { project, run } = context;
 
-  // Retrieve the fix plan we stored when the plan was proposed.
+  // Retrieve the fix plan we stored when the plan was proposed. A missing plan
+  // and an unreadable plan are different problems, so they are reported apart.
   let fixPlan: FixPlanResult | null = null;
+  let unreadable = false;
   try {
     const rows = await workspaceRepository.getRecentEvidence(
       project.id,
@@ -432,18 +437,33 @@ const executeFixPlan = async (context: AgentStepContext): Promise<AgentStepResul
       1,
     );
     if (rows[0]?.summary) {
-      fixPlan = JSON.parse(rows[0].summary) as FixPlanResult;
+      try {
+        fixPlan = JSON.parse(rows[0].summary) as FixPlanResult;
+      } catch {
+        unreadable = true;
+      }
     }
-  } catch {
-    // If the plan is unreadable, bail out gracefully.
+  } catch (error) {
+    console.error("Could not read the stored fix plan", error);
   }
 
-  if (!fixPlan || fixPlan.steps.length === 0) {
+  if (!fixPlan || !Array.isArray(fixPlan.steps) || fixPlan.steps.length === 0) {
     await sayStep(
       context,
       "execute-no-plan",
-      ["I couldn't find a stored fix plan for this run. Please re-run diagnosis."],
+      unreadable
+        ? [
+            "The fix plan I saved for this task came back unreadable, so I won't guess at what it said.",
+            "I've moved back to investigating. Ask me to plan the fix again and I'll rebuild it from the evidence.",
+          ]
+        : [
+            "I don't have a saved fix plan for this task, so there's nothing for me to apply.",
+            "I've moved back to investigating. Ask me to plan the fix and I'll work it out from the evidence.",
+          ],
       "status_update",
+    );
+    context.onWorkspaceUpdate(
+      await workspaceRepository.advanceRun(project.id, run.id, "diagnosis"),
     );
     return { ran: true };
   }
@@ -451,8 +471,12 @@ const executeFixPlan = async (context: AgentStepContext): Promise<AgentStepResul
   await sayStep(
     context,
     "execute-start",
-    [`Starting fix execution — ${fixPlan.steps.length} step${fixPlan.steps.length === 1 ? "" : "s"}.`],
+    [
+      "I'm applying the fix now.",
+      `${fixPlan.steps.length} step${fixPlan.steps.length === 1 ? "" : "s"} to work through.`,
+    ],
     "status_update",
+
   );
 
   let allOk = true;
