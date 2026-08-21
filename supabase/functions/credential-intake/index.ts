@@ -191,6 +191,60 @@ Deno.serve(async (req) => {
     }
   };
 
+  /**
+   * Project memory keeps a durable, non-secret record of what access exists and
+   * whether it has been proven. One entry per access type, kept current rather
+   * than accumulating: the next conversation should know this without asking.
+   */
+  const rememberAccess = async (
+    accessType: IntakeAccessType,
+    facts: Array<[string, string | number | undefined | null]>,
+    verification: StoredOutcome["verification"],
+  ) => {
+    const title = `Access: ${accessLabel(accessType)}`;
+    const detail = facts
+      .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "")
+      .map(([label, value]) => `${label} ${String(value)}`)
+      .join(". ");
+    const proven =
+      verification === "verified"
+        ? "Confirmed working."
+        : verification === "rejected"
+          ? "The provider refused it, so it needs replacing."
+          : "Stored, not yet proven.";
+    const content = redactSecrets(
+      [`${accessLabel(accessType)} access is stored for this project.`, detail, proven]
+        .filter(Boolean)
+        .join(" ") + " The credential itself lives only in the encrypted store.",
+    );
+
+    try {
+      const { data } = await service
+        .from("project_memory_entries")
+        .select("id")
+        .eq("project_id", project.projectId)
+        .eq("title", title)
+        .maybeSingle();
+
+      if (data?.id) {
+        await service
+          .from("project_memory_entries")
+          .update({ content, importance: "high", updated_at: new Date().toISOString() })
+          .eq("id", data.id);
+        return;
+      }
+      await service.from("project_memory_entries").insert({
+        project_id: project.projectId,
+        memory_type: "stack_note",
+        importance: "high",
+        title,
+        content,
+      });
+    } catch {
+      // Memory is a convenience projection. Never the source of access truth.
+    }
+  };
+
   const audit = async (accessType: string, provider: string, action: string, detail: Record<string, unknown>) => {
     try {
       await service.from("project_events").insert({
