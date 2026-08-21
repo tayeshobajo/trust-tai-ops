@@ -968,6 +968,50 @@ export function ProjectWorkspace({
     window.setTimeout(() => composerRef.current?.focus(), 0);
   };
 
+  const [queueBusy, setQueueBusy] = useState(false);
+
+  const runQueueAction = async (
+    action: () => Promise<Organization>,
+    onDone?: (next: Organization) => void,
+  ) => {
+    if (queueBusy || !canWrite) return;
+    setQueueBusy(true);
+    try {
+      const next = await action();
+      onWorkspaceUpdate(next);
+      onDone?.(next);
+    } catch {
+      setPersistError("I couldn't change the queue just then. Try again.");
+    } finally {
+      setQueueBusy(false);
+    }
+  };
+
+  const startQueuedNow = (run: Run) =>
+    runQueueAction(() => workspaceRepository.promoteQueuedRun(project.id, run.id), () => {
+      setActiveRunId(run.id);
+      setMobilePane("chat");
+    });
+
+  /**
+   * When the live task finishes, the next thing in the queue starts on its own.
+   * Nothing waits for a person to remember it is there.
+   */
+  useEffect(() => {
+    if (!canWrite || busy || agentBusy || queueBusy) return;
+    if (queuedRuns.length === 0) return;
+    const stillWorking = liveRuns.some((run) => run.state !== "complete");
+    if (stillWorking) return;
+
+    const next = queuedRuns[0];
+    void runQueueAction(() => workspaceRepository.promoteQueuedRun(project.id, next.id), () => {
+      setActiveRunId(next.id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, queuedRuns, liveRuns, canWrite, busy, agentBusy, queueBusy]);
+
+
+
   /**
    * A meeting enters the project as conversation. The agent says it received
    * the transcript, then says what it understood. Nothing is started here.
