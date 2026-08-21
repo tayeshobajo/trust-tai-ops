@@ -360,6 +360,7 @@ export function ProjectWorkspace({
   const [meetingAnalysis, setMeetingAnalysis] = useState<MeetingAnalysisView | null>(null);
   const [taskDecisions, setTaskDecisions] = useState<Record<string, "approved" | "rejected">>({});
   const [taskBusyId, setTaskBusyId] = useState<string | null>(null);
+  const [showDone, setShowDone] = useState(false);
   // Captain planning surface.
   const [captainBusy, setCaptainBusy] = useState(false);
   const [captainError, setCaptainError] = useState<string | null>(null);
@@ -1820,6 +1821,35 @@ export function ProjectWorkspace({
     </nav>
   );
 
+  // Open work versus finished work. Completed tasks stay reachable but never
+  // compete for attention with what is still running.
+  const openRuns = runs.filter((run) => run.state !== "complete");
+  const doneRuns = runs.filter((run) => run.state === "complete");
+
+  const renderTaskRow = (run: Run, variant: "rail" | "surface") => {
+    const rowSignal = signalForRun(run);
+    const row = (
+      <button
+        key={variant === "rail" ? run.id : undefined}
+        type="button"
+        className={`pw-task-row ${run.id === activeRunId ? "is-active" : ""} ${run.state === "complete" ? "is-done" : ""}`}
+        onClick={() => {
+          setActiveRunId(run.id);
+          if (variant === "rail") setMobilePane("chat");
+          else goToSurface("conversation");
+        }}
+      >
+        <div className="pw-task-row-top">
+          <strong>{run.title}</strong>
+          <span className="pw-stamp">{formatActivityStamp(run.updatedAt)}</span>
+        </div>
+        <p>{rowSignal.status}</p>
+        {rowSignal.agentState === "needs_you" ? <span className="pw-attention" aria-label="Needs you" /> : null}
+      </button>
+    );
+    return variant === "rail" ? row : <li key={run.id}>{row}</li>;
+  };
+
   const secondarySurface =
     surface === "tasks" ? (
       <div className="access-surface is-embedded">
@@ -1837,30 +1867,20 @@ export function ProjectWorkspace({
         {runs.length === 0 ? (
           <p className="mem-empty">No tasks yet. Start a conversation and the agent will open one.</p>
         ) : (
-          <ul className="pw-task-surface">
-            {runs.map((run) => {
-              const rowSignal = signalForRun(run);
-              return (
-                <li key={run.id}>
-                  <button
-                    type="button"
-                    className={`pw-task-row ${run.id === activeRunId ? "is-active" : ""}`}
-                    onClick={() => {
-                      setActiveRunId(run.id);
-                      goToSurface("conversation");
-                    }}
-                  >
-                    <div className="pw-task-row-top">
-                      <strong>{run.title}</strong>
-                      <span className="pw-stamp">{formatActivityStamp(run.updatedAt)}</span>
-                    </div>
-                    <p>{rowSignal.status}</p>
-                    {rowSignal.agentState === "needs_you" ? <span className="pw-attention" aria-label="Needs you" /> : null}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <>
+            <p className="eyebrow pw-task-group">In progress · {openRuns.length}</p>
+            {openRuns.length === 0 ? (
+              <p className="mem-empty">Nothing open. Every task here has been closed out.</p>
+            ) : (
+              <ul className="pw-task-surface">{openRuns.map((run) => renderTaskRow(run, "surface"))}</ul>
+            )}
+            <p className="eyebrow pw-task-group">Completed · {doneRuns.length}</p>
+            {doneRuns.length === 0 ? (
+              <p className="mem-empty">No completed tasks yet.</p>
+            ) : (
+              <ul className="pw-task-surface">{doneRuns.map((run) => renderTaskRow(run, "surface"))}</ul>
+            )}
+          </>
         )}
       </div>
     ) : surface === "access" ? (
@@ -2671,6 +2691,26 @@ export function ProjectWorkspace({
               <p className="eyebrow">Agent needs</p>
               <p>{signal.needsYou ?? "Nothing needed from you right now."}</p>
             </section>
+
+            {canWrite && activeRun.state !== "complete" ? (
+              <section className="pw-context-block">
+                <p className="eyebrow">Already handled?</p>
+                <p className="pw-empty-note">
+                  If you fixed this yourself, close it and I&apos;ll stop raising it.
+                </p>
+                <button
+                  className="ghost-button pw-mark-done"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void markRunDoneManually(activeRun)}
+                >
+                  Mark as done
+                </button>
+              </section>
+            ) : null}
+            {activeRun.state === "complete" ? (
+              <p className="pw-done-note">Closed. You&apos;ll find it under Completed in Tasks.</p>
+            ) : null}
 
             {healthMetrics.length > 0 ? (
               <section className="pw-context-block pw-health">
