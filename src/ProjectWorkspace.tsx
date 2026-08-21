@@ -2130,7 +2130,14 @@ export function ProjectWorkspace({
                     </ul>
                   ) : null}
                   {activeRun && message.decision ? renderDecision(activeRun, message.decision) : null}
-                  {isLastAgentTurn && signal ? <PhaseStrip phase={signal.phase ?? null} /> : null}
+                  {isLastAgentTurn && signal ? (
+                    <PhaseStrip
+                      phase={signal.phase ?? null}
+                      working={busy || agentBusy}
+                      detail={signal.detail ?? null}
+                    />
+                  ) : null}
+
                   <div className="pw-msg-actions">
                     <button
                       type="button"
