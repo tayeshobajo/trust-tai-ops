@@ -64,11 +64,23 @@ export const describeCredentialText = (raw: string): CredentialPreview | null =>
   if (!text) return null;
 
   const lower = text.toLowerCase();
-  const username = valueFor(text, ["username", "user", "login", "user name", "account"]);
-  const password = valueFor(text, ["password", "passwd", "pwd", "pass", "app password", "application password"]);
-  const port = valueFor(text, ["port"]);
+  const connection = text.match(
+    /\b(sftp|ftp|ftps|ssh|mysql):\/\/([^\s:@/]+)(?::([^\s@/]+))?@([A-Za-z0-9.-]+)(?::(\d{1,5}))?/i,
+  );
+  const bare = inferBareBundle(text);
+  const username =
+    valueFor(text, ["username", "user", "login", "user name", "account"]) ??
+    connection?.[2] ??
+    bare?.username ??
+    null;
+  const password =
+    valueFor(text, ["password", "passwd", "pwd", "pass", "app password", "application password"]) ??
+    connection?.[3] ??
+    bare?.secret ??
+    null;
+  const port = valueFor(text, ["port"]) ?? connection?.[5] ?? null;
   const url = urlIn(text);
-  const host = hostIn(text);
+  const host = hostIn(text) ?? connection?.[4] ?? bare?.host ?? null;
   const hasPrivateKey = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(text);
 
   if (!password && !hasPrivateKey) return null;
@@ -78,6 +90,29 @@ export const describeCredentialText = (raw: string): CredentialPreview | null =>
     if (!value) return;
     fields.push({ label, value: secret ? MASK : value, secret });
   };
+
+  const scheme = connection?.[1]?.toLowerCase() ?? "";
+  const isPanel = /\bcpanel|plesk|hosting (?:panel|portal|login)|whm\b/.test(lower);
+  const isDatabase = scheme === "mysql" || /\bphpmyadmin|mysql|database (?:login|user|password)\b/.test(lower);
+  const isCdn = /\bcloudflare|fastly|cdn\b/.test(lower);
+
+  if (isPanel || isDatabase || isCdn) {
+    const kind: CredentialKind = isPanel ? "hosting_portal" : isDatabase ? "database" : "cdn";
+    push("Address", url ? prettyHost(url) : host ? prettyHost(host) : "");
+    push("Username", username);
+    push("Secret", password, true);
+    return {
+      kind,
+      title:
+        kind === "hosting_portal"
+          ? "Hosting panel access detected"
+          : kind === "database"
+            ? "Database access detected"
+            : "CDN access detected",
+      fields,
+      ambiguous: fields.length < 2,
+    };
+  }
 
   const isWordPress = /wp-admin|wp-login|wordpress/.test(lower);
   const isSftp = /\bs?ftp\b/.test(lower);
