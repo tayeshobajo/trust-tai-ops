@@ -18,6 +18,8 @@ export type CredentialKind =
   | "login"
   | "unknown";
 
+import { inferBareBundle } from "./secretGuard";
+
 export type CredentialPreviewField = {
   label: string;
   /** Already safe to render: secrets arrive here masked. */
