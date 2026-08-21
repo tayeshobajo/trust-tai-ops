@@ -10,7 +10,15 @@
  * that text with every secret value removed.
  */
 
-export type IntakeAccessType = "wordpress_admin" | "ssh" | "sftp" | "ftp" | "google_search_console";
+export type IntakeAccessType =
+  | "wordpress_admin"
+  | "ssh"
+  | "sftp"
+  | "ftp"
+  | "google_search_console"
+  | "hosting_portal"
+  | "database"
+  | "cdn";
 
 export type CredentialProvider =
   | "wordpress_application_password"
@@ -18,7 +26,10 @@ export type CredentialProvider =
   | "ssh_private_key"
   | "sftp_password"
   | "ftp_password"
-  | "google_service_account";
+  | "google_service_account"
+  | "hosting_panel_password"
+  | "database_password"
+  | "api_token";
 
 export type ParsedBundle = {
   accessType: IntakeAccessType;
