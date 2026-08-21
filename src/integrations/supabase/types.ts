@@ -83,6 +83,120 @@ export type Database = {
           },
         ]
       }
+      captain_plan_approvals: {
+        Row: {
+          comment: string | null
+          created_at: string
+          decided_by: string
+          decided_by_email: string | null
+          decision: string
+          id: string
+          project_id: string
+          request_id: string
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          decided_by: string
+          decided_by_email?: string | null
+          decision: string
+          id?: string
+          project_id: string
+          request_id: string
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          decided_by?: string
+          decided_by_email?: string | null
+          decision?: string
+          id?: string
+          project_id?: string
+          request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "captain_plan_approvals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "captain_plan_approvals_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "captain_plan_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      captain_plan_requests: {
+        Row: {
+          answered_at: string | null
+          claimed_at: string | null
+          created_at: string
+          digest: Json
+          error_summary: string | null
+          execution_finished_at: string | null
+          execution_started_at: string | null
+          execution_summary: string | null
+          id: string
+          plan: Json | null
+          project_id: string
+          run_id: string | null
+          source: string | null
+          status: string
+        }
+        Insert: {
+          answered_at?: string | null
+          claimed_at?: string | null
+          created_at?: string
+          digest?: Json
+          error_summary?: string | null
+          execution_finished_at?: string | null
+          execution_started_at?: string | null
+          execution_summary?: string | null
+          id?: string
+          plan?: Json | null
+          project_id: string
+          run_id?: string | null
+          source?: string | null
+          status?: string
+        }
+        Update: {
+          answered_at?: string | null
+          claimed_at?: string | null
+          created_at?: string
+          digest?: Json
+          error_summary?: string | null
+          execution_finished_at?: string | null
+          execution_started_at?: string | null
+          execution_summary?: string | null
+          id?: string
+          plan?: Json | null
+          project_id?: string
+          run_id?: string | null
+          source?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "captain_plan_requests_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "captain_plan_requests_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversation_anchors: {
         Row: {
           aliases: string[]
