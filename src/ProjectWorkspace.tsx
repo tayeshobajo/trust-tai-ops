@@ -2128,14 +2128,51 @@ export function ProjectWorkspace({
                               type="button"
                               disabled={busy || agentBusy}
                               onClick={async () => {
-                                // Approve: emit a user decision_response then continue the run.
-                                await emit({
-                                  runId: activeRun?.id ?? null,
-                                  role: "user",
-                                  kind: "decision_response",
-                                  body: ["Approved Captain's plan. Proceed."],
-                                  dedupeKey: `captain-approve-${message.key}`,
-                                });
+                                if (!activeRun) return;
+                                setBusy(true);
+                                try {
+                                  // Persist the user approval first.
+                                  const saved = await emit({
+                                    runId: activeRun.id,
+                                    role: "user",
+                                    kind: "decision_response",
+                                    body: ["Approved Captain's plan. Proceed."],
+                                    dedupeKey: `captain-approve-${message.key}`,
+                                  });
+                                  if (!saved) return;
+                                  // Hand off to the agent so it reads the approval
+                                  // in context and takes the next real step.
+                                  setAgentBusy(true);
+                                  try {
+                                    const outcome = await respondToUserMessage({
+                                      project,
+                                      run: activeRun,
+                                      emit,
+                                      onWorkspaceUpdate,
+                                      recentMessages: [
+                                        ...messages.filter((m) => m.runId === activeRun.id),
+                                        saved,
+                                      ],
+                                      memory: project.memoryEntries,
+                                      onStream: setStreamingText,
+                                      onEvidence: collectEvidence,
+                                    });
+                                    if (!outcome.spoke) {
+                                      await emit({
+                                        runId: activeRun.id,
+                                        role: "agent",
+                                        kind: "message",
+                                        body: ["Understood — I'll proceed with the plan."],
+                                        dedupeKey: `captain-approve-ack-${message.key}`,
+                                      });
+                                    }
+                                  } finally {
+                                    setStreamingText("");
+                                    setAgentBusy(false);
+                                  }
+                                } finally {
+                                  setBusy(false);
+                                }
                               }}
                             >
                               Approve plan

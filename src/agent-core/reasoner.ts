@@ -430,9 +430,33 @@ export const reasoningDigest = (context: AgentContext): Record<string, unknown> 
     unavailable: (context.failedObservations ?? []).slice(-16).map((item) => ({ toolId: item.toolId, code: item.code })),
     // Wider conversation window — 24 messages keeps the agent grounded in the
     // full exchange, not just the last few turns.
+    // captain_plan messages carry raw JSON in body[0]; replace with a readable
+    // summary so the model sees structured intent, not a wall of JSON.
     messages: context.recentMessages
       .slice(-24)
-      .map((message) => ({ role: message.role, text: redactSecrets(message.body.join(" ")) })),
+      .map((message) => {
+        if (message.kind === "captain_plan") {
+          try {
+            const plan = JSON.parse(message.body[0] ?? "{}") as {
+              rationale?: string;
+              steps?: Array<{ label?: string }>;
+              risk?: string;
+              readyToExecute?: boolean;
+            };
+            const stepLabels = (plan.steps ?? []).map((s) => s.label).filter(Boolean).join("; ");
+            const summary = [
+              plan.rationale ? `Captain's plan: ${plan.rationale}` : "Captain produced a strategic plan.",
+              stepLabels ? `Steps: ${stepLabels}` : null,
+              plan.risk ? `Risk: ${plan.risk}.` : null,
+              plan.readyToExecute ? "Captain assessed this as ready to execute." : null,
+            ].filter(Boolean).join(" ");
+            return { role: message.role, text: redactSecrets(summary) };
+          } catch {
+            return { role: message.role, text: "Captain produced a strategic plan (unreadable)." };
+          }
+        }
+        return { role: message.role, text: redactSecrets(message.body.join(" ")) };
+      }),
     // Constraints surface first in the memory block so they are never buried.
     constraints,
     memory: context.memory
