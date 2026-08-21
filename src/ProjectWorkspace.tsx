@@ -513,6 +513,7 @@ export function ProjectWorkspace({
   useEffect(() => {
     let alive = true;
     setMessagesLoaded(false);
+    initialScrollPending.current = true;
     void (async () => {
       try {
         const stored = await workspaceRepository.listProjectMessages(project.id);
