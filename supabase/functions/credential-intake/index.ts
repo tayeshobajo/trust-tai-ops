@@ -468,6 +468,7 @@ Deno.serve(async (req) => {
       null,
     );
     await audit("google_search_console", bundle.provider, "stored", { verification: "unverified" });
+    await rememberAccess("google_search_console", [["Service account:", bundle.username]], "unverified");
 
     stored.push({
       accessType: "google_search_console",
