@@ -215,6 +215,7 @@ const UserAvatar = ({ muted = false }: { muted?: boolean }) => (
 const PHASE_MEANING: Record<string, { doing: string; done: string }> = {
   Understanding: { doing: "Reading the brief and the project history", done: "Brief understood" },
   Investigating: { doing: "Looking through the site to find the cause", done: "Investigation done" },
+  Planning: { doing: "Working out the safest fix", done: "Fix planned" },
   Resolving: { doing: "Applying the fix", done: "Fix applied" },
   Checking: { doing: "Running the final checks", done: "Checks run" },
   Completed: { doing: "Writing up the result", done: "Completed" },
@@ -224,13 +225,15 @@ const PhaseStrip = ({
   phase,
   working = false,
   detail,
+  track = HUMAN_PHASES,
 }: {
   phase: string | null;
   working?: boolean;
   detail?: string | null;
+  track?: readonly string[];
 }) => {
-  const currentIndex = phase ? HUMAN_PHASES.indexOf(phase as (typeof HUMAN_PHASES)[number]) : -1;
-  const current = currentIndex >= 0 ? HUMAN_PHASES[currentIndex] : null;
+  const currentIndex = phase ? track.indexOf(phase) : -1;
+  const current = currentIndex >= 0 ? track[currentIndex] : null;
   const caption =
     detail?.trim() ||
     (current ? (working ? PHASE_MEANING[current].doing : PHASE_MEANING[current].done) : null);
@@ -238,7 +241,7 @@ const PhaseStrip = ({
   return (
     <div className={working ? "pw-phase-block is-working" : "pw-phase-block"}>
       <ol className="pw-phase-strip" aria-label="Task progress">
-        {HUMAN_PHASES.map((item, index) => {
+        {track.map((item, index) => {
           const state = index < currentIndex ? "done" : index === currentIndex ? "now" : "next";
           return (
             <li
