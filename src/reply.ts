@@ -70,7 +70,7 @@ export const composeReply = (project: Project, run: Run | null, message: string)
   // A question about the work itself is answered with where the task stands.
   if (run && isQuestion(text)) {
     const next = autoAdvanceTarget(project, run);
-    const narration = next ? workingNarration(next) : null;
+    const narration = next && next !== "plan" && next !== "execution" ? workingNarration(next) : null;
     return [
       narration ??
         "I'm holding here until I have what I need from you — I'd rather ask than guess at something I can't observe.",
@@ -83,7 +83,7 @@ export const composeReply = (project: Project, run: Run | null, message: string)
 
   // Otherwise: confirm what was understood, and say what happens because of it.
   const next = autoAdvanceTarget(project, run);
-  const narration = next ? workingNarration(next) : null;
+  const narration = next && next !== "plan" && next !== "execution" ? workingNarration(next) : null;
   return narration
     ? ["Understood — I've taken that into account.", narration]
     : ["Understood — I've taken that into account, and it'll shape what I check next."];
