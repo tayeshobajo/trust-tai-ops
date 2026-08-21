@@ -2047,7 +2047,14 @@ export function ProjectWorkspace({
             ) : (
               <ul className="pw-task-surface">{openRuns.map((run) => renderTaskRow(run, "surface"))}</ul>
             )}
+            {queuedRuns.length > 0 ? (
+              <>
+                <p className="eyebrow pw-task-group">Up next · {queuedRuns.length}</p>
+                <ul className="pw-queue">{queuedRuns.map((run, index) => renderQueuedRow(run, index))}</ul>
+              </>
+            ) : null}
             <p className="eyebrow pw-task-group">Completed · {doneRuns.length}</p>
+
             {doneRuns.length === 0 ? (
               <p className="mem-empty">No completed tasks yet.</p>
             ) : (
