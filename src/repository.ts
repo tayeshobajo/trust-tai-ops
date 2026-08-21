@@ -229,7 +229,18 @@ export interface WorkspaceRepository {
   loadWorkspace(): Promise<Organization>;
   saveWorkspace(workspace: Organization): Promise<void>;
   createProject(draft: ProjectDraft): Promise<Organization>;
-  createRun(projectId: string, draft: RunDraft): Promise<Organization>;
+  /**
+   * Creates a task. When `options.queued` is set the task waits its turn: the
+   * agent only ever works on the one live task in a project.
+   */
+  createRun(projectId: string, draft: RunDraft, options?: { queued?: boolean }): Promise<Organization>;
+  /** Starts a waiting task now, parking whatever was live back at the front of the queue. */
+  promoteQueuedRun(projectId: string, runId: string): Promise<Organization>;
+  /** Moves a waiting task up or down the queue. */
+  moveQueuedRun(projectId: string, runId: string, direction: "up" | "down"): Promise<Organization>;
+  /** Drops a waiting task without ever starting it. */
+  cancelQueuedRun(projectId: string, runId: string): Promise<Organization>;
+
   getProject(projectId: string): Promise<Project | null>;
   getActiveRun(projectId: string): Promise<Run | null>;
   advanceRun(projectId: string, runId: string, targetState: Run["state"]): Promise<Organization>;
