@@ -310,7 +310,13 @@ export type Run = {
   approvals: RunApproval[];
   qaReport: QaReport;
   recommendations: Recommendation[];
+  /**
+   * Set when this task is waiting its turn. A queued task is never worked on:
+   * only one task per project may be live at a time.
+   */
+  queuePosition?: number | null;
 };
+
 
 export type Project = {
   id: string;
