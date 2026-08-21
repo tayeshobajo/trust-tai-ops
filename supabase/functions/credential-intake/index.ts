@@ -300,7 +300,9 @@ Deno.serve(async (req) => {
    */
   async function storePanelAccess(bundle: ParsedBundle) {
     const accessType = bundle.accessType;
-    if (bundle.secret.length < 4 || bundle.secret.length > 4096 || bundle.username.length > 200) {
+    // Held only for the duration of this call, and only to seal it.
+    const payload = bundle.secret;
+    if (payload.length < 4 || payload.length > 4096 || bundle.username.length > 200) {
       rejectedBundles.push({ accessType, reason: "Those details didn't look complete, so I didn't store them." });
       return;
     }
@@ -310,7 +312,7 @@ Deno.serve(async (req) => {
       accessType,
       provider: bundle.provider,
       username: bundle.username,
-      secret: bundle.secret,
+      secret: payload,
       config: {
         url: bundle.siteUrl ?? "",
         host: bundle.host ?? "",
