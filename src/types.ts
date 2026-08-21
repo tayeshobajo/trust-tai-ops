@@ -130,7 +130,7 @@ export type MemoryEntry = {
 export type MessageRole = "user" | "agent" | "system";
 
 // Internal only. Never rendered as a raw enum in the interface.
-export type MessageKind = "message" | "status_update" | "decision_request" | "decision_response" | "fix_plan";
+export type MessageKind = "message" | "status_update" | "decision_request" | "decision_response" | "fix_plan" | "captain_plan";
 
 export type ProjectMessage = {
   id: string;

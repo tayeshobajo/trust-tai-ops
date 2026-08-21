@@ -4,7 +4,7 @@ import { workspaceRepository } from "./repository";
 import { runAgentTurn } from "./agent-core/orchestrator";
 import type { AgentEvidence } from "./agent-core/types";
 import { executionGateway } from "./agent-core/gateway";
-import type { FixPlanResult, GatewayRequest } from "./agent-core/gateway";
+import type { CaptainPlanResult, FixPlanResult, GatewayRequest } from "./agent-core/gateway";
 import type { KBDigest } from "./types";
 import { getProjectStack } from "./stacks";
 import { looksLikeQuestion, replyLines, streamAgentReply, voiceAvailable } from "./agent-core/voice";
@@ -577,6 +577,63 @@ const runInvestigationStep = async (context: AgentStepContext): Promise<AgentSte
  * Perform the next step the agent may take on its own, appending whatever it
  * says to the persisted conversation for that exact run.
  */
+/**
+ * Send a task to Captain for strategic planning.
+ *
+ * Assembles a sanitized digest from the current project + run context and
+ * invokes the captain_plan edge-function path. Returns the structured plan
+ * on success, null when the gateway is unavailable or returns nothing usable.
+ *
+ * The result is stored as a captain_plan message in the conversation so the
+ * UI can render the Approve / Revise decision surface.
+ */
+export const sendToCaptain = async (params: {
+  project: Project;
+  run: Run | null;
+  memory: MemoryEntry[];
+  emit: AgentEmit;
+}): Promise<CaptainPlanResult | null> => {
+  const { project, run, memory, emit } = params;
+
+  const digest: Record<string, unknown> = {
+    projectName: project.name,
+    clientName: project.clientName,
+    primaryDomain: project.primaryDomain,
+    stack: getProjectStack(project),
+    taskTitle: run?.title ?? null,
+    taskSummary: run?.taskSummary ?? null,
+    taskType: run?.taskType ?? null,
+    urgency: run?.urgency ?? null,
+    runState: run?.state ?? null,
+    diagnosisSummary: run?.diagnosisSummary || null,
+    planSummary: run?.planSummary || null,
+    findings: (run?.findings ?? []).map((f) => ({ label: f.label, detail: f.detail, severity: f.severity })),
+    memoryConstraints: memory
+      .filter((entry) => entry.type === "constraint")
+      .map((entry) => entry.content)
+      .slice(0, 10),
+    riskLevel: run?.riskLevel ?? null,
+  };
+
+  try {
+    const result = await executionGateway().captainPlan(project.id, digest);
+    if (!result) return null;
+
+    // Persist the plan so the UI can render the decision surface.
+    await emit({
+      runId: run?.id ?? null,
+      role: "agent",
+      kind: "captain_plan",
+      body: [JSON.stringify(result)],
+      dedupeKey: `captain-plan-${project.id}-${run?.id ?? "project"}-${Date.now()}`,
+    });
+
+    return result;
+  } catch {
+    return null;
+  }
+};
+
 export const executeAgentStep = async (context: AgentStepContext): Promise<AgentStepResult> => {
   const legacy = isLegacyRun(context.run);
 

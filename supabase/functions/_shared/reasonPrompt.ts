@@ -618,6 +618,141 @@ const safeArgs = (v: unknown): Record<string, unknown> => {
   return out;
 };
 
+// ---------------------------------------------------------------------------
+// captain_plan mode — Captain reasons about a client task, inspects what it
+// can without private access, and produces a structured plan with an Approve
+// gate before any implementation happens.
+// ---------------------------------------------------------------------------
+
+export type CaptainDigest = {
+  stack: ReasonStack;
+  taskTitle: string;
+  taskSummary: string;
+  siteUrl: string;
+  capabilities: string[];
+  constraints: string[];
+  memory: string[];
+};
+
+export type CaptainPlanStep = {
+  label: string;
+  detail: string;
+  risk: "low" | "medium" | "high";
+  requiresCredential?: string;
+};
+
+export type CaptainPlan = {
+  rationale: string;
+  flags: string[];
+  prerequisites: string[];
+  steps: CaptainPlanStep[];
+  verificationGoal: string;
+  risk: "low" | "medium" | "high";
+  readyToExecute: boolean;
+};
+
+export const CAPTAIN_SYSTEM_PROMPT = [
+  "You are Captain, an expert web engineering agent working for Trust Tai, a web development agency.",
+  "A team member has submitted a client task. Produce a structured implementation plan.",
+  "",
+  "Before planning anything:",
+  "- Inspect the task title and summary carefully.",
+  "- Surface legal, compliance, or risk flags FIRST — before the client sees the plan. Never bury a flag.",
+  "- Identify what credentials or access are required to implement. Be specific.",
+  "",
+  "Task discipline:",
+  "- If the task contains multiple requests, plan ALL of them. Do not pick one and ignore the others.",
+  "- Name each request as a distinct group of steps.",
+  "- If any request has a legal or risk flag, surface all flags in the 'flags' array at the top.",
+  "",
+  "Plan discipline:",
+  "- Every step must have: label (short action name), detail (what you will actually do), risk level.",
+  "- Steps are ordered: inspect → prerequisite check → implement → verify.",
+  "- If a prerequisite is missing, set readyToExecute=false and name it in 'prerequisites'.",
+  "- A readyToExecute=true plan means Captain can begin the moment the human clicks Approve.",
+  "",
+  "Return ONLY valid JSON — no explanation outside the JSON:",
+  JSON.stringify({
+    rationale: "One sentence: what will be done and why.",
+    flags: ["Legal/risk/compliance flags — empty array if none"],
+    prerequisites: ["Things needed before Captain can implement — empty if all present"],
+    steps: [{ label: "Short action name", detail: "What Captain will actually do", risk: "low | medium | high" }],
+    verificationGoal: "What Captain will check after implementation to confirm it worked.",
+    risk: "low | medium | high",
+    readyToExecute: true,
+  }),
+].join("\n");
+
+export const captainUserPrompt = (digest: CaptainDigest): string =>
+  [
+    `Task: ${digest.taskTitle}`,
+    digest.taskSummary ? `Summary: ${digest.taskSummary}` : "",
+    digest.siteUrl ? `Site URL: ${digest.siteUrl}` : "",
+    `Stack: ${STACK_LABELS[digest.stack] ?? digest.stack}`,
+    `Access available: ${digest.capabilities.join(", ") || "none confirmed yet"}`,
+    ...(digest.constraints.length > 0
+      ? ["Standing rules (never violate):", ...digest.constraints.map((c) => `- ${c}`)]
+      : []),
+    ...(digest.memory.length > 0 ? ["What we know about this project:", ...digest.memory.map((m) => `- ${m}`)] : []),
+    "",
+    "Produce the implementation plan as JSON.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+export const sanitizeCaptainDigest = (value: unknown): CaptainDigest => {
+  const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const stackClaim = typeof raw.stack === "string" ? raw.stack : "";
+  const stack: ReasonStack = (REASON_STACKS as readonly string[]).includes(stackClaim)
+    ? (stackClaim as ReasonStack)
+    : "wordpress";
+  return {
+    stack,
+    taskTitle: line(raw.taskTitle, 200),
+    taskSummary: line(raw.taskSummary, 600),
+    siteUrl: line(raw.siteUrl, 200),
+    capabilities: (Array.isArray(raw.capabilities) ? raw.capabilities : []).slice(0, 8).map((i) => line(i, 40)).filter(Boolean),
+    constraints: (Array.isArray(raw.constraints) ? raw.constraints : []).slice(-12).map((i) => line(i, 300)).filter(Boolean),
+    memory: (Array.isArray(raw.memory) ? raw.memory : []).slice(-10).map((i) => line(i, 200)).filter(Boolean),
+  };
+};
+
+export const parseCaptainPlan = (content: string): CaptainPlan | null => {
+  try {
+    const raw = content.trim().replace(/^```json\s*/i, "").replace(/```$/m, "").trim();
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") return null;
+    const steps: CaptainPlanStep[] = [];
+    for (const s of (Array.isArray(parsed.steps) ? parsed.steps : []).slice(0, 20)) {
+      if (!s || typeof s !== "object") continue;
+      const step = s as Record<string, unknown>;
+      const risk = (["low", "medium", "high"].includes(String(step.risk)) ? String(step.risk) : "medium") as CaptainPlanStep["risk"];
+      steps.push({
+        label: safeStr(step.label, 120) || "Step",
+        detail: safeStr(step.detail, 400),
+        risk,
+        ...(typeof step.requiresCredential === "string" && step.requiresCredential
+          ? { requiresCredential: step.requiresCredential.slice(0, 40) }
+          : {}),
+      });
+    }
+    if (steps.length === 0) return null;
+    const risk = (["low", "medium", "high"].includes(String(parsed.risk)) ? String(parsed.risk) : "medium") as CaptainPlan["risk"];
+    const prerequisites = (Array.isArray(parsed.prerequisites) ? parsed.prerequisites : []).slice(0, 10).map((p) => safeStr(p, 200)).filter(Boolean);
+    return {
+      rationale: safeStr(parsed.rationale, 500) || "Implement the requested changes.",
+      flags: (Array.isArray(parsed.flags) ? parsed.flags : []).slice(0, 10).map((f) => safeStr(f, 300)).filter(Boolean),
+      prerequisites,
+      steps,
+      verificationGoal: safeStr(parsed.verificationGoal, 400) || "Verify the implementation is live and working.",
+      risk,
+      readyToExecute: parsed.readyToExecute === true && prerequisites.length === 0,
+    };
+  } catch {
+    return null;
+  }
+};
+
 export const parseFixPlan = (content: string): FixPlan | null => {
   try {
     const raw = content.trim().replace(/^```json\s*/i, "").replace(/```$/m, "").trim();

@@ -61,6 +61,13 @@ export interface ExecutionGateway {
    */
   planFix(projectId: string, digest: Record<string, unknown>): Promise<FixPlanResult | null>;
   /**
+   * Captain plan: submits a client task to Captain for inspection-first
+   * planning. Returns a structured plan with flags, prerequisites, and ordered
+   * steps. Rendered in chat with an Approve gate — nothing executes until approved.
+   */
+  captainPlan(projectId: string, digest: Record<string, unknown>): Promise<CaptainPlanResult | null>;
+
+  /**
    * Record a successfully resolved task as a knowledge base pattern.
    * Fire-and-forget — never throws, never blocks the caller.
    */
@@ -96,6 +103,23 @@ export type FixPlanResult = {
   steps: FixStep[];
   verificationGoal: string;
   canAutoExecute: boolean;
+};
+
+export type CaptainPlanStep = {
+  label: string;
+  detail: string;
+  risk: "low" | "medium" | "high";
+  requiresCredential?: string;
+};
+
+export type CaptainPlanResult = {
+  rationale: string;
+  flags: string[];
+  prerequisites: string[];
+  steps: CaptainPlanStep[];
+  verificationGoal: string;
+  risk: "low" | "medium" | "high";
+  readyToExecute: boolean;
 };
 
 const UNAVAILABLE: GatewayResponse = {
@@ -211,6 +235,27 @@ class SupabaseFunctionGateway implements ExecutionGateway {
       return payload.fix_plan as FixPlanResult;
     } catch {
       // Fix planning is an enhancement, never a dependency.
+      return null;
+    }
+  }
+
+  async captainPlan(
+    projectId: string,
+    digest: Record<string, unknown>,
+  ): Promise<CaptainPlanResult | null> {
+    if (!this.available()) return null;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke("agent-reason", {
+        body: { projectId, mode: "captain_plan", digest, model: readReasonModelId() },
+      });
+      if (error) return null;
+      const payload = data as { ok?: boolean; captain_plan?: unknown } | null;
+      if (!payload?.ok || !payload.captain_plan || typeof payload.captain_plan !== "object") return null;
+      const cp = payload.captain_plan as Record<string, unknown>;
+      if (!Array.isArray(cp.steps) || cp.steps.length === 0) return null;
+      return payload.captain_plan as CaptainPlanResult;
+    } catch {
       return null;
     }
   }

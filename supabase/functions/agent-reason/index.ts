@@ -29,13 +29,17 @@ import {
   SYSTEM_PROMPT,
   SYNTHESIS_SYSTEM_PROMPT,
   FIX_PLAN_SYSTEM_PROMPT,
+  CAPTAIN_SYSTEM_PROMPT,
   parseModelJson,
   parseFixPlan,
+  parseCaptainPlan,
   sanitizeDigest,
   sanitizeSynthesisDigest,
   sanitizeFixDigest,
+  sanitizeCaptainDigest,
   synthesisUserPrompt,
   fixPlanUserPrompt,
+  captainUserPrompt,
   userPromptWithRecall,
   type RetrievedConversation,
   type SynthesisDigest,
@@ -560,6 +564,7 @@ Deno.serve(async (req) => {
     mode !== "compose_reply" &&
     mode !== "synthesize_diagnosis" &&
     mode !== "plan_fix" &&
+    mode !== "captain_plan" &&
     mode !== "monitor" &&
     mode !== "record_resolution"
   ) {
@@ -622,6 +627,24 @@ Deno.serve(async (req) => {
       { ok: true, mode, model: model.id, fix_plan },
       { headers: corsHeaders },
     );
+  }
+
+  if (mode === "captain_plan") {
+    const digest = sanitizeCaptainDigest(body.digest);
+    const asked = await askModel(
+      model,
+      buildCall(model, apiKey, CAPTAIN_SYSTEM_PROMPT, captainUserPrompt(digest), 2000),
+      60_000,
+    );
+    if (!asked.ok) return asked.response;
+    const captain_plan = parseCaptainPlan(asked.content);
+    if (!captain_plan) {
+      return Response.json(
+        { ok: true, mode, model: model.id, captain_plan: null, reason: "no_plan_produced" },
+        { headers: corsHeaders },
+      );
+    }
+    return Response.json({ ok: true, mode, model: model.id, captain_plan }, { headers: corsHeaders });
   }
 
   if (mode === "monitor") {

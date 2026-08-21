@@ -25,7 +25,8 @@ import { ProjectPipelineSummary } from "./ProjectPipelineSummary";
 import { validateAdvance } from "./operations";
 import { projectHasUsableAccess } from "./agent";
 import { composeReply } from "./reply";
-import { agentStepIdentity, executeAgentStep, respondToUserMessage } from "./agentExecutor";
+import { agentStepIdentity, executeAgentStep, respondToUserMessage, sendToCaptain } from "./agentExecutor";
+import type { CaptainPlanResult } from "./agent-core/gateway";
 import { ProjectAccessPanel } from "./ProjectAccessPanel";
 import type { AccessEvent } from "./ProjectAccessPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
@@ -359,6 +360,9 @@ export function ProjectWorkspace({
   const [meetingAnalysis, setMeetingAnalysis] = useState<MeetingAnalysisView | null>(null);
   const [taskDecisions, setTaskDecisions] = useState<Record<string, "approved" | "rejected">>({});
   const [taskBusyId, setTaskBusyId] = useState<string | null>(null);
+  // Captain planning surface.
+  const [captainBusy, setCaptainBusy] = useState(false);
+  const [captainError, setCaptainError] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   // The composer grows with what is being written, up to a calm ceiling, then
@@ -2049,7 +2053,91 @@ export function ProjectWorkspace({
                     </time>
                   ) : null}
 
-                  {message.kind === "fix_plan" ? (() => {
+                  {message.kind === "captain_plan" ? (() => {
+                    let plan: CaptainPlanResult | null = null;
+                    try { plan = JSON.parse(message.body[0] ?? "{}") as CaptainPlanResult; } catch { /* malformed */ }
+                    if (!plan) return <p className="pw-msg-line">{message.body[0]}</p>;
+                    const riskTone = plan.risk === "low" ? "good" : plan.risk === "high" ? "bad" : "warn";
+                    return (
+                      <>
+                        <p className="pw-captain-header">Captain&apos;s Plan</p>
+                        {plan.rationale ? <p className="pw-captain-rationale">{plan.rationale}</p> : null}
+                        {plan.flags.length > 0 ? (
+                          <ul className="pw-captain-flags">
+                            {plan.flags.map((flag, i) => <li key={i}>{flag}</li>)}
+                          </ul>
+                        ) : null}
+                        {plan.prerequisites.length > 0 ? (
+                          <div className="pw-captain-section">
+                            <p className="pw-captain-label">Prerequisites</p>
+                            <ul className="pw-captain-prereqs">
+                              {plan.prerequisites.map((p, i) => <li key={i}>{p}</li>)}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {plan.steps.length > 0 ? (
+                          <ol className="pw-captain-steps">
+                            {plan.steps.map((step, i) => (
+                              <li key={i} className={`pw-captain-step risk-${step.risk}`}>
+                                <span className="pw-captain-step-label">{step.label}</span>
+                                {step.detail ? <span className="pw-captain-step-detail">{step.detail}</span> : null}
+                                {step.requiresCredential ? (
+                                  <span className="pw-captain-step-cred">Requires: {step.requiresCredential}</span>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ol>
+                        ) : null}
+                        {plan.verificationGoal ? (
+                          <p className="pw-captain-verify">
+                            <strong>Verification:</strong> {plan.verificationGoal}
+                          </p>
+                        ) : null}
+                        <p className={`pw-captain-risk tone-${riskTone}`}>
+                          <strong>Overall risk:</strong> {plan.risk}
+                          {plan.readyToExecute ? null : " — not yet ready to execute"}
+                        </p>
+                        {canWrite ? (
+                          <div className="decision-actions">
+                            <button
+                              className="primary-button"
+                              type="button"
+                              disabled={busy || agentBusy}
+                              onClick={async () => {
+                                // Approve: emit a user decision_response then continue the run.
+                                await emit({
+                                  runId: activeRun?.id ?? null,
+                                  role: "user",
+                                  kind: "decision_response",
+                                  body: ["Approved Captain's plan. Proceed."],
+                                  dedupeKey: `captain-approve-${message.key}`,
+                                });
+                              }}
+                            >
+                              Approve plan
+                            </button>
+                            <button
+                              className="ghost-button"
+                              type="button"
+                              disabled={busy || agentBusy}
+                              onClick={async () => {
+                                await emit({
+                                  runId: activeRun?.id ?? null,
+                                  role: "user",
+                                  kind: "decision_response",
+                                  body: ["Revising Captain's plan — see my notes below."],
+                                  dedupeKey: `captain-revise-${message.key}`,
+                                });
+                                window.setTimeout(() => composerRef.current?.focus(), 0);
+                              }}
+                            >
+                              Revise
+                            </button>
+                          </div>
+                        ) : null}
+                      </>
+                    );
+                  })() : message.kind === "fix_plan" ? (() => {
                     // Parse the structured fix-plan body:
                     // [0] header, [1] rationale, [2..N-2] numbered steps, [N-1] risk line, [N] approval prompt
                     const riskLine = [...message.body].reverse().find((l: string) => l.startsWith("Risk level:")) ?? "";
@@ -2363,6 +2451,14 @@ export function ProjectWorkspace({
             </p>
           ) : null}
 
+          {captainError ? (
+            <p className="pw-persist-error" role="status">
+              <WarningIcon />
+              {captainError}
+              <button type="button" onClick={() => setCaptainError(null)}>Dismiss</button>
+            </p>
+          ) : null}
+
           <div className="composer-row">
             {evidenceIntakeAvailable() ? (
               <>
@@ -2418,6 +2514,34 @@ export function ProjectWorkspace({
               >
                 <TranscriptIcon />
                 Transcript
+              </button>
+            ) : null}
+            {canWrite ? (
+              <button
+                className="composer-chip"
+                type="button"
+                title="Ask Captain to inspect this task and propose a strategic plan"
+                disabled={captainBusy || !activeRun}
+                onClick={async () => {
+                  if (!activeRun || captainBusy) return;
+                  setCaptainBusy(true);
+                  setCaptainError(null);
+                  try {
+                    const plan = await sendToCaptain({
+                      project,
+                      run: activeRun,
+                      memory: project.memoryEntries,
+                      emit,
+                    });
+                    if (!plan) {
+                      setCaptainError("Captain didn't return a plan — check that the reasoning service is reachable.");
+                    }
+                  } finally {
+                    setCaptainBusy(false);
+                  }
+                }}
+              >
+                {captainBusy ? "Asking Captain…" : "Ask Captain"}
               </button>
             ) : null}
             <span className="composer-spacer" />
