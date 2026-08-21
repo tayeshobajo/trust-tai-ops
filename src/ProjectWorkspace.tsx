@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildSiteHealth } from "./health";
 import type { AgentEvidence } from "./agent-core/types";
 import type { AccessType, MessageKind, NewProjectMessage, Organization, Project, ProjectMessage, Run, RunDraft } from "./types";
-import { buildThread, draftFromBrief, looksLikeNewTaskBrief } from "./conversation";
+import { buildThread, classifyIntake, draftFromBrief, looksLikeNewTaskBrief } from "./conversation";
 import { getQueuedRuns } from "./lib";
 import { MarkdownBody } from "./markdown";
 import { markdownFromClipboard } from "./richPaste";
@@ -22,7 +22,7 @@ import {
   timeLabel,
 } from "./messages";
 import { formatActivityStamp, getProjectInitials, signalForRun } from "./home";
-import { HUMAN_PHASES } from "./home";
+import { HUMAN_PHASES, phasesForRun } from "./home";
 import { workspaceRepository } from "./repository";
 import { ProjectPipelineSummary } from "./ProjectPipelineSummary";
 import { validateAdvance } from "./operations";
@@ -112,25 +112,23 @@ type ViewItem = {
   decision?: DecisionKind;
 };
 
+/** The header chip reads from the same signal as the strip and the rail. */
+const PHASE_CHIP: Record<string, string> = {
+  Understanding: "Getting started",
+  Investigating: "Investigating",
+  Planning: "Working out a fix",
+  Resolving: "Applying fix",
+  Checking: "Running final checks",
+  Completed: "Ready",
+};
+
 const agentStateLabel = (run: Run | null) => {
   if (!run) return "Ready";
   const signal = signalForRun(run);
   if (signal.agentState === "needs_you") return "Waiting for you";
-  switch (run.state) {
-    case "execution":
-      return "Applying fix";
-    case "qa":
-      return "Running final checks";
-    case "recommendations":
-      return "Wrapping up";
-    case "intake":
-    case "access_check":
-      return "Getting started";
-    case "complete":
-      return "Ready";
-    default:
-      return "Investigating";
-  }
+  if (run.state === "complete") return "Ready";
+  if (run.state === "recommendations") return "Wrapping up";
+  return (signal.phase && PHASE_CHIP[signal.phase]) || "Investigating";
 };
 
 const agentStateTone = (run: Run | null) => {
@@ -217,6 +215,7 @@ const UserAvatar = ({ muted = false }: { muted?: boolean }) => (
 const PHASE_MEANING: Record<string, { doing: string; done: string }> = {
   Understanding: { doing: "Reading the brief and the project history", done: "Brief understood" },
   Investigating: { doing: "Looking through the site to find the cause", done: "Investigation done" },
+  Planning: { doing: "Working out the safest fix", done: "Fix planned" },
   Resolving: { doing: "Applying the fix", done: "Fix applied" },
   Checking: { doing: "Running the final checks", done: "Checks run" },
   Completed: { doing: "Writing up the result", done: "Completed" },
@@ -226,13 +225,15 @@ const PhaseStrip = ({
   phase,
   working = false,
   detail,
+  track = HUMAN_PHASES,
 }: {
   phase: string | null;
   working?: boolean;
   detail?: string | null;
+  track?: readonly string[];
 }) => {
-  const currentIndex = phase ? HUMAN_PHASES.indexOf(phase as (typeof HUMAN_PHASES)[number]) : -1;
-  const current = currentIndex >= 0 ? HUMAN_PHASES[currentIndex] : null;
+  const currentIndex = phase ? track.indexOf(phase) : -1;
+  const current = currentIndex >= 0 ? track[currentIndex] : null;
   const caption =
     detail?.trim() ||
     (current ? (working ? PHASE_MEANING[current].doing : PHASE_MEANING[current].done) : null);
@@ -240,7 +241,7 @@ const PhaseStrip = ({
   return (
     <div className={working ? "pw-phase-block is-working" : "pw-phase-block"}>
       <ol className="pw-phase-strip" aria-label="Task progress">
-        {HUMAN_PHASES.map((item, index) => {
+        {track.map((item, index) => {
           const state = index < currentIndex ? "done" : index === currentIndex ? "now" : "next";
           return (
             <li
@@ -359,6 +360,9 @@ export function ProjectWorkspace({
   const [dropActive, setDropActive] = useState(false);
   // The message being replied to, quoted into the next thing sent.
   const [replyTo, setReplyTo] = useState<{ who: string; text: string } | null>(null);
+  // A message that could be work or could be conversation: asked about once,
+  // rather than silently becoming a task in the rail.
+  const [taskOffer, setTaskOffer] = useState<string | null>(null);
   // True when new lines arrived while the reader was scrolled up.
   const [hasNewBelow, setHasNewBelow] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -435,6 +439,8 @@ export function ProjectWorkspace({
 
   const activeRun = runs.find((run) => run.id === activeRunId) ?? null;
   const signal = activeRun ? signalForRun(activeRun) : null;
+  // One track for the strip and the rail, so they can never disagree.
+  const phaseTrack = phasesForRun(activeRun);
   const [runPlan, setRunPlan] = useState<RunPlan | null>(null);
   // Health facts observed this session, keyed by tool so the newest read wins.
   const [healthEvidence, setHealthEvidence] = useState<AgentEvidence[]>([]);
@@ -1545,6 +1551,44 @@ export function ProjectWorkspace({
         : "";
     const bodyLines = [value, attachmentNote].filter((line) => line.length > 0);
 
+    // Not everything typed into a workspace is work. A greeting, a question or
+    // a short aside gets an answer; only a real brief opens a task in the rail.
+    if (!activeRun && attachments.length === 0) {
+      const intent = classifyIntake(typed);
+      if (intent !== "task") {
+        setBusy(true);
+        const stamp = Date.now();
+        try {
+          const saved = await emit({
+            runId: null,
+            role: "user",
+            kind: "message",
+            body: bodyLines,
+            dedupeKey: `user-project-${stamp}`,
+          });
+          if (saved) setComposerValue("");
+          await emit({
+            runId: null,
+            role: "agent",
+            kind: "message",
+            body:
+              intent === "ambiguous"
+                ? [
+                    "Happy to pick that up — do you want me to open it as a task and start working, or are we still just talking it through?",
+                  ]
+                : composeReply(project, null, value),
+            dedupeKey: `ack-project-${stamp}`,
+          });
+          if (intent === "ambiguous") setTaskOffer(typed);
+        } catch {
+          setPersistError("I couldn't save that message. It's still here — try again.");
+        } finally {
+          setBusy(false);
+        }
+        return;
+      }
+    }
+
     if (!activeRun) {
       setBusy(true);
       let createdId: string | null = null;
@@ -2512,6 +2556,7 @@ export function ProjectWorkspace({
                       phase={signal.phase ?? null}
                       working={busy || agentBusy}
                       detail={signal.detail ?? null}
+                      track={phaseTrack}
                     />
                   ) : null}
 
@@ -2588,6 +2633,46 @@ export function ProjectWorkspace({
             <p className="pw-drop-hint" role="status">
               Drop images or files anywhere here and I&apos;ll read what I can.
             </p>
+          ) : null}
+          {taskOffer ? (
+            <div className="pw-task-offer" role="group" aria-label="Open as a task">
+              <span className="pw-task-offer-text">Open that as a task and start work?</span>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={busy}
+                onClick={async () => {
+                  const brief = taskOffer;
+                  setTaskOffer(null);
+                  setBusy(true);
+                  try {
+                    const next = await workspaceRepository.createRun(project.id, draftFromBrief(project, brief));
+                    onWorkspaceUpdate(next);
+                    const created = next.projects.find((item) => item.id === project.id)?.runs[0];
+                    setActiveRunId(created?.id ?? null);
+                    if (created) {
+                      await emit({
+                        runId: created.id,
+                        role: "user",
+                        kind: "message",
+                        body: [brief],
+                        dedupeKey: `${created.id}-brief`,
+                        sourceKey: `${created.id}-brief`,
+                      });
+                    }
+                  } catch {
+                    setPersistError("I couldn't start that task. Try again.");
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Yes, start it
+              </button>
+              <button type="button" className="ghost-button" onClick={() => setTaskOffer(null)}>
+                No, just talking
+              </button>
+            </div>
           ) : null}
           {replyTo ? (
             <div className="pw-reply-chip">
@@ -2861,9 +2946,9 @@ export function ProjectWorkspace({
             <h3>{activeRun.title}</h3>
 
             <ol className="pw-phases">
-              {HUMAN_PHASES.map((phase) => {
-                const currentIndex = signal.phase ? HUMAN_PHASES.indexOf(signal.phase) : -1;
-                const index = HUMAN_PHASES.indexOf(phase);
+              {phaseTrack.map((phase) => {
+                const currentIndex = signal.phase ? phaseTrack.indexOf(signal.phase) : -1;
+                const index = phaseTrack.indexOf(phase);
                 const state = index < currentIndex ? "done" : index === currentIndex ? "now" : "next";
                 return (
                   <li key={phase} className={`pw-phase is-${state}`}>

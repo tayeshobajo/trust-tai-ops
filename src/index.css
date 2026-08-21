@@ -7879,3 +7879,28 @@ button.pw-task-group.is-toggle:hover {
   font-size: 0.85rem;
   color: color-mix(in srgb, var(--tt-ink) 60%, transparent);
 }
+
+/* An ambiguous message asked about once, in the composer, not the rail. */
+.pw-task-offer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-2) var(--tt-space-3);
+  margin-bottom: var(--tt-space-2);
+  border: 1px solid var(--tt-line);
+  border-radius: 12px;
+  background: var(--tt-surface);
+}
+
+.pw-task-offer-text {
+  flex: 1 1 14rem;
+  font-size: 0.86rem;
+  color: var(--tt-ink-soft, inherit);
+}
+
+.pw-task-offer .primary-button,
+.pw-task-offer .ghost-button {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+}

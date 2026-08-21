@@ -211,6 +211,11 @@ export const accessTypeCopy: Record<AccessType, { label: string; detail: string;
     detail: "Container or orchestration platform, when one is in play.",
     blurb: "Recorded as environment truth. Metadata only for now.",
   },
+  google_search_console: {
+    label: "Google Search Console",
+    detail: "Search performance and indexing data straight from Google.",
+    blurb: "Lets the agent check indexing and coverage instead of guessing from the public site.",
+  },
 };
 
 export const recommendationSummary = (recommendations: Recommendation[]) =>

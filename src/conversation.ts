@@ -1,5 +1,4 @@
 import type { Project, Run, RunDraft, TaskType } from "./types";
-import { getEnvironmentName } from "./lib";
 
 export type ThreadCardItem = {
   label: string;
@@ -37,41 +36,22 @@ const severityTone = (severity: string): ThreadCardItem["tone"] =>
 const qaTone = (result: string): ThreadCardItem["tone"] =>
   result === "passed" ? "good" : result === "failed" ? "bad" : result === "warning" ? "warn" : "neutral";
 
-const pastAccess = (run: Run) => run.state !== "intake" && run.state !== "access_check";
 const pastMapping = (run: Run) =>
   !["intake", "access_check", "backup_gate", "environment_mapping"].includes(run.state);
 const pastPlan = (run: Run) =>
   ["execution", "qa", "recommendations", "complete", "rolled_back"].includes(run.state);
 const inQa = (run: Run) => ["qa", "recommendations", "complete"].includes(run.state);
 
-export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
+/**
+ * State-derived thread entries.
+ *
+ * This builds only what the agent has not said in its own voice: evidence
+ * cards and decision requests. Narration — acknowledgements, diagnosis
+ * restatements, plan recaps — belongs to the real conversation, never to a
+ * reconstruction, or the same thing gets said twice in two wordings.
+ */
+export const buildThread = (_project: Project, run: Run): ThreadMessage[] => {
   const messages: ThreadMessage[] = [];
-  const environment = getEnvironmentName(project, run.environmentId);
-
-  messages.push({
-    id: `${run.id}-brief`,
-    role: "user",
-    body: [run.taskSummary || run.title],
-  });
-
-  messages.push({
-    id: `${run.id}-ack`,
-    role: "agent",
-    body: [
-      `Got it. I'll take a look at ${project.primaryDomain} on ${environment.toLowerCase()} and work through this carefully.`,
-      "I always start read-only, so nothing on the site changes while I'm still learning what's going on.",
-    ],
-  });
-
-  if (project.accessMethods.length > 0 && pastAccess(run)) {
-    messages.push({
-      id: `${run.id}-access-ok`,
-      role: "agent",
-      body: [
-        `I can reach the site using the access you shared (${project.accessMethods.map((item) => item.label).join(", ")}).`,
-      ],
-    });
-  }
 
   if (run.findings.length > 0) {
     messages.push({
@@ -86,28 +66,6 @@ export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
           tone: severityTone(finding.severity),
         })),
       },
-    });
-  }
-
-  if (pastMapping(run) && run.diagnosisSummary) {
-    messages.push({
-      id: `${run.id}-diagnosis`,
-      role: "agent",
-      body: [run.diagnosisSummary],
-    });
-  }
-
-  if (run.planSummary && ["plan", "execution", "qa", "recommendations", "complete", "rolled_back"].includes(run.state)) {
-    messages.push({
-      id: `${run.id}-plan`,
-      role: "agent",
-      body: [
-        "Here's what I recommend doing next:",
-        run.planSummary,
-        run.approvalRequired
-          ? "This touches production, so I'd like your go-ahead before I make the change. If anything goes wrong I can restore the previous state."
-          : "This is a low-impact change and I can safely handle it from here.",
-      ],
     });
   }
 
@@ -240,14 +198,12 @@ export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
             : fixPlanDiff,
           decision: "approval",
         });
-      } else {
-        messages.push({ id: `${run.id}-plan-working`, role: "agent", body: ["I'll carry on and apply the fix now."] });
       }
       break;
     }
     case "qa": {
-      // If execution had failures, surface a rollback decision alongside the
-      // normal re-observation so the user can choose immediately.
+      // If execution had failures, surface a rollback decision so the user can
+      // choose immediately. Ordinary progress is narrated by the agent itself.
       const hasFailedExecution = run.artifacts.some((a) => a.type === "execution_failed");
       if (hasFailedExecution) {
         messages.push({
@@ -259,47 +215,22 @@ export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
           ],
           decision: "rollback",
         });
-      } else {
-        messages.push({
-          id: `${run.id}-qa-working`,
-          role: "agent",
-          body: ["Give me a moment while I confirm the site is behaving properly, then I'll write up the result."],
-        });
       }
       break;
     }
-    case "complete":
-      messages.push({
-        id: `${run.id}-complete`,
-        role: "agent",
-        body: [
-          "All done. " + (run.qaReport.summary || "The work is finished and verified."),
-          "Everything is in project memory, so I'll remember it next time you need something here.",
-        ],
-      });
-      break;
     case "paused":
     case "escalated":
     case "failed":
-      messages.push({
-        id: `${run.id}-decision-human`,
-        role: "agent",
-        body: [run.operatorPrompt || "I've stopped here on purpose and need a decision from you before continuing."],
-      });
-      break;
-    case "rolled_back":
-      messages.push({
-        id: `${run.id}-rolled-back`,
-        role: "agent",
-        body: ["I reversed the change and put the site back the way it was. Tell me how you'd like to approach it instead."],
-      });
+      if (run.operatorPrompt) {
+        messages.push({
+          id: `${run.id}-decision-human`,
+          role: "agent",
+          body: [run.operatorPrompt],
+        });
+      }
       break;
     default:
-      messages.push({
-        id: `${run.id}-working`,
-        role: "agent",
-        body: [run.nextAction || "I'm working through this now."],
-      });
+      break;
   }
 
   return messages;
@@ -318,10 +249,71 @@ const inferTaskType = (brief: string): TaskType => {
   return "qa_only";
 };
 
-const titleFromBrief = (brief: string) => {
-  const firstLine = brief.trim().split(/\n|\.\s/)[0]?.trim() ?? "";
-  const clipped = firstLine.length > 70 ? `${firstLine.slice(0, 67)}...` : firstLine;
-  return clipped || "New task";
+/** A written name for the work, rather than an echo of the first line typed. */
+const TASK_TITLES: Record<TaskType, string> = {
+  malware: "Malware cleanup",
+  performance: "Performance investigation",
+  broken_site: "Site outage investigation",
+  plugin_theme_conflict: "Plugin or theme conflict",
+  hardening: "Hardening and maintenance",
+  qa_only: "Site review",
+  deploy: "Deployment",
+  migration: "Migration",
+  feature: "Feature work",
+  dependency_upgrade: "Dependency upgrade",
+};
+
+const subjectFromBrief = (brief: string, project: Project): string => {
+  const lower = brief.toLowerCase();
+  if (/\b(seo|search|indexing|ranking|visibility|serp)\b/.test(lower)) return "search visibility";
+  if (/\b(checkout|cart|woocommerce|payment)\b/.test(lower)) return "checkout";
+  if (/\b(form|contact form|enquiry|enquir)\b/.test(lower)) return "forms";
+  if (/\b(email|smtp|deliverab)\b/.test(lower)) return "email delivery";
+  if (/\b(mobile|responsive)\b/.test(lower)) return "mobile experience";
+  return project.primaryDomain || "";
+};
+
+const titleFromBrief = (brief: string, project: Project, taskType: TaskType): string => {
+  const base = TASK_TITLES[taskType];
+  const subject = subjectFromBrief(brief, project);
+  return subject ? `${base} — ${subject}` : base;
+};
+
+/**
+ * Is this message conversation, or is it work?
+ *
+ * A greeting, a question, a pasted URL or a short aside is talk: it gets a
+ * reply, not a task in the rail. Only something that describes work opens a
+ * task, and anything genuinely in between is asked about once.
+ */
+export type IntakeIntent = "chat" | "task" | "ambiguous";
+
+const CHAT_OPENERS =
+  /^(hi|hey|hello|yo|good (morning|afternoon|evening)|thanks|thank you|cheers|ok|okay|sure|yes|no|got it|nice|great|sorry)\b/;
+
+const WORK_SIGNALS = [
+  /\b(fix|repair|debug|investigate|diagnose|audit|review|check|migrate|optimi[sz]e|harden|clean up|cleanup|restore|update|upgrade|deploy|build|set up)\b/,
+  /\b(broken|down|not working|white screen|slow|hacked|malware|error|failing|crash)\b/,
+  /\b(brief|scope|objective|deliverable|requirement)s?\b/,
+];
+
+export const classifyIntake = (message: string): IntakeIntent => {
+  const text = message.trim();
+  if (!text) return "chat";
+
+  const lower = text.toLowerCase();
+  const lines = text.split("\n").filter((line) => line.trim().length > 0);
+
+  // A bare link, a greeting or a one-line question is conversation.
+  if (/^https?:\/\/\S+$/i.test(text)) return "chat";
+  if (CHAT_OPENERS.test(lower) && text.length < 120) return "chat";
+  if (text.length < 40) return "chat";
+  if (lines.length === 1 && text.endsWith("?") && text.length < 140) return "chat";
+
+  if (looksLikeNewTaskBrief(text)) return "task";
+  if (text.length >= 80 && WORK_SIGNALS.some((pattern) => pattern.test(lower))) return "task";
+
+  return "ambiguous";
 };
 
 /**
@@ -335,7 +327,9 @@ const titleFromBrief = (brief: string) => {
  */
 export const looksLikeNewTaskBrief = (message: string): boolean => {
   const text = message.trim();
-  if (text.length < 60) return false;
+  if (text.length < 80) return false;
+  // A pasted link, however long, is context for the task at hand.
+  if (/^https?:\/\/\S+$/i.test(text)) return false;
 
   const lower = text.toLowerCase();
 
@@ -363,7 +357,7 @@ export const looksLikeNewTaskBrief = (message: string): boolean => {
     /\b(brief|scope|objective|deliverable|requirement)s?\b/,
   ];
 
-  const structured = text.split("\n").filter((line) => line.trim().length > 0).length >= 4;
+  const structured = text.split("\n").filter((line) => line.trim().length > 0).length >= 5;
 
   return structured || briefSignals.some((pattern) => pattern.test(lower));
 };
@@ -371,10 +365,11 @@ export const looksLikeNewTaskBrief = (message: string): boolean => {
 export const draftFromBrief = (project: Project, brief: string): RunDraft => {
   const primaryEnvironment =
     project.environments.find((environment) => environment.type === "production") ?? project.environments[0];
+  const taskType = inferTaskType(brief);
 
   return {
-    title: titleFromBrief(brief),
-    taskType: inferTaskType(brief),
+    title: titleFromBrief(brief, project, taskType),
+    taskType,
     taskSummary: brief.trim(),
     urgency: "normal",
     environmentId: primaryEnvironment?.id ?? "",
