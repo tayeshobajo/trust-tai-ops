@@ -198,6 +198,19 @@ const FAILURE_SUMMARY: Record<string, string> = {
   write_failed: "The server refused the change.",
 };
 
+/**
+ * A short, stable fingerprint of what was read. It is what makes "I read this
+ * before I changed it" a checkable fact rather than a claim.
+ */
+export const contentFingerprint = (value: string): string => {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+};
+
 const failed = (kind: string, detail?: string): FileToolResult => ({
   ok: false,
   code: kind,
@@ -319,6 +332,7 @@ export const readFileSlice = async (
       bytesRead: payload.bytesRead,
       truncated: payload.truncated,
       modifiedAt: payload.modifiedAt,
+      contentHash: contentFingerprint(payload.text),
       // Anything credential-shaped inside the file is scrubbed before it can
       // reach a transcript or an evidence record.
       content: sanitizeLogText(payload.text),

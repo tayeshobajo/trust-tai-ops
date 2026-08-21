@@ -32,7 +32,9 @@ export type ToolId =
   | "wordpress.read_error_log"
   | "wordpress.run_wp_cli_readonly"
   | "wordpress.execute_wp_cli"
+  | "filesystem.list"
   | "filesystem.read"
+  | "filesystem.rename"
   | "filesystem.write"
   | "database.query_readonly"
   | "database.execute";

@@ -19,6 +19,7 @@ import { secretReferenceFor, storeCredential } from "../_shared/secretStore.ts";
 import { verifyStoredWordPressCredential } from "../_shared/verification.ts";
 import { verifyWordPressLogin } from "../_shared/wpLogin.ts";
 import { validatePrivateKey, validateSshDestination, validateSshUsername } from "../_shared/sshSafety.ts";
+import { denoFtpTransport } from "../_shared/ftpTransport.ts";
 import {
   accessLabel,
   hostOf,
@@ -218,15 +219,10 @@ Deno.serve(async (req) => {
       continue;
     }
     if (bundle.accessType === "ftp") {
-      // No maintained, safe plain-FTP transport exists in this runtime, and the
-      // credential store has no honest slot for it. Refusing beats pretending.
-      rejectedBundles.push({
-        accessType: "ftp",
-        reason:
-          "This deployment can't store or verify plain FTP yet. SFTP or SSH on the same server works, if the host offers it.",
-      });
+      await storeFtpAccess(bundle);
       continue;
     }
+
     if (bundle.accessType === "google_search_console") {
       await storeGSC(bundle);
       continue;
@@ -422,6 +418,95 @@ Deno.serve(async (req) => {
       note: "Stored securely. I haven't connected yet — the first connection will also record the server's identity.",
     });
   }
+
+  /**
+   * FTP and FTPS. Explicit TLS is attempted on every connection; when a host
+   * only offers a certificate this runtime cannot validate, the session falls
+   * back to plain FTP and the person is told so in the same breath.
+   */
+  async function storeFtpAccess(bundle: ParsedBundle) {
+    const user = validateSshUsername(bundle.username);
+    if (!user.ok) {
+      rejectedBundles.push({ accessType: "ftp", reason: user.reason });
+      return;
+    }
+    const destination = validateSshDestination(bundle.host ?? "", bundle.port ?? 21);
+    if (!destination.ok) {
+      rejectedBundles.push({ accessType: "ftp", reason: destination.reason });
+      return;
+    }
+    if (bundle.secret.length < 4 || bundle.secret.length > 512) {
+      rejectedBundles.push({ accessType: "ftp", reason: "That FTP password didn't look complete." });
+      return;
+    }
+
+    const result = await storeCredential(deps, {
+      projectId: project.projectId,
+      accessType: "ftp",
+      provider: "ftp_password",
+      username: user.username,
+      secret: JSON.stringify({ password: bundle.secret }),
+      config: { host: destination.host, port: destination.port, mode: "password", security: "auto" },
+    });
+    if (!result.ok) {
+      rejectedBundles.push({
+        accessType: "ftp",
+        reason: "The secure credential store isn't configured, so I did not store anything.",
+      });
+      return;
+    }
+
+    // Storage and verification are separate facts. This connects for real.
+    const check = await denoFtpTransport().check(
+      {
+        host: destination.host,
+        port: destination.port,
+        username: user.username,
+        password: bundle.secret,
+      },
+      20_000,
+    );
+
+    let verification: StoredOutcome["verification"] = "unverified";
+    let verifiedAt: string | null = null;
+    let note = "Stored securely. I haven't connected yet.";
+
+    if (check.ok) {
+      verification = "verified";
+      verifiedAt = new Date().toISOString();
+      await deps.markVerification?.(project.projectId, "ftp", "verified", verifiedAt);
+      note =
+        check.security === "ftps"
+          ? "Signed in over FTPS and it works. I can read and change files on that server now."
+          : "Signed in and it works. This host wouldn't complete a certificate check, so the connection is plain FTP rather than FTPS — usable, but not encrypted.";
+    } else if (check.kind === "auth_failed") {
+      verification = "rejected";
+      await deps.markVerification?.(project.projectId, "ftp", "rejected", null);
+      note = "The server answered but did not accept that username and password. Please double-check them.";
+    } else {
+      note = `Stored securely, but I could not sign in just now: ${check.detail}`;
+      verification = "needs_attention";
+    }
+
+    await persistAccessMethod(
+      "ftp",
+      check.ok && check.security === "ftps" ? "FTPS" : "FTP",
+      "Password",
+      `Shared in conversation for ${destination.host}.`,
+      verifiedAt,
+    );
+    await audit("ftp", "ftp_password", verification === "verified" ? "verified" : "stored", { verification });
+
+    stored.push({
+      accessType: "ftp",
+      provider: "ftp_password",
+      mode: check.ok && check.security === "ftps" ? "FTPS password" : "FTP password",
+      verification,
+      note,
+    });
+  }
+
+
 
   const site = [...canonicalHosts][0] ?? "";
   const effectiveMissing = parsed.missing.filter(

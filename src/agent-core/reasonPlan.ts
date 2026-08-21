@@ -16,6 +16,10 @@ import { elementQueriesFromTitle } from "./elementQuery";
 export type ReasonStepSpec = {
   toolId: ToolId;
   capability: string;
+  /** Fixed relative path, for file steps only. Never planner-authored. */
+  path?: string;
+  /** Which end of the file a read starts from, for file reads only. */
+  from?: "start" | "tail";
   /** Fixed catalog command, WP-CLI steps only. */
   commandId?: string;
   /** Fixed viewport, browser steps only. */
@@ -53,6 +57,50 @@ export const REASON_STEPS: Record<string, ReasonStepSpec> = {
     viewport: "desktop",
     purpose: "Load the page in a real browser and find the page elements named in the task (buttons, links, text) — returns the actual HTML of matching elements. Use this FIRST whenever the task names specific page elements.",
   },
+  "list-site-root": {
+    toolId: "filesystem.list",
+    capability: "sftp",
+    serverResolvedTarget: true,
+    path: "",
+    purpose: "List the files at the site root over the server file access — works even when WordPress itself is down.",
+  },
+  "list-plugins-dir": {
+    toolId: "filesystem.list",
+    capability: "sftp",
+    serverResolvedTarget: true,
+    path: "wp-content/plugins",
+    purpose: "List the installed plugin folders directly on disk.",
+  },
+  "list-mu-plugins-dir": {
+    toolId: "filesystem.list",
+    capability: "sftp",
+    serverResolvedTarget: true,
+    path: "wp-content/mu-plugins",
+    purpose: "List must-use plugins on disk.",
+  },
+  "list-themes-dir": {
+    toolId: "filesystem.list",
+    capability: "sftp",
+    serverResolvedTarget: true,
+    path: "wp-content/themes",
+    purpose: "List the installed themes on disk.",
+  },
+  "read-debug-log": {
+    toolId: "filesystem.read",
+    capability: "sftp",
+    serverResolvedTarget: true,
+    path: "wp-content/debug.log",
+    from: "tail",
+    purpose: "Read the tail of WordPress's debug log straight off disk.",
+  },
+  "read-wp-config": {
+    toolId: "filesystem.read",
+    capability: "sftp",
+    serverResolvedTarget: true,
+    path: "wp-config.php",
+    from: "start",
+    purpose: "Read wp-config.php to check debug settings and constants.",
+  },
   "seo-pagespeed": {
     toolId: "seo.pagespeed",
     capability: "public_internet",
@@ -65,6 +113,13 @@ export const REASON_STEPS: Record<string, ReasonStepSpec> = {
     serverResolvedTarget: false,
     purpose: "Extract and validate all JSON-LD structured data on the page — confirms schema types present, detects missing required fields, and flags AI-visibility gaps like missing LocalBusiness or FAQPage schema.",
   },
+  "inspect-seo-surface": {
+    toolId: "public_http.inspect_seo_surface",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    purpose:
+      "Read the search-visibility signals the site serves publicly: robots.txt, sitemap, title and description, canonical, indexability, structured data and internal links.",
+  },
   "seo-sitemap-audit": {
     toolId: "seo.sitemap_audit",
     capability: "public_internet",
@@ -73,7 +128,7 @@ export const REASON_STEPS: Record<string, ReasonStepSpec> = {
   },
   "seo-search-console": {
     toolId: "seo.search_console",
-    capability: "public_internet",
+    capability: "google_search_console",
     serverResolvedTarget: false,
     purpose: "Query Google Search Console for index coverage, crawl errors, impressions, clicks, and Core Web Vitals. Requires a GSC OAuth token stored in the project's credentials.",
   },
@@ -206,6 +261,7 @@ const INTENTS = [
 const ACCESS_TYPES: AccessType[] = [
   "wordpress_admin",
   "sftp",
+  "ftp",
   "ssh",
   "hosting_portal",
   "database",
@@ -245,6 +301,9 @@ export const materializeServerPlan = (
 
     let args: AgentActionArguments;
     if (spec.commandId) args = { commandId: spec.commandId };
+    // File steps carry a fixed catalog path. The planner picks the step, never
+    // the path.
+    else if (spec.path !== undefined) args = spec.from ? { path: spec.path, from: spec.from } : { path: spec.path };
     else if (spec.serverResolvedTarget) args = {};
     else {
       if (!options.url) return null;

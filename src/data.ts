@@ -171,8 +171,13 @@ export const accessTypeCopy: Record<AccessType, { label: string; detail: string;
     detail: "Needed for most investigations and safe first-pass validation.",
     blurb: "Best first door for diagnosis, user review, and plugin-level inspection.",
   },
+  ftp: {
+    label: "FTP / FTPS",
+    detail: "Older hosts often offer this instead of SFTP. Good enough to read and repair files.",
+    blurb: "Lets me reach the site's files when WordPress itself is down.",
+  },
   sftp: {
-    label: "SFTP / FTP",
+    label: "SFTP",
     detail: "Useful for file inspection, uploads, and surgical edits.",
     blurb: "Ideal when the run may need theme, plugin, or upload-path review.",
   },

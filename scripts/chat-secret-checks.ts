@@ -280,7 +280,14 @@ check(
   "a password-based server credential is never claimed as verified",
   intakeSource.includes('verification: "unverified"') && !/verification:\s*"verified"/.test(intakeSource.split("storeServerAccess")[1] ?? ""),
 );
-check("plain FTP is refused rather than faked", intakeSource.includes("can't store or verify plain FTP yet"));
+// FTP is supported now, but only as a fact the transport actually proved:
+// stored and verified stay separate, and a rejected sign-in is reported as such.
+check(
+  "FTP is only called verified after a real sign-in",
+  intakeSource.includes("denoFtpTransport().check") &&
+    intakeSource.includes('"unverified"') &&
+    intakeSource.includes('check.kind === "auth_failed"'),
+);
 check("only key-based server access reaches the existing verifier", intakeSource.includes("validatePrivateKey"));
 check("SSH destinations are validated by the existing safety boundary", intakeSource.includes("validateSshDestination"));
 check(

@@ -91,6 +91,28 @@ const requirePageInspection = (args: AgentActionArguments): ToolValidation => {
   };
 };
 
+/**
+ * A path is always relative to the site root the server resolved. Nothing
+ * absolute, no traversal, no drive letters — the server re-checks all of it.
+ */
+const requireRelativePath =
+  (field: string, allowEmpty: boolean) =>
+  (args: AgentActionArguments): ToolValidation => {
+    const raw = typeof args[field] === "string" ? (args[field] as string).trim() : "";
+    if (!raw) {
+      if (allowEmpty) return { ok: true, args: { [field]: "" } };
+      return { ok: false, reason: "I need the path of the file before I can do that." };
+    }
+    const normalized = raw.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/+/, "");
+    if (!normalized || normalized.length > 512) return { ok: false, reason: "That path isn't one I can use." };
+    if (/^[a-zA-Z]:/.test(raw) || normalized.split("/").some((part) => part === "..")) {
+      return { ok: false, reason: "That path points outside the site, so I won't use it." };
+    }
+    // eslint-disable-next-line no-control-regex
+    if (/[\x00-\x1f]/.test(normalized)) return { ok: false, reason: "That path isn't one I can use." };
+    return { ok: true, args: { [field]: normalized } };
+  };
+
 const notAvailable = (summary: string): AgentToolResult => ({
   ok: false,
   code: "not_implemented",
@@ -105,6 +127,7 @@ const notAvailable = (summary: string): AgentToolResult => ({
 const sensitivityFor = (toolId: ToolId, data: Record<string, unknown>): AgentEvidence["sensitivity"] => {
   if (toolId === "wordpress.list_plugins") return "restricted";
   if (toolId === "wordpress.run_wp_cli_readonly") return "restricted";
+  if (toolId.startsWith("filesystem.")) return "restricted";
   if (toolId === "wordpress.read_health" && data.authenticatedHealthAvailable === true) return "restricted";
   return "public";
 };
@@ -261,7 +284,7 @@ export const TOOL_REGISTRY: Record<ToolId, ToolDefinition> = {
   "seo.search_console": {
     id: "seo.search_console",
     purpose: "Query Google Search Console — returns index coverage, crawl errors, impressions, clicks, and Core Web Vitals for the site. Requires GSC OAuth credentials stored in the project.",
-    capability: "public_internet",
+    capability: "google_search_console",
     readOnly: true,
     risk: classifyRisk("seo.search_console"),
     implemented: true,
@@ -343,20 +366,75 @@ export const TOOL_REGISTRY: Record<ToolId, ToolDefinition> = {
     false,
     "Applying changes on the server is not enabled yet.",
   ),
-  "filesystem.read": declared(
-    "filesystem.read",
-    "Read a specific file from the server.",
-    "sftp",
-    true,
-    "I can't read server files yet — that needs SFTP or SSH access.",
-  ),
-  "filesystem.write": declared(
-    "filesystem.write",
-    "Write or replace a file on the server.",
-    "sftp",
-    false,
-    "Writing files on the server is not enabled yet.",
-  ),
+  "filesystem.list": {
+    id: "filesystem.list",
+    purpose: "List what's in a folder on the server, so I can see the site's actual files.",
+    // One capability, several doors: the server opens FTP, FTPS, SFTP or SSH,
+    // whichever the project has shared.
+    capability: "sftp",
+    readOnly: true,
+    risk: classifyRisk("filesystem.list"),
+    implemented: true,
+    validate: requireRelativePath("path", true),
+    execute: runThroughGateway,
+  },
+  "filesystem.read": {
+    id: "filesystem.read",
+    purpose: "Read a specific file from the server, without changing it.",
+    capability: "sftp",
+    readOnly: true,
+    risk: classifyRisk("filesystem.read"),
+    implemented: true,
+    validate: (args) => {
+      const path = requireRelativePath("path", false)(args);
+      if (!path.ok) return path;
+      const from = args.from === "start" ? "start" : "tail";
+      const maxBytes = Number(args.maxBytes);
+      return {
+        ok: true,
+        args: {
+          ...path.args,
+          from,
+          ...(Number.isFinite(maxBytes) && maxBytes > 0 ? { maxBytes: Math.min(maxBytes, 262144) } : {}),
+        },
+      };
+    },
+    execute: runThroughGateway,
+  },
+  "filesystem.rename": {
+    id: "filesystem.rename",
+    purpose: "Rename or move a file on the server — the reversible way to switch a plugin or theme off when the site is down.",
+    capability: "sftp",
+    readOnly: false,
+    risk: classifyRisk("filesystem.rename"),
+    implemented: true,
+    validate: (args) => {
+      const from = requireRelativePath("from", false)(args);
+      if (!from.ok) return from;
+      const to = requireRelativePath("to", false)(args);
+      if (!to.ok) return to;
+      return { ok: true, args: { from: from.args.from, to: to.args.to } };
+    },
+    execute: runThroughGateway,
+  },
+  "filesystem.write": {
+    id: "filesystem.write",
+    purpose: "Write or replace a file on the server, keeping a copy of what was there before.",
+    capability: "sftp",
+    readOnly: false,
+    risk: classifyRisk("filesystem.write"),
+    implemented: true,
+    validate: (args) => {
+      const path = requireRelativePath("path", false)(args);
+      if (!path.ok) return path;
+      const content = typeof args.content === "string" ? args.content : "";
+      if (!content) return { ok: false, reason: "There's nothing to write to that file." };
+      if (content.length > 512 * 1024) return { ok: false, reason: "That file is larger than I'm allowed to write." };
+      return { ok: true, args: { ...path.args, content, backupFirst: args.backupFirst !== false } };
+    },
+    execute: runThroughGateway,
+  },
+
   "database.query_readonly": declared(
     "database.query_readonly",
     "Run a read-only database query.",
