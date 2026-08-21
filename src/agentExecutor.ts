@@ -4,6 +4,9 @@ import { workspaceRepository } from "./repository";
 import { runAgentTurn } from "./agent-core/orchestrator";
 import type { AgentEvidence } from "./agent-core/types";
 import { executionGateway } from "./agent-core/gateway";
+import { TOOL_REGISTRY } from "./agent-core/registry";
+import type { ToolId } from "./agent-core/types";
+
 import type { CaptainPlanResult, FixPlanResult, GatewayRequest } from "./agent-core/gateway";
 import type { KBDigest } from "./types";
 import { getProjectStack } from "./stacks";
