@@ -366,6 +366,26 @@ export function ProjectWorkspace({
   const [captainError, setCaptainError] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // Writes text at the caret (replacing any selection) and leaves the caret
+  // after it, exactly as a native paste would.
+  const insertIntoComposer = useCallback((text: string) => {
+    const node = composerRef.current;
+    setComposerValue((current) => {
+      const start = node?.selectionStart ?? current.length;
+      const end = node?.selectionEnd ?? current.length;
+      const next = `${current.slice(0, start)}${text}${current.slice(end)}`;
+      const caret = start + text.length;
+      window.requestAnimationFrame(() => {
+        if (!node) return;
+        node.focus();
+        node.setSelectionRange(caret, caret);
+      });
+      return next;
+    });
+  }, []);
+
+
+
   // The composer grows with what is being written, up to a calm ceiling, then
   // scrolls. It never leaves an oversized empty box behind after sending.
   useEffect(() => {
