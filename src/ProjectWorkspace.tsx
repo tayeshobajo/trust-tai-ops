@@ -1548,6 +1548,44 @@ export function ProjectWorkspace({
         : "";
     const bodyLines = [value, attachmentNote].filter((line) => line.length > 0);
 
+    // Not everything typed into a workspace is work. A greeting, a question or
+    // a short aside gets an answer; only a real brief opens a task in the rail.
+    if (!activeRun && attachments.length === 0) {
+      const intent = classifyIntake(typed);
+      if (intent !== "task") {
+        setBusy(true);
+        const stamp = Date.now();
+        try {
+          const saved = await emit({
+            runId: null,
+            role: "user",
+            kind: "message",
+            body: bodyLines,
+            dedupeKey: `user-project-${stamp}`,
+          });
+          if (saved) setComposerValue("");
+          await emit({
+            runId: null,
+            role: "agent",
+            kind: "message",
+            body:
+              intent === "ambiguous"
+                ? [
+                    "Happy to pick that up — do you want me to open it as a task and start working, or are we still just talking it through?",
+                  ]
+                : composeReply(project, null, value),
+            dedupeKey: `ack-project-${stamp}`,
+          });
+          if (intent === "ambiguous") setTaskOffer(typed);
+        } catch {
+          setPersistError("I couldn't save that message. It's still here — try again.");
+        } finally {
+          setBusy(false);
+        }
+        return;
+      }
+    }
+
     if (!activeRun) {
       setBusy(true);
       let createdId: string | null = null;
