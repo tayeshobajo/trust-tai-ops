@@ -16,6 +16,7 @@ import {
   describePlugins,
   describePublicSurface,
   describeSiteInspection,
+  describeSeoSurface,
   findingFromEvidence,
 } from "./evidence";
 import { evaluateAction } from "./policy";
@@ -216,6 +217,8 @@ const describe = (evidence: AgentEvidence): string[] => {
   switch (evidence.toolId) {
     case "public_http.inspect_site":
       return describeSiteInspection(evidence);
+    case "public_http.inspect_seo_surface":
+      return describeSeoSurface(evidence);
     case "wordpress.inspect_public_surface":
       return describePublicSurface(evidence);
     case "wordpress.read_health":

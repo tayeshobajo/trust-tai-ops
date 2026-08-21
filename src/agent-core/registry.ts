@@ -206,6 +206,16 @@ export const TOOL_REGISTRY: Record<ToolId, ToolDefinition> = {
     validate: requireUrl,
     execute: runThroughGateway,
   },
+  "public_http.inspect_seo_surface": {
+    id: "public_http.inspect_seo_surface",
+    purpose: "Read the search-visibility signals the site serves publicly: robots.txt, sitemap, page title and description, canonical, indexability, structured data and internal links.",
+    capability: "public_internet",
+    readOnly: true,
+    risk: classifyRisk("public_http.inspect_seo_surface"),
+    implemented: true,
+    validate: requireUrl,
+    execute: runThroughGateway,
+  },
   "browser.inspect_page_readonly": {
     id: "browser.inspect_page_readonly",
     purpose: "Load the page in a real browser and observe how it performs, without changing anything.",

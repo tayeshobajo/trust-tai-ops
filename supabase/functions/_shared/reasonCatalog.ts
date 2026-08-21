@@ -13,6 +13,7 @@
 
 export type ReasonStepId =
   | "inspect-site"
+  | "inspect-seo-surface"
   | "inspect-page-desktop"
   | "inspect-page-mobile"
   | "inspect-page-content"
@@ -55,6 +56,13 @@ export const REASON_STEPS: Record<ReasonStepId, ReasonStepSpec> = {
     capability: "public_internet",
     serverResolvedTarget: false,
     purpose: "See how the public site responds from outside.",
+  },
+  "inspect-seo-surface": {
+    id: "inspect-seo-surface",
+    toolId: "public_http.inspect_seo_surface",
+    capability: "public_internet",
+    serverResolvedTarget: false,
+    purpose: "Read the search-visibility signals the site serves publicly: robots.txt, sitemap, title and description, canonical, indexability, structured data and internal links.",
   },
   "inspect-page-desktop": {
     id: "inspect-page-desktop",

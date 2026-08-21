@@ -242,6 +242,20 @@ class DeterministicReasoner implements AgentReasoner {
       }
     }
 
+    // Search-visibility work has its own public surface: robots, sitemap, the
+    // indexability and structured-data signals in the page itself. It is read
+    // whenever the brief is about being found, on any stack.
+    const visibilityBrief = /\b(seo|search engine|search visibility|indexing|indexed|ranking|rank|serp|sitemap|robots\.txt|schema|structured data|ai search|answer engine|geo|llm visibility)\b/i.test(
+      `${context.run.title ?? ""} ${context.run.taskSummary ?? ""}`,
+    );
+    if (visibilityBrief && !hasEvidenceFrom(context, "public_http.inspect_seo_surface")) {
+      want.push({
+        id: "inspect-seo-surface",
+        toolId: "public_http.inspect_seo_surface",
+        purpose: "Read the site's public search-visibility signals: robots, sitemap, indexability, page metadata, structured data and internal links.",
+      });
+    }
+
     // Runtime errors are worth reading only when the task is the kind that
     // they explain, WordPress is established, SSH is available, and the log
     // has not already been read for this run. If it turns out to be

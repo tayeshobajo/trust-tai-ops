@@ -169,6 +169,129 @@ const inspectSite = async (rawUrl: string) => {
   );
 };
 
+/**
+ * Read-only search-visibility surface.
+ *
+ * Everything here is served publicly by the site itself: robots.txt, the
+ * sitemap, and the head of the home page. Nothing is changed, and nothing is
+ * inferred from third-party tools the agent cannot reach.
+ */
+const inspectSeoSurface = async (rawUrl: string) => {
+  const check = validatePublicUrl(rawUrl);
+  if (!check.ok) return fail("unsafe_destination", check.reason, false);
+
+  const origin = check.url.origin;
+
+  const readText = async (target: URL) => {
+    const attempt = await fetchSafely(target);
+    if ("error" in attempt) return null;
+    const { response } = attempt;
+    const contentType = response.headers.get("content-type") ?? "";
+    const body = await readBounded(response);
+    return { status: response.status, body, contentType };
+  };
+
+  const page = await readText(check.url);
+  if (!page) {
+    return fail("unreachable", "I could not load the page to read its search signals.", true);
+  }
+
+  const robots = await readText(new URL("/robots.txt", origin));
+  const sitemapFromRobots = robots?.body.match(/^\s*sitemap:\s*(\S+)/im)?.[1] ?? null;
+  let sitemapUrl: string | null = null;
+  let sitemapStatus: number | null = null;
+  let sitemapUrlCount: number | null = null;
+  try {
+    const candidate = new URL(sitemapFromRobots ?? "/sitemap.xml", origin);
+    if (candidate.origin === origin) {
+      const sitemap = await readText(candidate);
+      if (sitemap) {
+        sitemapUrl = candidate.toString();
+        sitemapStatus = sitemap.status;
+        sitemapUrlCount = sitemap.status < 400 ? (sitemap.body.match(/<loc>/gi) ?? []).length : null;
+      }
+    }
+  } catch {
+    // A malformed sitemap reference is reported as simply absent.
+  }
+
+  const html = page.body;
+  const head = html.slice(0, 200000);
+  const title = head.match(/<title[^>]*>([\s\S]{0,300}?)<\/title>/i)?.[1]?.trim() ?? null;
+  const description =
+    head.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']{0,400})["']/i)?.[1] ??
+    head.match(/<meta[^>]+content=["']([^"']{0,400})["'][^>]+name=["']description["']/i)?.[1] ??
+    null;
+  const canonical = head.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']{0,400})["']/i)?.[1] ?? null;
+  const metaRobots = head.match(/<meta[^>]+name=["']robots["'][^>]+content=["']([^"']{0,200})["']/i)?.[1] ?? null;
+  const ogTitle = head.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']{0,300})["']/i)?.[1] ?? null;
+  const h1Matches = html.match(/<h1[\s>]/gi) ?? [];
+  const jsonLdBlocks = html.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) ?? [];
+  const schemaTypes = Array.from(
+    new Set(
+      jsonLdBlocks
+        .flatMap((block) => Array.from(block.matchAll(/"@type"\s*:\s*"([^"]{1,60})"/g)).map((m) => m[1])),
+    ),
+  ).slice(0, 20);
+  const links = Array.from(html.matchAll(/<a[^>]+href=["']([^"'#][^"']{0,400})["']/gi)).map((m) => m[1]);
+  let internalLinks = 0;
+  let externalLinks = 0;
+  for (const href of links) {
+    try {
+      const resolved = new URL(href, origin);
+      if (resolved.origin === origin) internalLinks += 1;
+      else externalLinks += 1;
+    } catch {
+      // Non-navigational hrefs (mailto:, tel:, javascript:) are not links.
+    }
+  }
+
+  const blockedByRobots = /^\s*disallow:\s*\/\s*$/im.test(robots?.body ?? "");
+  const noindex = /noindex/i.test(metaRobots ?? "");
+
+  return Response.json(
+    {
+      ok: true,
+      summary: redact(
+        [
+          `The page answered ${page.status}.`,
+          noindex ? "It asks search engines not to index it." : "It does not carry a noindex instruction.",
+          blockedByRobots ? "robots.txt blocks all crawling." : robots ? "robots.txt is present." : "No robots.txt was served.",
+          sitemapUrlCount !== null ? `The sitemap lists ${sitemapUrlCount} URLs.` : "No readable sitemap was found.",
+        ].join(" "),
+      ),
+      data: {
+        status: page.status,
+        title: title ? redact(title).slice(0, 200) : null,
+        titleLength: title ? title.length : 0,
+        description: description ? redact(description).slice(0, 300) : null,
+        descriptionLength: description ? description.length : 0,
+        canonical: canonical ? redact(canonical).slice(0, 300) : null,
+        metaRobots,
+        noindex,
+        ogTitlePresent: Boolean(ogTitle),
+        h1Count: h1Matches.length,
+        schemaTypes,
+        structuredDataPresent: jsonLdBlocks.length > 0,
+        internalLinks,
+        externalLinks,
+        robotsTxtPresent: Boolean(robots && robots.status < 400),
+        robotsBlocksEverything: blockedByRobots,
+        sitemapUrl: sitemapUrl ? redact(sitemapUrl) : null,
+        sitemapStatus,
+        sitemapUrlCount,
+        // Named so the agent never claims coverage it does not have.
+        notCheckedHere: [
+          "Google Search Console indexing status",
+          "third-party SEO suite data",
+          "how AI assistants answer prompts about this site",
+        ],
+      },
+    },
+    { headers: corsHeaders },
+  );
+};
+
 const inspectPublicSurface = async (rawUrl: string) => {
   const check = validatePublicUrl(rawUrl);
   if (!check.ok) return fail("unsafe_destination", check.reason, false);
@@ -948,6 +1071,11 @@ Deno.serve(async (req) => {
     case "public_http.inspect_site":
       if (!clientUrl) return fail("invalid_input", "That request was missing the site address.", false);
       return await inspectSite(clientUrl);
+    case "public_http.inspect_seo_surface":
+      if (!clientUrl && !canonicalUrl) {
+        return fail("invalid_input", "That request was missing the site address.", false);
+      }
+      return await inspectSeoSurface(canonicalUrl ?? clientUrl);
     case "browser.inspect_page_readonly":
       return await inspectPage(args, clientUrl, canonicalUrl);
     case "wordpress.inspect_public_surface":

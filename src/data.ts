@@ -54,7 +54,7 @@ export const stateCopy: Record<RunState, { label: string; tone: string; guardrai
   },
   execution: {
     label: "Execution",
-    tone: "Applying the smallest safe fix path and logging every meaningful move.",
+    tone: "Carrying out the approved steps and logging every meaningful move.",
     guardrail: "No unplanned high-risk actions. Stop if the blast radius changes.",
   },
   qa: {

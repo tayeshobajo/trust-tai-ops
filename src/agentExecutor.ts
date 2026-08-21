@@ -4,6 +4,9 @@ import { workspaceRepository } from "./repository";
 import { runAgentTurn } from "./agent-core/orchestrator";
 import type { AgentEvidence } from "./agent-core/types";
 import { executionGateway } from "./agent-core/gateway";
+import { TOOL_REGISTRY } from "./agent-core/registry";
+import type { ToolId } from "./agent-core/types";
+
 import type { CaptainPlanResult, FixPlanResult, GatewayRequest } from "./agent-core/gateway";
 import type { KBDigest } from "./types";
 import { getProjectStack } from "./stacks";
@@ -142,8 +145,9 @@ const speakTurn = async (
     }
 
     // Fix-plan: after diagnosis, ask the reasoner what write steps to take.
-    // The plan is stored and emitted as a fix_plan event so the UI can render
-    // the confirmation card. Best-effort — never breaks the turn.
+    // A plan is only offered as a *fix* when it actually contains changes this
+    // agent can make. A plan made only of checks, or one whose own reasoning
+    // says nothing should change, is reported as findings instead.
     try {
       const capabilities = await executionGateway().projectCapabilities(context.project.id);
       const synthesisText = await workspaceRepository
@@ -165,40 +169,79 @@ const speakTurn = async (
         capabilities: [...capabilities.verified, ...capabilities.stored],
       });
 
-      if (fixPlan && fixPlan.steps.length > 0) {
-        // Emit the plan so the UI can render the confirmation card.
+      const executableSteps = (fixPlan?.steps ?? []).filter((step) => {
+        const definition = TOOL_REGISTRY[step.toolId as ToolId];
+        return Boolean(definition) && definition.readOnly === false && definition.implemented;
+      });
+
+      if (fixPlan && executableSteps.length > 0) {
+        // Store the plan first. If it cannot be stored, the execution step
+        // would later fail to find it, so we must not promise a fix we cannot
+        // carry out.
+        let stored = true;
+        try {
+          await workspaceRepository.addEvidence(
+            context.project.id,
+            context.run.id,
+            "fix_plan",
+            "Proposed fix plan",
+            JSON.stringify({ ...fixPlan, steps: executableSteps }).slice(0, 100000),
+          );
+        } catch (error) {
+          stored = false;
+          console.error("Failed to store fix plan", error);
+        }
+
+        if (stored) {
+          await context.emit({
+            runId: context.run.id,
+            role: "agent",
+            kind: "fix_plan",
+            body: [
+              `Here's what I can do to fix this:`,
+              `${fixPlan.rationale}`,
+              ...executableSteps.map((s, i) => `${i + 1}. ${s.label}`),
+              `Risk level: ${fixPlan.risk}.`,
+              !fixPlan.canAutoExecute || fixPlan.risk !== "low"
+                ? "This requires your approval before I proceed."
+                : "I can run this automatically if you'd like.",
+            ],
+            dedupeKey: `fix-plan-${context.run.id}`,
+          });
+
+          // Advance the run to the plan state so the UI shows the approval card.
+          await workspaceRepository.advanceRun(context.project.id, context.run.id, "plan").catch(() => undefined);
+        } else {
+          await context.emit({
+            runId: context.run.id,
+            role: "agent",
+            kind: "status_update",
+            body: [
+              "I worked out a fix plan, but I couldn't save it, so I'm not going to offer to run something I can't reliably repeat.",
+              "I'm staying in investigation on this one. Ask me to re-plan and I'll try again.",
+            ],
+            dedupeKey: `fix-plan-unsaved-${context.run.id}`,
+          });
+        }
+      } else if (fixPlan) {
+        // Everything the reasoner proposed is a check, not a change. Say that
+        // plainly instead of dressing it up as a fix.
         await context.emit({
           runId: context.run.id,
           role: "agent",
-          kind: "fix_plan",
+          kind: "message",
           body: [
-            `Here\'s what I can do to fix this:`,
-            `${fixPlan.rationale}`,
+            "I don't have a change to make here — what I found calls for checks and recommendations, not edits to the site.",
+            fixPlan.rationale,
             ...fixPlan.steps.map((s, i) => `${i + 1}. ${s.label}`),
-            `Risk level: ${fixPlan.risk}.`,
-            !fixPlan.canAutoExecute || fixPlan.risk !== "low"
-              ? "This requires your approval before I proceed."
-              : "I can run this automatically if you\'d like.",
-          ],
-          dedupeKey: `fix-plan-${context.run.id}`,
+          ].filter((line) => line.trim().length > 0),
+          dedupeKey: `no-fix-needed-${context.run.id}`,
         });
-
-        // Store the fix plan as pending evidence so the orchestrator can
-        // retrieve it when the user approves.
-        await workspaceRepository.addEvidence(
-          context.project.id,
-          context.run.id,
-          "fix_plan",
-          "Proposed fix plan",
-          JSON.stringify(fixPlan).slice(0, 2000),
-        );
-
-        // Advance the run to the plan state so the UI shows the approval card.
-        await workspaceRepository.advanceRun(context.project.id, context.run.id, "plan").catch(() => undefined);
       }
-    } catch {
-      // Fix planning is an enhancement. The diagnosis already closed out.
+    } catch (error) {
+      console.error("Fix planning failed", error);
     }
+
   }
 
   if (!voiceAvailable()) {
@@ -359,7 +402,10 @@ const runQaStep = async (context: AgentStepContext): Promise<AgentStepResult> =>
 };
 
 const runAdvanceStep = async (context: AgentStepContext, target: RunState): Promise<AgentStepResult> => {
-  const narration = workingNarration(target);
+  // "Preparing the fix" / "applying the fix" are only true when an executable
+  // plan exists. Those states narrate themselves from the fix-plan and
+  // execution paths, so nothing is announced here.
+  const narration = target === "plan" || target === "execution" ? null : workingNarration(target);
   if (narration) {
     await sayStep(context, target, [narration], "status_update");
   }
@@ -379,8 +425,10 @@ const runAdvanceStep = async (context: AgentStepContext, target: RunState): Prom
 const executeFixPlan = async (context: AgentStepContext): Promise<AgentStepResult> => {
   const { project, run } = context;
 
-  // Retrieve the fix plan we stored when the plan was proposed.
+  // Retrieve the fix plan we stored when the plan was proposed. A missing plan
+  // and an unreadable plan are different problems, so they are reported apart.
   let fixPlan: FixPlanResult | null = null;
+  let unreadable = false;
   try {
     const rows = await workspaceRepository.getRecentEvidence(
       project.id,
@@ -389,18 +437,33 @@ const executeFixPlan = async (context: AgentStepContext): Promise<AgentStepResul
       1,
     );
     if (rows[0]?.summary) {
-      fixPlan = JSON.parse(rows[0].summary) as FixPlanResult;
+      try {
+        fixPlan = JSON.parse(rows[0].summary) as FixPlanResult;
+      } catch {
+        unreadable = true;
+      }
     }
-  } catch {
-    // If the plan is unreadable, bail out gracefully.
+  } catch (error) {
+    console.error("Could not read the stored fix plan", error);
   }
 
-  if (!fixPlan || fixPlan.steps.length === 0) {
+  if (!fixPlan || !Array.isArray(fixPlan.steps) || fixPlan.steps.length === 0) {
     await sayStep(
       context,
       "execute-no-plan",
-      ["I couldn't find a stored fix plan for this run. Please re-run diagnosis."],
+      unreadable
+        ? [
+            "The fix plan I saved for this task came back unreadable, so I won't guess at what it said.",
+            "I've moved back to investigating. Ask me to plan the fix again and I'll rebuild it from the evidence.",
+          ]
+        : [
+            "I don't have a saved fix plan for this task, so there's nothing for me to apply.",
+            "I've moved back to investigating. Ask me to plan the fix and I'll work it out from the evidence.",
+          ],
       "status_update",
+    );
+    context.onWorkspaceUpdate(
+      await workspaceRepository.advanceRun(project.id, run.id, "diagnosis"),
     );
     return { ran: true };
   }
@@ -408,8 +471,12 @@ const executeFixPlan = async (context: AgentStepContext): Promise<AgentStepResul
   await sayStep(
     context,
     "execute-start",
-    [`Starting fix execution — ${fixPlan.steps.length} step${fixPlan.steps.length === 1 ? "" : "s"}.`],
+    [
+      "I'm applying the fix now.",
+      `${fixPlan.steps.length} step${fixPlan.steps.length === 1 ? "" : "s"} to work through.`,
+    ],
     "status_update",
+
   );
 
   let allOk = true;

@@ -508,8 +508,11 @@ export const FIX_PLAN_SYSTEM_PROMPT = [
   "- Plugin conflict: deactivate the suspected plugin first, purge cache second.",
   "",
   "Rules:",
+  "0. Return steps ONLY when the site genuinely needs a change you can make. If the right answer is checks, monitoring, or advice, return an empty steps array and explain that in the rationale. Never dress a verification step up as a fix step.",
+  "0b. Never propose a step whose real content is 'confirm', 'verify', 'check', 'review', or 'monitor'. Those are not fixes.",
   "1. Only propose steps you have write access to. Check the capabilities list.",
   "2. Each step must use a toolId from the allowed write tools: wordpress.rest_api_write, wordpress.sftp_write_file, wordpress.run_wp_cli_write, wordpress.purge_cache, wordpress.wpcode_snippet.",
+
   "2b. Each step's stepId MUST be one of exactly these values — any other value is rejected:",
   "    fix-via-rest-api (wordpress.rest_api_write), fix-via-sftp (wordpress.sftp_write_file),",
   "    fix-via-wp-cli (wordpress.run_wp_cli_write), purge-cache (wordpress.purge_cache),",
