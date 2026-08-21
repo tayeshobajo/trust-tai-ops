@@ -360,6 +360,9 @@ export function ProjectWorkspace({
   const [dropActive, setDropActive] = useState(false);
   // The message being replied to, quoted into the next thing sent.
   const [replyTo, setReplyTo] = useState<{ who: string; text: string } | null>(null);
+  // A message that could be work or could be conversation: asked about once,
+  // rather than silently becoming a task in the rail.
+  const [taskOffer, setTaskOffer] = useState<string | null>(null);
   // True when new lines arrived while the reader was scrolled up.
   const [hasNewBelow, setHasNewBelow] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
