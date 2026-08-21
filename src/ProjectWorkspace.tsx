@@ -22,7 +22,7 @@ import {
   timeLabel,
 } from "./messages";
 import { formatActivityStamp, getProjectInitials, signalForRun } from "./home";
-import { HUMAN_PHASES } from "./home";
+import { HUMAN_PHASES, phasesForRun } from "./home";
 import { workspaceRepository } from "./repository";
 import { ProjectPipelineSummary } from "./ProjectPipelineSummary";
 import { validateAdvance } from "./operations";
