@@ -376,14 +376,12 @@ export const createRunFromDraft = (draft: RunDraft, project: Project): Run => {
       : draft.backupConfirmed
         ? "Confirm whether the project memory has any fragility notes that should raise the effective risk level."
         : "Attach backup evidence before asking the agent to plan write-capable work.",
-    diagnosisSummary: state === "environment_mapping"
-      ? draft.taskType === "qa_only"
-        ? "This run begins as a read-only verification pass. The system is mapping the environment and collecting the truth it will need for future execution runs."
-        : "Diagnosis has not been formed yet. The system is still gathering context."
-      : "Diagnosis is intentionally blocked until the current gate clears.",
-    planSummary: draft.taskType === "qa_only"
-      ? "No execution plan yet. This first run is designed to establish safe context, not rush into changes."
-      : "No execution plan yet. The run will earn one only after diagnosis exists.",
+    // Left empty on purpose: the agent speaks for itself in the conversation.
+    // Placeholder scaffolding text here used to be surfaced as chat messages
+    // and read as filler next to the agent's own words.
+    diagnosisSummary: "",
+    planSummary: "",
+
     startedAt: nowStamp,
     updatedAt: nowStamp,
     phases: createPhases(state, draft.taskType),
