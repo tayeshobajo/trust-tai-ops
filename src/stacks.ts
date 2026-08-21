@@ -199,6 +199,7 @@ export const accessTypeLabels: Record<AccessType, string> = {
   server_pm2: "Server process manager",
   ci_cd: "CI/CD pipeline",
   container: "Container platform",
+  google_search_console: "Google Search Console",
 };
 
 /** Access types offered while creating a project on a given stack. */
