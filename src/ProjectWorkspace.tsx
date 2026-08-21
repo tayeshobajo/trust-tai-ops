@@ -976,6 +976,30 @@ export function ProjectWorkspace({
   };
 
   /**
+   * Ask Captain to inspect the current task and produce a strategic plan.
+   * Extracted so the composer chip and the error-state retry button share
+   * exactly the same code path.
+   */
+  const triggerCaptainPlan = async () => {
+    if (!activeRun || captainBusy) return;
+    setCaptainBusy(true);
+    setCaptainError(null);
+    try {
+      const plan = await sendToCaptain({
+        project,
+        run: activeRun,
+        memory: project.memoryEntries,
+        emit,
+      });
+      if (!plan) {
+        setCaptainError("Captain didn't return a plan — check that the reasoning service is reachable.");
+      }
+    } finally {
+      setCaptainBusy(false);
+    }
+  };
+
+  /**
    * Approval is the moment a proposal becomes real work. The browser only asks:
    * the server creates the run, links the proposal and answers with the run it
    * ended up with, so a second click resolves to the same task rather than a
@@ -2455,6 +2479,13 @@ export function ProjectWorkspace({
             <p className="pw-persist-error" role="status">
               <WarningIcon />
               {captainError}
+              <button
+                type="button"
+                disabled={captainBusy}
+                onClick={() => void triggerCaptainPlan()}
+              >
+                {captainBusy ? "Retrying…" : "Retry"}
+              </button>
               <button type="button" onClick={() => setCaptainError(null)}>Dismiss</button>
             </p>
           ) : null}
@@ -2522,24 +2553,7 @@ export function ProjectWorkspace({
                 type="button"
                 title="Ask Captain to inspect this task and propose a strategic plan"
                 disabled={captainBusy || !activeRun}
-                onClick={async () => {
-                  if (!activeRun || captainBusy) return;
-                  setCaptainBusy(true);
-                  setCaptainError(null);
-                  try {
-                    const plan = await sendToCaptain({
-                      project,
-                      run: activeRun,
-                      memory: project.memoryEntries,
-                      emit,
-                    });
-                    if (!plan) {
-                      setCaptainError("Captain didn't return a plan — check that the reasoning service is reachable.");
-                    }
-                  } finally {
-                    setCaptainBusy(false);
-                  }
-                }}
+                onClick={() => void triggerCaptainPlan()}
               >
                 {captainBusy ? "Asking Captain…" : "Ask Captain"}
               </button>
