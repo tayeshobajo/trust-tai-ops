@@ -517,6 +517,15 @@ export const parseCredentialText = (rawInput: string): ParsedIntake => {
         const normalized = normalizeUrl(value);
         if (normalized && !urls.includes(normalized)) urls.push(normalized);
       }
+      continue;
+    }
+
+    if (section === "hosting" || section === "database" || section === "cdn") {
+      const panel = panels[section];
+      if (hit.field === "siteUrl" || hit.field === "adminUrl") panel.url = normalizeUrl(value) || value;
+      else if (hit.field === "identity" || hit.field === "username") panel.username = panel.username || value;
+      else if (hit.field === "password" || hit.field === "appPassword") panel.password = value;
+      else if (hit.field === "host") panel.note = panel.note || value;
     }
   }
 
@@ -531,6 +540,9 @@ export const parseCredentialText = (rawInput: string): ParsedIntake => {
   mention(/(^|[^s])\bftp\b/, "ftp");
   mention(/\bssh\b/, "ssh");
   mention(/\bgoogle[ _-]?search[ _-]?console\b|\bsearch[ _-]?console\b|\bgsc\b/, "google_search_console");
+  mention(/\bcpanel\b|\bplesk\b|\bwhm\b|\bhosting[ _-]?panel\b|\bcontrol[ _-]?panel\b|\bstaging\b/, "hosting_portal");
+  mention(/\bdatabase\b|\bmysql\b|\bmariadb\b|\bphpmyadmin\b/, "database");
+  mention(/\bcloudflare\b|\bcdn\b|\bfastly\b/, "cdn");
 
   // -- bundles ---------------------------------------------------------------
   const bundles: ParsedBundle[] = [];
