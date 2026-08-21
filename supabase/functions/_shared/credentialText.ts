@@ -168,10 +168,15 @@ export const redactBody = (body: string[]): string[] => body.map((line) => redac
 const SECTION_PREFIX = /^(s?ftp|ssh|wordpress|wp)[ _-]?/i;
 
 const sectionFromWord = (word: string): Section => {
-  const value = word.toLowerCase();
+  const value = word.toLowerCase().replace(/[ _-]/g, "");
   if (value === "sftp") return "sftp";
   if (value === "ftp") return "ftp";
   if (value === "ssh") return "ssh";
+  if (/^(hosting|host(ing)?panel|controlpanel|cpanel|plesk|whm|siteground|wpengine|kinsta|panel|staging)$/.test(value)) {
+    return "hosting";
+  }
+  if (/^(database|db|mysql|mariadb|phpmyadmin)$/.test(value)) return "database";
+  if (/^(cloudflare|cdn|fastly)$/.test(value)) return "cdn";
   return "wordpress";
 };
 
