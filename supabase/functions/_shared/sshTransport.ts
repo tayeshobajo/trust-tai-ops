@@ -654,3 +654,240 @@ export const denoSftpTransport = (): SftpTransport => ({
     });
   },
 });
+
+// ---------------------------------------------------------------------------
+// General file operations over the SFTP subsystem.
+// ---------------------------------------------------------------------------
+
+/**
+ * Unlike `readTails`, these accept a caller-named path. That is safe only
+ * because every caller routes through `fileAccess.ts`, which confines paths to
+ * the project's own site root before anything reaches a socket.
+ */
+export type SftpEntry = {
+  name: string;
+  kind: "file" | "dir" | "link" | "other";
+  size: number | null;
+  modifiedAt: string | null;
+};
+
+export type SftpOpsFailure = {
+  ok: false;
+  kind:
+    | "auth_failed"
+    | "unreachable"
+    | "timeout"
+    | "host_key_rejected"
+    | "protocol_error"
+    | "sftp_unavailable"
+    | "bad_credential"
+    | "not_found"
+    | "write_failed";
+  fingerprint: string | null;
+  detail: string;
+};
+
+export type SftpListOutcome = { ok: true; entries: SftpEntry[]; truncated: boolean; fingerprint: string } | SftpOpsFailure;
+
+export type SftpReadOutcome =
+  | { ok: true; size: number; bytesRead: number; truncated: boolean; text: string; modifiedAt: string | null; fingerprint: string }
+  | SftpOpsFailure;
+
+export type SftpRenameOutcome = { ok: true; fingerprint: string } | SftpOpsFailure;
+
+export type SftpFileOps = {
+  list: (
+    target: SshTarget,
+    path: string,
+    maxEntries: number,
+    timeoutMs: number,
+    acceptHostKey: (fingerprint: string) => boolean,
+  ) => Promise<SftpListOutcome>;
+  read: (
+    target: SshTarget,
+    path: string,
+    request: { maxBytes: number; from: "tail" | "start" },
+    timeoutMs: number,
+    acceptHostKey: (fingerprint: string) => boolean,
+  ) => Promise<SftpReadOutcome>;
+  rename: (
+    target: SshTarget,
+    from: string,
+    to: string,
+    timeoutMs: number,
+    acceptHostKey: (fingerprint: string) => boolean,
+  ) => Promise<SftpRenameOutcome>;
+};
+
+type SftpDirEntry = {
+  filename: string;
+  longname?: string;
+  attrs: { size?: number; mtime?: number; isDirectory?: () => boolean; isFile?: () => boolean; isSymbolicLink?: () => boolean };
+};
+
+type SftpOpsSession = SftpWriteSession & {
+  readdir(path: string, cb: (error: Error | undefined, list: SftpDirEntry[] | undefined) => void): void;
+  rename(from: string, to: string, cb: (error?: Error) => void): void;
+  lstat(path: string, cb: (error: Error | undefined, stats: SftpStats | undefined) => void): void;
+};
+
+/** Opens one authenticated SFTP session and hands it to `run`. */
+const withSftpSession = async <T>(
+  target: SshTarget,
+  timeoutMs: number,
+  acceptHostKey: (fingerprint: string) => boolean,
+  run: (sftp: SftpOpsSession, fingerprint: string) => Promise<T>,
+): Promise<T | SftpOpsFailure> => {
+  const { Client } = await import("npm:ssh2@1.16.0");
+  const { createHash } = await import("node:crypto");
+  const client = new Client();
+  let presented: string | null = null;
+  let settled = false;
+
+  return await new Promise<T | SftpOpsFailure>((resolve) => {
+    const finish = (outcome: T | SftpOpsFailure) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      try {
+        client.end();
+      } catch {
+        // Already gone.
+      }
+      resolve(outcome);
+    };
+
+    const deadline = setTimeout(() => {
+      finish({ ok: false, kind: "timeout", fingerprint: presented, detail: "The server did not answer in time." });
+    }, timeoutMs + SSH_CONNECT_TIMEOUT_MS);
+
+    client.on("ready", () => {
+      client.sftp(async (error: Error | undefined, sftp: SftpOpsSession | undefined) => {
+        if (error || !sftp) {
+          finish({
+            ok: false,
+            kind: "sftp_unavailable",
+            fingerprint: presented,
+            detail: "The server connected but does not offer file access over SSH.",
+          });
+          return;
+        }
+        try {
+          finish(await run(sftp, presented ?? ""));
+        } catch (err) {
+          finish({
+            ok: false,
+            kind: "protocol_error",
+            fingerprint: presented,
+            detail: String((err as Error)?.message ?? err).slice(0, 200),
+          });
+        } finally {
+          try {
+            sftp.end();
+          } catch {
+            // Closing anyway.
+          }
+        }
+      });
+    });
+
+    client.on("error", (error: SshClientError) => finish(clientFailure(error, presented) as SftpOpsFailure));
+
+    try {
+      client.connect({
+        host: target.host,
+        port: target.port,
+        username: target.username,
+        ...(target.privateKey
+          ? { privateKey: target.privateKey, passphrase: target.passphrase || undefined }
+          : { password: target.password ?? "", tryKeyboard: false }),
+        readyTimeout: SSH_CONNECT_TIMEOUT_MS,
+        keepaliveInterval: 0,
+        algorithms: {
+          cipher: [...SSH_ALGORITHMS.cipher],
+          hmac: [...SSH_ALGORITHMS.hmac],
+          serverHostKey: [...SSH_ALGORITHMS.serverHostKey],
+        },
+        hostVerifier: (key: Uint8Array) => {
+          presented = `SHA256:${createHash("sha256").update(key).digest("base64").replace(/=+$/, "")}`;
+          return acceptHostKey(presented);
+        },
+      });
+    } catch (error) {
+      finish(connectFailure(error, presented) as SftpOpsFailure);
+    }
+  });
+};
+
+export const denoSftpFileOps = (): SftpFileOps => ({
+  async list(target, path, maxEntries, timeoutMs, acceptHostKey) {
+    return await withSftpSession<SftpListOutcome>(target, timeoutMs, acceptHostKey, async (sftp, fingerprint) => {
+      const list = await new Promise<SftpDirEntry[] | null>((done) =>
+        sftp.readdir(path, (err, value) => done(err || !value ? null : value)),
+      );
+      if (!list) {
+        return { ok: false, kind: "not_found", fingerprint, detail: "That folder could not be listed on the server." };
+      }
+      const entries: SftpEntry[] = list
+        .filter((item) => item.filename !== "." && item.filename !== "..")
+        .map((item) => ({
+          name: item.filename,
+          kind: item.attrs?.isDirectory?.()
+            ? ("dir" as const)
+            : item.attrs?.isSymbolicLink?.()
+              ? ("link" as const)
+              : item.attrs?.isFile?.()
+                ? ("file" as const)
+                : ("other" as const),
+          size: typeof item.attrs?.size === "number" ? item.attrs.size : null,
+          modifiedAt: typeof item.attrs?.mtime === "number" ? new Date(item.attrs.mtime * 1000).toISOString() : null,
+        }));
+      return { ok: true, entries: entries.slice(0, maxEntries), truncated: entries.length > maxEntries, fingerprint };
+    });
+  },
+
+  async read(target, path, request, timeoutMs, acceptHostKey) {
+    return await withSftpSession<SftpReadOutcome>(target, timeoutMs, acceptHostKey, async (sftp, fingerprint) => {
+      const stats = await new Promise<SftpStats | null>((done) =>
+        sftp.stat(path, (err, value) => done(err || !value ? null : value)),
+      );
+      if (!stats) return { ok: false, kind: "not_found", fingerprint, detail: "That file is not there." };
+      if (typeof stats.isFile === "function" && !stats.isFile()) {
+        return { ok: false, kind: "not_found", fingerprint, detail: "That path is not a regular file." };
+      }
+      const size = Number(stats.size) || 0;
+      const want = Math.min(request.maxBytes, size);
+      if (want <= 0) {
+        return { ok: true, size, bytesRead: 0, truncated: false, text: "", modifiedAt: null, fingerprint };
+      }
+      const position = request.from === "tail" ? Math.max(0, size - want) : 0;
+      const handle = await new Promise<unknown>((done) => sftp.open(path, "r", (err, value) => done(err ? null : value)));
+      if (!handle) return { ok: false, kind: "not_found", fingerprint, detail: "That file could not be opened." };
+      const buffer = new Uint8Array(want);
+      const bytesRead = await new Promise<number>((done) =>
+        sftp.read(handle, buffer, 0, want, position, (err, read) => done(err ? -1 : read)),
+      );
+      await new Promise<void>((done) => sftp.close(handle, () => done()));
+      if (bytesRead < 0) return { ok: false, kind: "not_found", fingerprint, detail: "That file could not be read." };
+      return {
+        ok: true,
+        size,
+        bytesRead,
+        truncated: position > 0 || want < size,
+        text: new TextDecoder().decode(buffer.subarray(0, bytesRead)),
+        modifiedAt: null,
+        fingerprint,
+      };
+    });
+  },
+
+  async rename(target, from, to, timeoutMs, acceptHostKey) {
+    return await withSftpSession<SftpRenameOutcome>(target, timeoutMs, acceptHostKey, async (sftp, fingerprint) => {
+      const failure = await new Promise<Error | undefined>((done) => sftp.rename(from, to, (err) => done(err)));
+      if (failure) {
+        return { ok: false, kind: "write_failed", fingerprint, detail: "The server refused the rename." };
+      }
+      return { ok: true, fingerprint };
+    });
+  },
+});
