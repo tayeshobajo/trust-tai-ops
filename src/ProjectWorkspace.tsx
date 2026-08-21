@@ -848,6 +848,19 @@ export function ProjectWorkspace({
     await apply(() => workspaceRepository.advanceRun(project.id, run.id, target));
   };
 
+  // The human already did the work outside the agent. Closing the task is a
+  // statement of fact, not a claim that the agent verified anything.
+  const markRunDoneManually = async (run: Run) => {
+    if (!canWrite || busy || run.state === "complete") return;
+    const note = "Marked as done by the operator — completed manually outside the agent.";
+    await apply(
+      () => workspaceRepository.closeRunManually(project.id, run.id, note),
+      "Noted — you completed this one yourself, so I've closed it and I won't raise it again. If it comes back, tell me and I'll reopen the thread.",
+      `manual-complete-${run.id}`,
+    );
+  };
+
+
   const openAccessSurface = (types: AccessType[] = []) => {
     setAccessFocus(types);
     setSurface("access");
