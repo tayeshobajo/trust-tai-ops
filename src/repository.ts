@@ -448,6 +448,34 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     return nextWorkspace;
   }
 
+  async closeRunManually(projectId: string, runId: string, note: string): Promise<Organization> {
+    const workspace = await this.loadWorkspace();
+    const { project, run } = findRun(workspace, projectId, runId);
+    if (!project || !run) return workspace;
+    if (run.state === "complete") return workspace;
+
+    const updatedRun: Run = {
+      ...run,
+      state: "complete",
+      phases: run.phases.map((phase) => ({ ...phase, status: "completed" })),
+      nextAction: "Closed by the operator. Nothing further is queued.",
+      completedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      actions: [...run.actions, {
+        id: `action-${runId}-${Date.now()}`,
+        actor: "operator",
+        summary: note,
+        outcome: "succeeded",
+      }],
+    };
+
+    const nextWorkspace = replaceRun(workspace, projectId, updatedRun);
+    await this.saveWorkspace(nextWorkspace);
+    return nextWorkspace;
+  }
+
+
+
   async updateQaResult(projectId: string, runId: string, resultId: string, result: "passed" | "failed" | "warning" | "skipped", notes: string): Promise<Organization> {
     const workspace = await this.loadWorkspace();
     const { project, run } = findRun(workspace, projectId, runId);
