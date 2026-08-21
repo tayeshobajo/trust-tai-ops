@@ -78,7 +78,7 @@ export const signalForRun = (run: Run): ProjectSignal => {
       return { ...base, status: "Paused until you reply", detail: run.operatorPrompt || "The agent stopped on purpose and is waiting on you.", phase: "Investigating", agentState: "needs_you", needsYou: run.nextAction };
     case "escalated":
     case "failed":
-      return { ...base, status: "Needs your decision", detail: run.operatorPrompt || "Something needs a human call before the agent continues.", phase: "Resolving", agentState: "needs_you", needsYou: run.nextAction };
+      return { ...base, status: "Needs your decision", detail: run.operatorPrompt || "Something needs a human call before the agent continues.", phase: "Investigating", agentState: "needs_you", needsYou: run.nextAction };
     case "rolled_back":
       return { ...base, status: "Changes were rolled back", detail: run.operatorPrompt || "The agent restored the previous state to keep the site safe.", phase: "Checking", agentState: "needs_you", needsYou: run.nextAction };
     default:
