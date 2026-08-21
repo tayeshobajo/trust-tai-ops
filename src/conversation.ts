@@ -44,34 +44,16 @@ const pastPlan = (run: Run) =>
   ["execution", "qa", "recommendations", "complete", "rolled_back"].includes(run.state);
 const inQa = (run: Run) => ["qa", "recommendations", "complete"].includes(run.state);
 
+/**
+ * State-derived thread entries.
+ *
+ * This builds only what the agent has not said in its own voice: evidence
+ * cards and decision requests. Narration — acknowledgements, diagnosis
+ * restatements, plan recaps — belongs to the real conversation, never to a
+ * reconstruction, or the same thing gets said twice in two wordings.
+ */
 export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
   const messages: ThreadMessage[] = [];
-  const environment = getEnvironmentName(project, run.environmentId);
-
-  messages.push({
-    id: `${run.id}-brief`,
-    role: "user",
-    body: [run.taskSummary || run.title],
-  });
-
-  messages.push({
-    id: `${run.id}-ack`,
-    role: "agent",
-    body: [
-      `Got it. I'll take a look at ${project.primaryDomain} on ${environment.toLowerCase()} and work through this carefully.`,
-      "I always start read-only, so nothing on the site changes while I'm still learning what's going on.",
-    ],
-  });
-
-  if (project.accessMethods.length > 0 && pastAccess(run)) {
-    messages.push({
-      id: `${run.id}-access-ok`,
-      role: "agent",
-      body: [
-        `I can reach the site using the access you shared (${project.accessMethods.map((item) => item.label).join(", ")}).`,
-      ],
-    });
-  }
 
   if (run.findings.length > 0) {
     messages.push({
@@ -86,28 +68,6 @@ export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
           tone: severityTone(finding.severity),
         })),
       },
-    });
-  }
-
-  if (pastMapping(run) && run.diagnosisSummary) {
-    messages.push({
-      id: `${run.id}-diagnosis`,
-      role: "agent",
-      body: [run.diagnosisSummary],
-    });
-  }
-
-  if (run.planSummary && ["plan", "execution", "qa", "recommendations", "complete", "rolled_back"].includes(run.state)) {
-    messages.push({
-      id: `${run.id}-plan`,
-      role: "agent",
-      body: [
-        "Here's what I recommend doing next:",
-        run.planSummary,
-        run.approvalRequired
-          ? "This touches production, so I'd like your go-ahead before I make the change. If anything goes wrong I can restore the previous state."
-          : "This is a low-impact change and I can safely handle it from here.",
-      ],
     });
   }
 
