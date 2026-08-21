@@ -20,6 +20,53 @@ export const toReasonerContext = (evidence: AgentEvidence[]): string[] =>
   evidence.map((item) => `${item.toolId}: ${item.summary}`);
 
 /** What the agent may say to a person about a public site check. */
+export const describeSeoSurface = (evidence: AgentEvidence): string[] => {
+  const data = evidence.data;
+  const lines: string[] = [];
+  const title = str(data.title);
+  const description = str(data.description);
+  const canonical = str(data.canonical);
+  const h1Count = num(data.h1Count);
+  const sitemapCount = num(data.sitemapUrlCount);
+  const internal = num(data.internalLinks);
+
+  lines.push(
+    title
+      ? `The page title reads "${title}" (${num(data.titleLength) ?? title.length} characters).`
+      : "The page serves no title tag.",
+  );
+  lines.push(
+    description
+      ? `Its meta description is ${num(data.descriptionLength) ?? description.length} characters long.`
+      : "It serves no meta description.",
+  );
+  if (data.noindex === true) lines.push("It tells search engines not to index it.");
+  lines.push(canonical ? `The canonical URL is ${canonical}.` : "No canonical URL is declared.");
+  if (h1Count !== null) {
+    lines.push(
+      h1Count === 1 ? "It has a single main heading." : `It has ${h1Count} main headings.`,
+    );
+  }
+  if (data.robotsBlocksEverything === true) lines.push("robots.txt blocks every crawler.");
+  else if (data.robotsTxtPresent === false) lines.push("No robots.txt is served.");
+  lines.push(
+    sitemapCount !== null
+      ? `The sitemap lists ${sitemapCount} URLs.`
+      : "I could not read a sitemap at the usual locations.",
+  );
+  const schemaTypes = Array.isArray(data.schemaTypes) ? (data.schemaTypes as string[]) : [];
+  lines.push(
+    schemaTypes.length > 0
+      ? `Structured data is present for ${schemaTypes.slice(0, 6).join(", ")}.`
+      : "No structured data is present on this page.",
+  );
+  if (internal !== null) lines.push(`The page links to ${internal} internal pages.`);
+  lines.push(
+    "This is what the site serves publicly. It does not tell me how Google has actually indexed it, or how AI assistants answer questions about it.",
+  );
+  return lines;
+};
+
 export const describeSiteInspection = (evidence: AgentEvidence): string[] => {
   const data = evidence.data;
   const status = num(data.status);
