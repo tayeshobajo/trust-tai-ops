@@ -660,6 +660,13 @@ export function ProjectWorkspace({
     if (!messagesLoaded || searching) return;
     const node = threadRef.current;
     if (node) {
+      // The first load of a project always lands on the latest message.
+      if (initialScrollPending.current) {
+        threadEndRef.current?.scrollIntoView({ block: "end" });
+        setHasNewBelow(false);
+        initialScrollPending.current = false;
+        return;
+      }
       // Only follow the conversation when the reader is already at the end.
       // Scrolling back through history must not be yanked forward.
       const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
