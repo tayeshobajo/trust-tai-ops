@@ -2513,6 +2513,7 @@ export function ProjectWorkspace({
                       phase={signal.phase ?? null}
                       working={busy || agentBusy}
                       detail={signal.detail ?? null}
+                      track={phaseTrack}
                     />
                   ) : null}
 
