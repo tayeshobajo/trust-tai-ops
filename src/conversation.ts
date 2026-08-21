@@ -1,5 +1,4 @@
 import type { Project, Run, RunDraft, TaskType } from "./types";
-import { getEnvironmentName } from "./lib";
 
 export type ThreadCardItem = {
   label: string;
@@ -37,7 +36,6 @@ const severityTone = (severity: string): ThreadCardItem["tone"] =>
 const qaTone = (result: string): ThreadCardItem["tone"] =>
   result === "passed" ? "good" : result === "failed" ? "bad" : result === "warning" ? "warn" : "neutral";
 
-const pastAccess = (run: Run) => run.state !== "intake" && run.state !== "access_check";
 const pastMapping = (run: Run) =>
   !["intake", "access_check", "backup_gate", "environment_mapping"].includes(run.state);
 const pastPlan = (run: Run) =>
@@ -52,7 +50,7 @@ const inQa = (run: Run) => ["qa", "recommendations", "complete"].includes(run.st
  * restatements, plan recaps — belongs to the real conversation, never to a
  * reconstruction, or the same thing gets said twice in two wordings.
  */
-export const buildThread = (project: Project, run: Run): ThreadMessage[] => {
+export const buildThread = (_project: Project, run: Run): ThreadMessage[] => {
   const messages: ThreadMessage[] = [];
 
   if (run.findings.length > 0) {
