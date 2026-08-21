@@ -59,7 +59,7 @@ export type ParsedIntake = {
   intent: string[];
 };
 
-type Section = "wordpress" | "ssh" | "sftp" | "ftp" | "unknown";
+type Section = "wordpress" | "ssh" | "sftp" | "ftp" | "hosting" | "database" | "cdn" | "unknown";
 
 // ---------------------------------------------------------------------------
 // Normalization
