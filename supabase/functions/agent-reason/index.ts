@@ -631,6 +631,72 @@ Deno.serve(async (req) => {
 
   if (mode === "captain_plan") {
     const digest = sanitizeCaptainDigest(body.digest);
+
+    // ── Route to the REAL Captain (OpenClaw daemon) via the plan queue ──────
+    // Enqueue a request row, long-poll for the daemon's answer, and fall
+    // back to the prompt-based Captain only when the daemon is offline or
+    // times out. The queue is the only bridge — nothing is exposed publicly.
+    const CAPTAIN_WAIT_MS = 110_000;      // stay under the edge function wall clock
+    const CAPTAIN_POLL_MS = 3_000;
+    const CAPTAIN_EXPIRY_MS = 10 * 60_000; // daemon has 10 min before a row expires
+
+    let requestId: string | null = null;
+    try {
+      const inserted = await serviceClient()
+        .from("captain_plan_requests")
+        .insert({
+          project_id: projectId,
+          run_id: typeof body.runId === "string" && body.runId ? body.runId : null,
+          digest: digest as unknown as Record<string, unknown>,
+          status: "pending",
+        })
+        .select("id")
+        .single();
+      if (inserted.data) requestId = inserted.data.id as string;
+    } catch (queueError) {
+      console.error("captain_plan enqueue failed:", queueError);
+    }
+
+    if (requestId) {
+      const deadline = Date.now() + CAPTAIN_WAIT_MS;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, CAPTAIN_POLL_MS));
+        try {
+          const { data: row, error: pollError } = await serviceClient()
+            .from("captain_plan_requests")
+            .select("status, plan, source, error_summary")
+            .eq("id", requestId)
+            .maybeSingle();
+          if (pollError || !row) break;
+          if (row.status === "done" && row.plan) {
+            const plan = parseCaptainPlan(JSON.stringify(row.plan));
+            if (plan) {
+              return Response.json(
+                { ok: true, mode, model: "captain-openclaw", captain_plan: plan, source: row.source ?? "openclaw" },
+                { headers: corsHeaders },
+              );
+            }
+            break; // daemon wrote an unusable plan — fall through to fallback
+          }
+          if (row.status === "failed") {
+            console.error("captain daemon failed:", row.error_summary);
+            break; // fall back to prompt-Captain
+          }
+        } catch {
+          break; // poll failure — fall back
+        }
+      }
+      // Timed out or daemon offline: mark expired so the daemon skips it.
+      try {
+        await serviceClient()
+          .from("captain_plan_requests")
+          .update({ status: "expired" })
+          .eq("id", requestId)
+          .eq("status", "pending");
+      } catch { /* non-fatal */ }
+    }
+
+    // ── Fallback: prompt-based Captain (previous behavior) ────────────────
     const asked = await askModel(
       model,
       buildCall(model, apiKey, CAPTAIN_SYSTEM_PROMPT, captainUserPrompt(digest), 2000),
@@ -644,7 +710,7 @@ Deno.serve(async (req) => {
         { headers: corsHeaders },
       );
     }
-    return Response.json({ ok: true, mode, model: model.id, captain_plan }, { headers: corsHeaders });
+    return Response.json({ ok: true, mode, model: model.id, captain_plan, source: "fallback" }, { headers: corsHeaders });
   }
 
   if (mode === "monitor") {
