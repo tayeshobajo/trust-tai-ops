@@ -5,13 +5,27 @@ import { accessTypeLabels, getProjectStack, stackCopy } from "./stacks";
 export const getProjectById = (workspace: Organization, projectId: string | null): Project | null =>
   workspace.projects.find((project) => project.id === projectId) ?? null;
 
+/** A task waiting its turn. The agent never works on one of these. */
+export const isQueuedRun = (run: Run): boolean => (run.queuePosition ?? null) !== null;
+
 export const getActiveRun = (project: Project | null): Run | null => {
   if (!project) {
     return null;
   }
 
-  return project.runs.find((run) => run.state !== "complete") ?? project.runs[0] ?? null;
+  const live = project.runs.filter((run) => !isQueuedRun(run));
+  return live.find((run) => run.state !== "complete") ?? live[0] ?? null;
 };
+
+/** Waiting tasks, in the order they will be started. */
+export const getQueuedRuns = (project: Project | null): Run[] => {
+  if (!project) return [];
+  return project.runs
+    .filter(isQueuedRun)
+    .slice()
+    .sort((a, b) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0));
+};
+
 
 export const getEnvironmentName = (project: Project | null, environmentId: string) =>
   project?.environments.find((environment) => environment.id === environmentId)?.name ?? "Environment";
