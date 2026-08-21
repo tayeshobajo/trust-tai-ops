@@ -1118,7 +1118,9 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       plan_summary: newRun.planSummary,
       started_at: newRun.startedAt,
       updated_at: newRun.updatedAt,
+      queue_position: options?.queued ? nextQueuePosition(project) : null,
     }] as never);
+
 
     if (runError) {
       throw runError;
