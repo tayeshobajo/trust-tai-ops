@@ -1579,7 +1579,59 @@ export function ProjectWorkspace({
       return;
     }
 
+    // A fresh brief arriving mid-task does not derail the task underway. It
+    // becomes the next thing in the queue, and the agent says so plainly.
+    if (
+      typed &&
+      attachments.length === 0 &&
+      activeRun.state !== "complete" &&
+      looksLikeNewTaskBrief(typed)
+    ) {
+      setBusy(true);
+      try {
+        const draft = draftFromBrief(project, typed);
+        const next = await workspaceRepository.createRun(project.id, draft, { queued: true });
+        onWorkspaceUpdate(next);
+        const created = getQueuedRuns(next.projects.find((item) => item.id === project.id) ?? null).slice(-1)[0];
+        const ahead = getQueuedRuns(next.projects.find((item) => item.id === project.id) ?? null).length;
+
+        if (created) {
+          // The brief belongs to the task it created, so opening that task
+          // later shows the request that started it.
+          await emit({
+            runId: created.id,
+            role: "user",
+            kind: "message",
+            body: bodyLines.length > 0 ? bodyLines : [typed],
+            dedupeKey: `${created.id}-brief`,
+            sourceKey: `${created.id}-brief`,
+          });
+        }
+
+        await emit({
+          runId: activeRun.id,
+          role: "agent",
+          kind: "message",
+          body: [
+            `I've put that down as a separate task: **${draft.title}**.`,
+            ahead > 1
+              ? `It's number ${ahead} in the queue. I'll start it once I'm finished here.`
+              : "I'll start it as soon as I'm finished with what I'm on. If it's more urgent, hit “Start now” next to it in the task list.",
+          ],
+          dedupeKey: created ? `queued-${created.id}` : `queued-${Date.now()}`,
+        });
+
+        setComposerValue("");
+      } catch {
+        setPersistError("I couldn't queue that as a new task. Your message is still here — try again.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     setBusy(true);
+
     const stamp = Date.now();
     let savedMessage: ProjectMessage | null = null;
     try {
