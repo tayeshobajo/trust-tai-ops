@@ -648,19 +648,27 @@ const runInvestigationStep = async (context: AgentStepContext): Promise<AgentSte
  * Send a task to Captain for strategic planning.
  *
  * Assembles a sanitized digest from the current project + run context and
- * invokes the captain_plan edge-function path. Returns the structured plan
- * on success, null when the gateway is unavailable or returns nothing usable.
+ * submits it to the captain_plan queue. A real Captain turn inspects the
+ * live site and runs minutes, so this never blocks on the answer:
  *
- * The result is stored as a captain_plan message in the conversation so the
- * UI can render the Approve / Revise decision surface.
+ *  1. Enqueue (edge fn returns a requestId immediately)
+ *  2. Say so in chat — the person sees Captain is working
+ *  3. Poll in the background until the plan lands (or fails/expires)
+ *  4. Emit the plan as a captain_plan message the UI renders with its
+ *     Approve gate (the gate is Phase 2; the render is Phase 1)
+ *
+ * Falls back to the legacy synchronous call when the queue is unavailable.
+ * Returns the plan when one arrived, null otherwise.
  */
 export const sendToCaptain = async (params: {
   project: Project;
   run: Run | null;
   memory: MemoryEntry[];
   emit: AgentEmit;
+  /** Invoked as the poll progresses, so the caller can show live status. */
+  onStatus?: (status: string) => void;
 }): Promise<CaptainPlanResult | null> => {
-  const { project, run, memory, emit } = params;
+  const { project, run, memory, emit, onStatus } = params;
 
   const digest: Record<string, unknown> = {
     projectName: project.name,
@@ -682,11 +690,74 @@ export const sendToCaptain = async (params: {
     riskLevel: run?.riskLevel ?? null,
   };
 
+  const gateway = executionGateway();
+
   try {
-    const result = await executionGateway().captainPlan(project.id, digest);
+    // 1) Enqueue without waiting. The daemon picks it up within seconds and
+    //    a real Captain turn may take minutes — the browser must not hold a
+    //    request open that long, and the person must not stare at a spinner.
+    const requestId = await gateway.captainPlanSubmit(project.id, digest, run?.id ?? null);
+
+    if (requestId) {
+      onStatus?.("submitted");
+      await emit({
+        runId: run?.id ?? null,
+        role: "agent",
+        kind: "status_update",
+        body: [
+          "I've handed this to Captain. It inspects the live site first, then plans — this usually takes a couple of minutes.",
+        ],
+        dedupeKey: `captain-submitted-${requestId}`,
+      });
+
+      // 2) Poll in the background. Generous window: the daemon claims within
+      //    ~5s, a Captain turn is capped at 7 min, so 8 min covers the worst
+      //    case with margin.
+      const deadline = Date.now() + 8 * 60_000;
+      const pollInterval = 6_000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        const check = await gateway.captainPlanCheck(project.id, requestId);
+        if (!check) continue; // transient poll failure — try again
+        if (check.status === "done") {
+          await emit({
+            runId: run?.id ?? null,
+            role: "agent",
+            kind: "captain_plan",
+            body: [JSON.stringify(check.plan)],
+            dedupeKey: `captain-plan-${requestId}`,
+          });
+          return check.plan;
+        }
+        if (check.status === "failed") {
+          break; // fall through to sync fallback below
+        }
+        if (check.status === "expired") {
+          break; // daemon never claimed it — fall through
+        }
+        onStatus?.(check.status); // pending → in_progress
+      }
+
+      // The queue did not produce a plan. Say so plainly rather than
+      // silently degrading — the person asked for Captain specifically.
+      await emit({
+        runId: run?.id ?? null,
+        role: "agent",
+        kind: "status_update",
+        body: [
+          "Captain didn't come back with a plan in time — it may be offline. I'll plan this myself from the evidence I have.",
+        ],
+        dedupeKey: `captain-timeout-${requestId}`,
+      });
+      // Continue into the sync fallback below.
+    }
+
+    // 3) Legacy synchronous path (also the fallback when the queue failed):
+    //    long-poll up to ~110s server-side, then the server's own
+    //    prompt-Captain fallback if the daemon is offline.
+    const result = await gateway.captainPlan(project.id, digest);
     if (!result) return null;
 
-    // Persist the plan so the UI can render the decision surface.
     await emit({
       runId: run?.id ?? null,
       role: "agent",

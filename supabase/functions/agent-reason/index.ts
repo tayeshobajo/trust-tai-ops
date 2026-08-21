@@ -565,10 +565,45 @@ Deno.serve(async (req) => {
     mode !== "synthesize_diagnosis" &&
     mode !== "plan_fix" &&
     mode !== "captain_plan" &&
+    mode !== "captain_plan_check" &&
     mode !== "monitor" &&
     mode !== "record_resolution"
   ) {
     return fail("invalid_input", "I don't know how to think about that.", false);
+  }
+
+  if (mode === "captain_plan_check") {
+    // Poll one captain_plan_requests row. The same authorization boundary as
+    // every other mode: the caller must belong to the project the request was
+    // created for. Only the row's status/plan is returned — never the digest,
+    // never internal state.
+    const requestId = typeof body.requestId === "string" ? body.requestId.trim() : "";
+    if (!requestId) return fail("invalid_input", "No plan request was named.", false);
+    const { data: row } = await serviceClient()
+      .from("captain_plan_requests")
+      .select("id, project_id, status, plan, source, error_summary")
+      .eq("id", requestId)
+      .maybeSingle();
+    if (!row || row.project_id !== projectId) {
+      return fail("not_found", "I can't find that plan request on this project.", false);
+    }
+    if (row.status === "done" && row.plan) {
+      const plan = parseCaptainPlan(JSON.stringify(row.plan));
+      if (!plan) {
+        return Response.json(
+          { ok: true, mode, requestId, status: "failed", reason: "plan_unreadable" },
+          { headers: corsHeaders },
+        );
+      }
+      return Response.json(
+        { ok: true, mode, requestId, status: "done", captain_plan: plan, source: row.source ?? "openclaw" },
+        { headers: corsHeaders },
+      );
+    }
+    return Response.json(
+      { ok: true, mode, requestId, status: row.status },
+      { headers: corsHeaders },
+    );
   }
 
   if (mode === "synthesize_diagnosis") {
@@ -633,9 +668,19 @@ Deno.serve(async (req) => {
     const digest = sanitizeCaptainDigest(body.digest);
 
     // ── Route to the REAL Captain (OpenClaw daemon) via the plan queue ──────
-    // Enqueue a request row, long-poll for the daemon's answer, and fall
-    // back to the prompt-based Captain only when the daemon is offline or
-    // times out. The queue is the only bridge — nothing is exposed publicly.
+    // Phase 1 of the Captain × Ops execution loop (brief §13).
+    //
+    // A real Captain turn — inspect the live site, then plan — runs minutes,
+    // far past what one edge-function request can wait for. So submission and
+    // delivery are decoupled:
+    //
+    //   body.async = true  → enqueue, answer { ok, requestId, status: "pending" }
+    //                       immediately. The browser polls mode="captain_plan_check".
+    //   body.async absent  → legacy long-poll (110s), then prompt fallback.
+    //
+    // The daemon on Tai's laptop polls pending rows, invokes Captain with
+    // tools, writes the plan back. Nothing is exposed publicly: the queue is
+    // service-role only and the daemon dials out.
     const CAPTAIN_WAIT_MS = 110_000;      // stay under the edge function wall clock
     const CAPTAIN_POLL_MS = 3_000;
     const CAPTAIN_EXPIRY_MS = 10 * 60_000; // daemon has 10 min before a row expires
@@ -657,6 +702,20 @@ Deno.serve(async (req) => {
       console.error("captain_plan enqueue failed:", queueError);
     }
 
+    // Async submission: the row is in the queue; Captain answers when it
+    // answers. The browser checks back — no fallback runs while a real
+    // Captain turn may still be working.
+    if (body.async === true) {
+      if (!requestId) {
+        return fail("captain_queue_unavailable", "I couldn't reach the planning queue just now.", true);
+      }
+      console.log(`captain_plan enqueued ${requestId} (async) uid=${authz.caller.userId} project=${projectId}`);
+      return Response.json(
+        { ok: true, mode, requestId, status: "pending", source: "queue" },
+        { headers: corsHeaders },
+      );
+    }
+
     if (requestId) {
       const deadline = Date.now() + CAPTAIN_WAIT_MS;
       while (Date.now() < deadline) {
@@ -672,7 +731,7 @@ Deno.serve(async (req) => {
             const plan = parseCaptainPlan(JSON.stringify(row.plan));
             if (plan) {
               return Response.json(
-                { ok: true, mode, model: "captain-openclaw", captain_plan: plan, source: row.source ?? "openclaw" },
+                { ok: true, mode, model: "captain-openclaw", captain_plan: plan, source: row.source ?? "openclaw", requestId },
                 { headers: corsHeaders },
               );
             }

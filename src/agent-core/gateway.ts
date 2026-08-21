@@ -64,8 +64,27 @@ export interface ExecutionGateway {
    * Captain plan: submits a client task to Captain for inspection-first
    * planning. Returns a structured plan with flags, prerequisites, and ordered
    * steps. Rendered in chat with an Approve gate — nothing executes until approved.
+   *
+   * A real Captain turn inspects the live site and can run minutes, so the
+   * submission is decoupled: enqueue (async) then poll. Legacy synchronous
+   * long-poll is still used when async is unavailable.
    */
   captainPlan(projectId: string, digest: Record<string, unknown>): Promise<CaptainPlanResult | null>;
+  /**
+   * Enqueue a Captain plan without waiting for the answer. Returns the queue
+   * request id, or null when the queue is unavailable.
+   */
+  captainPlanSubmit(projectId: string, digest: Record<string, unknown>, runId?: string | null): Promise<string | null>;
+  /**
+   * Poll an enqueued Captain plan. Returns pending | in_progress | done (with
+   * plan) | failed | expired. Null when the poll itself fails.
+   */
+  captainPlanCheck(projectId: string, requestId: string): Promise<
+    | { status: "pending" | "in_progress" | "expired" }
+    | { status: "done"; plan: CaptainPlanResult; source: string }
+    | { status: "failed"; reason: string }
+    | null
+  >;
 
   /**
    * Record a successfully resolved task as a knowledge base pattern.
@@ -255,6 +274,65 @@ class SupabaseFunctionGateway implements ExecutionGateway {
       const cp = payload.captain_plan as Record<string, unknown>;
       if (!Array.isArray(cp.steps) || cp.steps.length === 0) return null;
       return payload.captain_plan as CaptainPlanResult;
+    } catch {
+      return null;
+    }
+  }
+
+  async captainPlanSubmit(
+    projectId: string,
+    digest: Record<string, unknown>,
+    runId?: string | null,
+  ): Promise<string | null> {
+    if (!this.available()) return null;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke("agent-reason", {
+        body: { projectId, mode: "captain_plan", digest, model: readReasonModelId(), async: true, ...(runId ? { runId } : {}) },
+      });
+      if (error) return null;
+      const payload = data as { ok?: boolean; requestId?: unknown; status?: unknown } | null;
+      if (!payload?.ok || typeof payload.requestId !== "string" || payload.status !== "pending") return null;
+      return payload.requestId;
+    } catch {
+      return null;
+    }
+  }
+
+  async captainPlanCheck(
+    projectId: string,
+    requestId: string,
+  ): Promise<
+    | { status: "pending" | "in_progress" | "expired" }
+    | { status: "done"; plan: CaptainPlanResult; source: string }
+    | { status: "failed"; reason: string }
+    | null
+  > {
+    if (!this.available()) return null;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke("agent-reason", {
+        body: { projectId, mode: "captain_plan_check", requestId },
+      });
+      if (error) return null;
+      const payload = data as { ok?: boolean; status?: unknown; captain_plan?: unknown; source?: unknown; reason?: unknown } | null;
+      if (!payload?.ok || typeof payload.status !== "string") return null;
+      if (payload.status === "done") {
+        const cp = payload.captain_plan as Record<string, unknown> | undefined;
+        if (!cp || !Array.isArray(cp.steps) || cp.steps.length === 0) return { status: "failed", reason: "plan_unreadable" };
+        return {
+          status: "done",
+          plan: payload.captain_plan as CaptainPlanResult,
+          source: typeof payload.source === "string" ? payload.source : "openclaw",
+        };
+      }
+      if (payload.status === "failed") {
+        return { status: "failed", reason: typeof payload.reason === "string" ? payload.reason : "captain_failed" };
+      }
+      if (payload.status === "pending" || payload.status === "in_progress" || payload.status === "expired") {
+        return { status: payload.status };
+      }
+      return null;
     } catch {
       return null;
     }
