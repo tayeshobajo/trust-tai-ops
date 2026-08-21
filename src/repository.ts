@@ -1426,6 +1426,82 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     return this.loadWorkspace();
   }
 
+  async promoteQueuedRun(projectId: string, runId: string): Promise<Organization> {
+    const client = getSupabaseClient();
+    const workspace = await this.loadWorkspace();
+    const project = getProjectById(workspace, projectId);
+    if (!project) return workspace;
+
+    const target = project.runs.find((run) => run.id === runId);
+    if (!target || !isQueuedRun(target)) return workspace;
+
+    const live = getActiveRun(project);
+    const now = new Date().toISOString();
+    const runs = client.from("runs") as unknown as { update: (v: unknown) => { eq: (k: string, v: string) => PromiseLike<unknown> } };
+
+    if (live && live.state !== "complete") {
+      // Park the live task at the front of the queue so nothing is lost.
+      await runs.update({ queue_position: -1, updated_at: now }).eq("id", live.id);
+    }
+
+    await runs.update({ queue_position: null, updated_at: now }).eq("id", runId);
+    return this.loadWorkspace();
+  }
+
+  async moveQueuedRun(projectId: string, runId: string, direction: "up" | "down"): Promise<Organization> {
+    const client = getSupabaseClient();
+    const workspace = await this.loadWorkspace();
+    const project = getProjectById(workspace, projectId);
+    if (!project) return workspace;
+
+    const queue = getQueuedRuns(project);
+    const index = queue.findIndex((run) => run.id === runId);
+    const swapWith = direction === "up" ? index - 1 : index + 1;
+    if (index === -1 || swapWith < 0 || swapWith >= queue.length) return workspace;
+
+    const reordered = queue.slice();
+    [reordered[index], reordered[swapWith]] = [reordered[swapWith], reordered[index]];
+    const runs = client.from("runs") as unknown as { update: (v: unknown) => { eq: (k: string, v: string) => PromiseLike<unknown> } };
+
+    await Promise.all(reordered.map((run, order) => runs.update({ queue_position: order }).eq("id", run.id)));
+    return this.loadWorkspace();
+  }
+
+  async cancelQueuedRun(projectId: string, runId: string): Promise<Organization> {
+    const client = getSupabaseClient();
+    const workspace = await this.loadWorkspace();
+    const project = getProjectById(workspace, projectId);
+    if (!project) return workspace;
+
+    const target = project.runs.find((run) => run.id === runId);
+    if (!target || !isQueuedRun(target)) return workspace;
+
+    const now = new Date().toISOString();
+    // The task never ran, so it is closed rather than deleted: the brief that
+    // created it stays in the conversation.
+    await (client.from("runs") as unknown as { update: (v: unknown) => { eq: (k: string, v: string) => PromiseLike<unknown> } }).update({
+      state: "complete",
+      queue_position: null,
+      next_action: "Removed from the queue before it started.",
+      completed_at: now,
+      updated_at: now,
+    }).eq("id", runId);
+
+    await (client.from("run_phases") as unknown as { update: (v: unknown) => { eq: (k: string, v: string) => PromiseLike<unknown> } })
+      .update({ status: "completed" }).eq("run_id", runId);
+
+    await client.from("run_actions").insert([{
+      id: crypto.randomUUID(),
+      run_id: runId,
+      actor: "operator",
+      summary: "Removed from the queue before it started.",
+      outcome: "succeeded",
+    }] as never);
+
+    return this.loadWorkspace();
+  }
+
+
   async updateQaResult(_projectId: string, _runId: string, resultId: string, result: "passed" | "failed" | "warning" | "skipped", notes: string): Promise<Organization> {
     const client = getSupabaseClient();
     await (client.from("qa_results") as unknown as { update: (v: unknown) => { eq: (k: string, v: string) => unknown } }).update({ result, notes } as unknown).eq("id", resultId);
