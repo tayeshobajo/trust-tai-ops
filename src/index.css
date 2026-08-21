@@ -7748,3 +7748,47 @@ p, li {
   .composer-spacer { flex: 1 0 auto; }
   .composer-shell .composer-row .primary-button.composer-send { margin-left: auto; }
 }
+
+/* Task grouping: open work first, completed work tucked away but reachable. */
+.pw-task-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tt-space-2);
+  margin: var(--tt-space-3) 0 var(--tt-space-2);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--tt-ink) 52%, transparent);
+}
+
+button.pw-task-group.is-toggle {
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: var(--tt-space-2) 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+button.pw-task-group.is-toggle:hover {
+  color: var(--tt-ink);
+}
+
+.pw-task-row.is-done strong {
+  color: color-mix(in srgb, var(--tt-ink) 62%, transparent);
+}
+
+.pw-task-row.is-done p {
+  opacity: 0.75;
+}
+
+.pw-mark-done {
+  margin-top: var(--tt-space-2);
+}
+
+.pw-done-note {
+  margin-top: var(--tt-space-3);
+  font-size: 0.85rem;
+  color: color-mix(in srgb, var(--tt-ink) 60%, transparent);
+}
