@@ -316,7 +316,8 @@ const readLabel = (line: string): LabelHit | null => {
   return null;
 };
 
-const HEADING = /^\s*(sftp|ftp|ssh|wordpress|wp[ _-]?admin|google[ _-]?search[ _-]?console|gsc|search[ _-]?console)\b[^A-Za-z0-9]*$/i;
+const HEADING =
+  /^\s*(sftp|ftp|ssh|wordpress|wp[ _-]?admin|google[ _-]?search[ _-]?console|gsc|search[ _-]?console|hosting(?:[ _-]?panel)?|control[ _-]?panel|cpanel|plesk|whm|staging|database|db|mysql|mariadb|phpmyadmin|cloudflare|cdn|fastly)\b[^A-Za-z0-9]*$/i;
 
 /** True when text looks like a Google service account JSON blob. */
 const isServiceAccountJson = (text: string): boolean => {
