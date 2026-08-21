@@ -163,7 +163,9 @@ type RunRow = {
   plan_summary: string;
   started_at: string;
   updated_at: string;
+  queue_position?: number | null;
 };
+
 
 type RunPhaseRow = {
   id: string;
