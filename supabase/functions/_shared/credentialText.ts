@@ -427,7 +427,7 @@ export const looksLikeAccessText = (input: string): boolean => {
 };
 
 export const parseCredentialText = (rawInput: string): ParsedIntake => {
-  const input = expandInlineLabels(rawInput);
+  const input = expandInlineLabels(expandConnectionUrls(rawInput));
   const rawLines = input.split(/\r?\n/);
   const lines = rawLines.map(normalizeLine);
 
@@ -436,6 +436,11 @@ export const parseCredentialText = (rawInput: string): ParsedIntake => {
     ssh: emptyFileSection(),
     sftp: emptyFileSection(),
     ftp: emptyFileSection(),
+  };
+  const panels: Record<"hosting" | "database" | "cdn", PanelSection> = {
+    hosting: emptyPanelSection(),
+    database: emptyPanelSection(),
+    cdn: emptyPanelSection(),
   };
 
   let current: Section = "unknown";
