@@ -7,7 +7,16 @@
  * authorization and sealing stay server-side in `credential-intake`.
  */
 
-export type CredentialKind = "wordpress" | "sftp" | "ssh" | "google_search_console" | "login" | "unknown";
+export type CredentialKind =
+  | "wordpress"
+  | "sftp"
+  | "ssh"
+  | "google_search_console"
+  | "hosting_portal"
+  | "database"
+  | "cdn"
+  | "login"
+  | "unknown";
 
 export type CredentialPreviewField = {
   label: string;
