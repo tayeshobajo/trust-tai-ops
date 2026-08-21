@@ -84,6 +84,7 @@ const ACCESS_LABELS: Record<AccessType, string> = {
   server_pm2: "server process manager",
   ci_cd: "CI/CD pipeline",
   container: "container platform",
+  google_search_console: "Google Search Console",
 };
 
 const primaryUrlFor = (project: Project, run: Run): string | null => {
