@@ -66,13 +66,18 @@ const renderNode = (node: Node, ctx: Ctx): string => {
     }
     case "STRONG":
     case "B": {
-      const inner = renderChildren(el, ctx).trim();
-      return inner ? `**${inner}**` : "";
+      const inner = renderChildren(el, ctx);
+      // Google Docs wraps whole selections in <b style="font-weight:normal">.
+      if (/^(normal|400)$/i.test(el.style.fontWeight)) return inner;
+      const trimmed = inner.trim();
+      return trimmed ? `**${trimmed}**` : "";
     }
     case "EM":
     case "I": {
-      const inner = renderChildren(el, ctx).trim();
-      return inner ? `*${inner}*` : "";
+      const inner = renderChildren(el, ctx);
+      if (/^normal$/i.test(el.style.fontStyle)) return inner;
+      const trimmed = inner.trim();
+      return trimmed ? `*${trimmed}*` : "";
     }
     case "CODE": {
       if (ctx.inPre) return renderChildren(el, ctx);
