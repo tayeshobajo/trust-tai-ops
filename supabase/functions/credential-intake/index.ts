@@ -518,21 +518,55 @@ Deno.serve(async (req) => {
       return;
     }
 
+    // Storage and verification are separate facts. This connects for real, so
+    // the person is told "I'm in" or exactly why not, in the same breath.
+    const check = await verifyServerAccess(accessType === "ssh" ? "ssh" : "sftp", {
+      host: destination.host,
+      port: destination.port,
+      username: user.username,
+      ...(keyBased
+        ? { privateKey: JSON.parse(payload).privateKey as string, passphrase: bundle.passphrase || undefined }
+        : { password: bundle.secret }),
+    });
+
+    let verifiedAt: string | null = null;
+    if (check.state === "verified") {
+      verifiedAt = new Date().toISOString();
+      if (check.fingerprint) {
+        await deps.pinHostFingerprint?.(project.projectId, accessType, check.fingerprint);
+      }
+      await deps.markVerification?.(project.projectId, accessType, "verified", verifiedAt);
+    } else if (check.state === "rejected") {
+      await deps.markVerification?.(project.projectId, accessType, "rejected", null);
+    }
+
     await persistAccessMethod(
       accessType,
       accessType === "ssh" ? "SSH" : "SFTP",
       keyBased ? "Private key" : "Password",
       `Shared in conversation for ${destination.host}.`,
-      null,
+      verifiedAt,
     );
-    await audit(accessType, keyBased ? "ssh_private_key" : "sftp_password", "stored", { verification: "unverified" });
+    await audit(accessType, keyBased ? "ssh_private_key" : "sftp_password", check.state === "verified" ? "verified" : "stored", {
+      verification: check.state,
+    });
+    await rememberAccess(
+      accessType,
+      [
+        ["Host:", destination.host],
+        ["Port:", destination.port],
+        ["User:", user.username],
+        ["Sign-in:", keyBased ? "private key" : "password"],
+      ],
+      check.state,
+    );
 
     stored.push({
       accessType,
       provider: keyBased ? "ssh_private_key" : "sftp_password",
       mode: keyBased ? "Private key" : "Password",
-      verification: "unverified",
-      note: "Stored securely. I haven't connected yet — the first connection will also record the server's identity.",
+      verification: check.state === "verified" ? "verified" : check.state === "rejected" ? "rejected" : "needs_attention",
+      note: check.note,
     });
   }
 
