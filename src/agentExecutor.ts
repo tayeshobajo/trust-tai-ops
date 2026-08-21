@@ -607,7 +607,7 @@ export const sendToCaptain = async (params: {
     runState: run?.state ?? null,
     diagnosisSummary: run?.diagnosisSummary || null,
     planSummary: run?.planSummary || null,
-    findings: (run?.findings ?? []).map((f) => ({ label: f.label, detail: f.detail, severity: f.severity })),
+    findings: (run?.findings ?? []).map((f) => ({ label: f.title, detail: f.summary, severity: f.severity })),
     memoryConstraints: memory
       .filter((entry) => entry.type === "constraint")
       .map((entry) => entry.content)

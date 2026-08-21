@@ -389,6 +389,10 @@ export function ProjectWorkspace({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
+  // Opening a project should always land on the latest message, even when the
+  // conversation is long. This flag makes the first successful load scroll to
+  // the end before the smart "stay where you are" behaviour takes over.
+  const initialScrollPending = useRef(true);
   const attemptedRef = useRef<Set<string>>(new Set());
   const memoryRef = useRef<Set<string>>(new Set());
   const emitRef = useRef<Set<string>>(new Set());
@@ -509,6 +513,7 @@ export function ProjectWorkspace({
   useEffect(() => {
     let alive = true;
     setMessagesLoaded(false);
+    initialScrollPending.current = true;
     void (async () => {
       try {
         const stored = await workspaceRepository.listProjectMessages(project.id);
@@ -655,6 +660,13 @@ export function ProjectWorkspace({
     if (!messagesLoaded || searching) return;
     const node = threadRef.current;
     if (node) {
+      // The first load of a project always lands on the latest message.
+      if (initialScrollPending.current) {
+        threadEndRef.current?.scrollIntoView({ block: "end" });
+        setHasNewBelow(false);
+        initialScrollPending.current = false;
+        return;
+      }
       // Only follow the conversation when the reader is already at the end.
       // Scrolling back through history must not be yanked forward.
       const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
