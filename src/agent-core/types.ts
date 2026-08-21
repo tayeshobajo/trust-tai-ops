@@ -19,6 +19,7 @@ export type Capability =
 
 export type ToolId =
   | "public_http.inspect_site"
+  | "public_http.inspect_seo_surface"
   | "browser.inspect_page_readonly"
   | "wordpress.inspect_public_surface"
   | "wordpress.list_plugins"
