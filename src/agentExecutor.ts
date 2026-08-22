@@ -13,6 +13,7 @@ import { getProjectStack } from "./stacks";
 import { looksLikeQuestion, replyLines, streamAgentReply, voiceAvailable } from "./agent-core/voice";
 import { hostGuidanceFact } from "./hostGuidance";
 import { detectConstraints, constraintAlreadyStored } from "./agent-core/constraints";
+import { loadJobCatalog, matchJobType } from "./jobRegistry";
 
 /**
  * Agent executor bridge.
@@ -670,6 +671,12 @@ export const sendToCaptain = async (params: {
 }): Promise<CaptainPlanResult | null> => {
   const { project, run, memory, emit, onStatus } = params;
 
+  // Phase 4: resolve the job catalog against the brief text so Captain gets a
+  // structured job type + required credentials instead of inferring from prose.
+  const briefText = [run?.title, run?.taskSummary].filter(Boolean).join("\n");
+  const catalog = await loadJobCatalog();
+  const jobMatch = matchJobType(briefText, catalog);
+
   const digest: Record<string, unknown> = {
     projectName: project.name,
     clientName: project.clientName,
@@ -688,6 +695,11 @@ export const sendToCaptain = async (params: {
       .map((entry) => entry.content)
       .slice(0, 10),
     riskLevel: run?.riskLevel ?? null,
+    jobType: jobMatch ? jobMatch.record.job_type : null,
+    jobLabel: jobMatch ? jobMatch.record.label : null,
+    jobMatchedOn: jobMatch ? jobMatch.matchedOn : null,
+    requiredCredentials: jobMatch ? jobMatch.record.required_credentials : [],
+    cloudReady: jobMatch ? jobMatch.record.cloud_ready : null,
   };
 
   const gateway = executionGateway();

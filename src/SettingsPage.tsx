@@ -6,6 +6,7 @@ import {
 } from "./agent-core/reasonModels";
 import type { AuthState, Organization, RepositoryHealth } from "./types";
 import { SuiteAcceptancePanel } from "./SuiteAcceptancePanel";
+import { InfraCredentialsPanel } from "./InfraCredentialsPanel";
 
 type Props = {
   workspace: Organization;
@@ -117,6 +118,8 @@ export function SettingsPage({ workspace, authState, repositoryHealth, onSignOut
           <li>Every action the agent takes is recorded with evidence you can review in Activity.</li>
         </ul>
       </section>
+
+      <InfraCredentialsPanel isAdmin={authState.role === "admin"} />
 
       <section className="set-block">
         <h2>About</h2>
