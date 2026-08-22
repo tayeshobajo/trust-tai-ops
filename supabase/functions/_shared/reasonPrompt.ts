@@ -638,6 +638,11 @@ export type CaptainDigest = {
   capabilities: string[];
   constraints: string[];
   memory: string[];
+  jobType?: string | null;
+  jobLabel?: string | null;
+  jobMatchedOn?: string | null;
+  requiredCredentials?: string[];
+  cloudReady?: boolean | null;
 };
 
 export type CaptainPlanStep = {
@@ -695,6 +700,14 @@ export const captainUserPrompt = (digest: CaptainDigest): string =>
     digest.taskSummary ? `Summary: ${digest.taskSummary}` : "",
     digest.siteUrl ? `Site URL: ${digest.siteUrl}` : "",
     `Stack: ${STACK_LABELS[digest.stack] ?? digest.stack}`,
+    ...(digest.jobType
+      ? [
+          `Resolved job type: ${digest.jobType}${digest.jobLabel ? ` (${digest.jobLabel})` : ""}` +
+            (digest.requiredCredentials && digest.requiredCredentials.length > 0
+              ? ` — requires credentials: ${digest.requiredCredentials.join(", ")}`
+              : ""),
+        ]
+      : []),
     `Access available: ${digest.capabilities.join(", ") || "none confirmed yet"}`,
     ...(digest.constraints.length > 0
       ? ["Standing rules (never violate):", ...digest.constraints.map((c) => `- ${c}`)]
@@ -705,6 +718,13 @@ export const captainUserPrompt = (digest: CaptainDigest): string =>
   ]
     .filter(Boolean)
     .join("\n");
+
+// String-or-null coercion for optional digest fields: sanitize when a real
+// string is present, null on anything else (wrong type, absent, or blank).
+const strOrNull = (value: unknown, max: number): string | null => {
+  if (typeof value !== "string" || !value.trim()) return null;
+  return line(value, max) || null;
+};
 
 export const sanitizeCaptainDigest = (value: unknown): CaptainDigest => {
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
@@ -720,6 +740,11 @@ export const sanitizeCaptainDigest = (value: unknown): CaptainDigest => {
     capabilities: (Array.isArray(raw.capabilities) ? raw.capabilities : []).slice(0, 8).map((i) => line(i, 40)).filter(Boolean),
     constraints: (Array.isArray(raw.constraints) ? raw.constraints : []).slice(-12).map((i) => line(i, 300)).filter(Boolean),
     memory: (Array.isArray(raw.memory) ? raw.memory : []).slice(-10).map((i) => line(i, 200)).filter(Boolean),
+    jobType: strOrNull(raw.jobType, 80),
+    jobLabel: strOrNull(raw.jobLabel, 120),
+    jobMatchedOn: strOrNull(raw.jobMatchedOn, 120),
+    requiredCredentials: (Array.isArray(raw.requiredCredentials) ? raw.requiredCredentials : []).slice(0, 10).map((i) => line(i, 60)).filter(Boolean),
+    cloudReady: typeof raw.cloudReady === "boolean" ? raw.cloudReady : null,
   };
 };
 
