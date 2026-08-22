@@ -35,6 +35,7 @@ import { ProjectAccessPanel } from "./ProjectAccessPanel";
 import type { AccessEvent } from "./ProjectAccessPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { ProjectActivityPanel } from "./ProjectActivityPanel";
+import { ProjectOutcomesPanel } from "./ProjectOutcomesPanel";
 import { deriveMemoryFromRun } from "./memory";
 import { MeetingPlanReview } from "./MeetingPlanReview";
 import { decideProposedTask, ingestAndAnalyzeMeeting, meetingIntelligenceAvailable } from "./meetings";
@@ -345,7 +346,7 @@ export function ProjectWorkspace({
   // The reply as it is being written, rendered in place of the typing dots.
   const [streamingText, setStreamingText] = useState("");
   const [mobilePane, setMobilePane] = useState<"tasks" | "chat" | "context">("chat");
-  const [surface, setSurface] = useState<"conversation" | "tasks" | "access" | "memory" | "activity">(initialSurface);
+  const [surface, setSurface] = useState<"conversation" | "tasks" | "access" | "memory" | "activity" | "outcomes">(initialSurface);
   const [accessFocus, setAccessFocus] = useState<AccessType[]>([]);
   const [query, setQuery] = useState("");
   const [windowSize, setWindowSize] = useState(PAGE_SIZE);
@@ -2035,6 +2036,7 @@ export function ProjectWorkspace({
   const navItems: Array<[typeof surface, string]> = [
     ["conversation", "Conversation"],
     ["tasks", "Tasks"],
+    ["outcomes", "Outcomes"],
     ["access", "Access"],
     ["memory", "Memory"],
     ["activity", "Activity"],
@@ -2185,6 +2187,8 @@ export function ProjectWorkspace({
       />
     ) : surface === "memory" ? (
       <ProjectMemoryPanel project={project} canWrite={canWrite} embedded onWorkspaceUpdate={onWorkspaceUpdate} />
+    ) : surface === "outcomes" ? (
+      <ProjectOutcomesPanel project={project} embedded />
     ) : surface === "activity" ? (
       <ProjectActivityPanel project={project} embedded />
     ) : null;

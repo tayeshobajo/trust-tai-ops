@@ -7904,3 +7904,60 @@ button.pw-task-group.is-toggle:hover {
   padding: 0.35rem 0.75rem;
   font-size: 0.8rem;
 }
+
+/* ---- Captain Outcome History (Phase 3) ---- */
+.pw-outcome-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.65rem 0.9rem;
+  background: none;
+  border: 1px solid rgba(120, 113, 108, 0.18);
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.pw-outcome-row:hover { border-color: rgba(120, 113, 108, 0.4); }
+.pw-outcome-glyph { font-size: 1rem; }
+.pw-outcome-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+}
+.pw-outcome-main strong { font-size: 0.92rem; }
+.pw-outcome-main small { opacity: 0.7; font-size: 0.78rem; }
+.pw-outcome-verdict {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.pw-outcome-detail {
+  padding: 0.75rem 0.9rem 0.5rem;
+  border: 1px solid rgba(120, 113, 108, 0.18);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  font-size: 0.85rem;
+}
+.pw-outcome-detail pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.75rem;
+  opacity: 0.85;
+  margin: 0.4rem 0;
+  padding: 0.5rem;
+  background: rgba(120, 113, 108, 0.08);
+  border-radius: 8px;
+}
+.pw-outcome-detail summary { cursor: pointer; font-weight: 600; font-size: 0.8rem; }
+.pw-outcome-meta { opacity: 0.6; display: block; margin-top: 0.4rem; }
+.pw-task-surface .pw-outcome-row + .pw-outcome-detail { margin-bottom: 0.5rem; }
+.pw-task-surface li { list-style: none; }
