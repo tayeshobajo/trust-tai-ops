@@ -47,24 +47,26 @@ create trigger tg_captain_job_types_updated_at
   for each row execute function public.set_captain_job_types_updated_at();
 
 -- Seed catalog (brief §5)
+-- Order matters: specific job types sort BEFORE generic ones so "SSL renew"
+-- resolves to ssl_renew, not ssl_install ("ssl" alone is not an install pattern).
 insert into public.captain_job_types
   (job_type, label, description, maps_to_task_type, required_credentials, cloud_ready, trigger_kind, match_patterns, sort_order)
 values
-  ('ssl_install',
-   'Install SSL certificate',
-   'Issue and install a Let''s Encrypt certificate via certbot HTTP-01 + host API (cPanel UAPI or equivalent).',
-   'hardening', '{cpanel_api}', false, 'manual',
-   '{certificat,ssl,https,lets encrypt}', 10),
-  ('ssl_renew',
-   'Renew SSL certificate',
-   'Renew a certificate nearing expiry. Same path as install; renewal window is 75 days pre-expiry.',
-   'hardening', '{cpanel_api}', false, 'cron',
-   '{renew,expir}', 11),
   ('ssl_verify',
    'Verify certificate health',
    'Read-only check: issuer, validity window, SNI match. No changes.',
    'qa_only', '{}', true, 'monitor',
-   '{verify cert}', 12),
+   '{verify cert,check cert,cert health}', 8),
+  ('ssl_renew',
+   'Renew SSL certificate',
+   'Renew a certificate nearing expiry. Same path as install; renewal window is 75 days pre-expiry.',
+   'hardening', '{cpanel_api}', false, 'cron',
+   '{renew,expir}', 9),
+  ('ssl_install',
+   'Install SSL certificate',
+   'Issue and install a Let''s Encrypt certificate via certbot HTTP-01 + host API (cPanel UAPI or equivalent).',
+   'hardening', '{cpanel_api}', false, 'manual',
+   '{certificat,lets encrypt,install ssl,https warning,browser warning}', 10),
   ('wp_plugin_install',
    'Install WordPress plugin',
    'Install and activate a plugin on a WordPress site via WP-CLI or REST.',
