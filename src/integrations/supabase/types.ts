@@ -83,6 +83,123 @@ export type Database = {
           },
         ]
       }
+      captain_job_types: {
+        Row: {
+          cloud_ready: boolean
+          created_at: string
+          description: string | null
+          enabled: boolean
+          id: string
+          job_type: string
+          label: string
+          maps_to_task_type: string | null
+          match_patterns: string[]
+          required_credentials: string[]
+          sort_order: number
+          trigger_kind: string
+          updated_at: string
+        }
+        Insert: {
+          cloud_ready?: boolean
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          job_type: string
+          label: string
+          maps_to_task_type?: string | null
+          match_patterns?: string[]
+          required_credentials?: string[]
+          sort_order?: number
+          trigger_kind?: string
+          updated_at?: string
+        }
+        Update: {
+          cloud_ready?: boolean
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          job_type?: string
+          label?: string
+          maps_to_task_type?: string | null
+          match_patterns?: string[]
+          required_credentials?: string[]
+          sort_order?: number
+          trigger_kind?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      captain_outcomes: {
+        Row: {
+          captain_session_ref: string | null
+          completed_by: string
+          created_at: string
+          evidence: string | null
+          id: string
+          job_type: string
+          next_action_due_at: string | null
+          next_action_type: string | null
+          outcome_data: Json
+          project_id: string
+          request_id: string | null
+          summary: string
+          target: string
+          updated_at: string
+          verdict: string
+        }
+        Insert: {
+          captain_session_ref?: string | null
+          completed_by?: string
+          created_at?: string
+          evidence?: string | null
+          id?: string
+          job_type: string
+          next_action_due_at?: string | null
+          next_action_type?: string | null
+          outcome_data?: Json
+          project_id: string
+          request_id?: string | null
+          summary: string
+          target: string
+          updated_at?: string
+          verdict: string
+        }
+        Update: {
+          captain_session_ref?: string | null
+          completed_by?: string
+          created_at?: string
+          evidence?: string | null
+          id?: string
+          job_type?: string
+          next_action_due_at?: string | null
+          next_action_type?: string | null
+          outcome_data?: Json
+          project_id?: string
+          request_id?: string | null
+          summary?: string
+          target?: string
+          updated_at?: string
+          verdict?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "captain_outcomes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "captain_outcomes_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "captain_plan_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       captain_plan_approvals: {
         Row: {
           comment: string | null
@@ -514,6 +631,62 @@ export type Database = {
             columns: ["source_run_id"]
             isOneToOne: false
             referencedRelation: "runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      org_infra_secrets: {
+        Row: {
+          algorithm: string
+          ciphertext: string
+          config: Json
+          created_at: string
+          credential_type: string
+          id: string
+          iv: string
+          key_version: string
+          label: string
+          last_verified_at: string | null
+          organization_id: string
+          updated_at: string
+          verification_state: string
+        }
+        Insert: {
+          algorithm?: string
+          ciphertext: string
+          config?: Json
+          created_at?: string
+          credential_type: string
+          id?: string
+          iv: string
+          key_version?: string
+          label: string
+          last_verified_at?: string | null
+          organization_id: string
+          updated_at?: string
+          verification_state?: string
+        }
+        Update: {
+          algorithm?: string
+          ciphertext?: string
+          config?: Json
+          created_at?: string
+          credential_type?: string
+          id?: string
+          iv?: string
+          key_version?: string
+          label?: string
+          last_verified_at?: string | null
+          organization_id?: string
+          updated_at?: string
+          verification_state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_infra_secrets_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
