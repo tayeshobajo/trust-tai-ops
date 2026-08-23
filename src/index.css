@@ -7961,3 +7961,45 @@ button.pw-task-group.is-toggle:hover {
 .pw-outcome-meta { opacity: 0.6; display: block; margin-top: 0.4rem; }
 .pw-task-surface .pw-outcome-row + .pw-outcome-detail { margin-bottom: 0.5rem; }
 .pw-task-surface li { list-style: none; }
+
+/* Contact log — Phase 5 cadence source */
+.contact-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+  margin-bottom: 1rem;
+}
+.contact-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.contact-form label,
+.contact-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: rgb(100 116 139);
+}
+.contact-form label span {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+}
+.contact-form select,
+.contact-form input {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.85rem;
+  background: transparent;
+  color: inherit;
+}
+.contact-summary input {
+  width: 100%;
+}

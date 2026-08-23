@@ -13,6 +13,7 @@ import { executionGateway } from "./agent-core/gateway";
 import { isProjectStack, normalizeVersions } from "./stacks";
 import type {
   AccessType,
+  ContactEvent,
   KBEntry,
   MemoryEntry,
   NewProjectMessage,
@@ -133,6 +134,17 @@ type RiskFlagRow = {
   title: string;
   summary: string;
   created_at: string;
+};
+
+type ContactEventRow = {
+  id: string;
+  project_id: string;
+  contacted_at: string;
+  channel: ContactEvent["channel"];
+  direction: ContactEvent["direction"];
+  summary: string;
+  recorded_by: string | null;
+  recorded_by_email: string | null;
 };
 
 type RecommendationRow = {
@@ -307,6 +319,8 @@ export interface WorkspaceRepository {
     toolsUsed: string[];
     hostContext?: string | null;
   }): Promise<void>;
+  /** Logs a human→client contact event (Phase 5 cadence source). */
+  addContactEvent(projectId: string, event: { contactedAt: string; channel: ContactEvent["channel"]; direction: ContactEvent["direction"]; summary: string }): Promise<ContactEvent>;
 }
 
 class LocalWorkspaceRepository implements WorkspaceRepository {
@@ -879,6 +893,18 @@ class LocalWorkspaceRepository implements WorkspaceRepository {
     }
   }
 
+  async addContactEvent(_projectId: string, event: { contactedAt: string; channel: ContactEvent["channel"]; direction: ContactEvent["direction"]; summary: string }): Promise<ContactEvent> {
+    return {
+      id: `contact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      contactedAt: event.contactedAt,
+      channel: event.channel,
+      direction: event.direction,
+      summary: event.summary,
+      recordedBy: null,
+      recordedByEmail: null,
+    };
+  }
+
   async upsertKnowledgeBaseEntry(_projectId: string, entry: {
     taskType: string;
     symptomPattern: string;
@@ -998,6 +1024,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       memoryRows,
       qaRuleRows,
       riskRows,
+      contactEventRows,
       projectRecommendationRows,
       runRows,
     ] = await Promise.all([
@@ -1006,6 +1033,7 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
       this.selectIn<MemoryEntryRow>("project_memory_entries", "project_id", projectIds),
       this.selectIn<QaRuleRow>("qa_rules", "project_id", projectIds),
       this.selectIn<RiskFlagRow>("project_risk_flags", "project_id", projectIds),
+      this.selectIn<ContactEventRow>("project_contact_events", "project_id", projectIds),
       this.selectIn<RecommendationRow>("project_recommendations", "project_id", projectIds),
       this.selectIn<RunRow>("runs", "project_id", projectIds, "started_at", false),
     ]);
@@ -1064,6 +1092,10 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
         riskFlags: riskRows
           .filter((risk) => risk.project_id === project.id)
           .map(mapRiskFlag),
+        contactEvents: contactEventRows
+          .filter((event) => event.project_id === project.id)
+          .map(mapContactEvent)
+          .sort((a, b) => b.contactedAt.localeCompare(a.contactedAt)),
         qaRules: qaRuleRows
           .filter((rule) => rule.project_id === project.id)
           .map(mapQaRule),
@@ -1563,6 +1595,22 @@ class SupabaseWorkspaceRepository implements WorkspaceRepository {
     return this.loadWorkspace();
   }
 
+  async addContactEvent(projectId: string, event: { contactedAt: string; channel: ContactEvent["channel"]; direction: ContactEvent["direction"]; summary: string }): Promise<ContactEvent> {
+    const client = getSupabaseClient();
+    const row = {
+      project_id: projectId,
+      contacted_at: event.contactedAt,
+      channel: event.channel,
+      direction: event.direction,
+      summary: event.summary.slice(0, 2000),
+    };
+    const { data, error } = await (client.from("project_contact_events") as never as {
+      insert: (v: unknown) => { select: (s: string) => { single: () => Promise<{ data: unknown; error: { message: string } | null }> } };
+    }).insert([row]).select("*").single();
+    if (error) throw new Error(error.message);
+    return mapContactEvent(data as ContactEventRow);
+  }
+
   async addMemoryEntry(projectId: string, entry: { title: string; type: MemoryEntry["type"]; importance: MemoryEntry["importance"]; content: string; sourceRunId?: string | null; sourceMessageId?: string | null }): Promise<Organization> {
     const client = getSupabaseClient();
     await client.from("project_memory_entries").insert([{
@@ -2045,6 +2093,18 @@ function mapRiskFlag(row: RiskFlagRow): RiskFlag {
     title: row.title,
     summary: row.summary,
     createdAt: row.created_at,
+  };
+}
+
+function mapContactEvent(row: ContactEventRow): ContactEvent {
+  return {
+    id: row.id,
+    contactedAt: row.contacted_at,
+    channel: row.channel,
+    direction: row.direction,
+    summary: row.summary,
+    recordedBy: row.recorded_by,
+    recordedByEmail: row.recorded_by_email ?? null,
   };
 }
 

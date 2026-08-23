@@ -45,6 +45,18 @@ type ProjectRow = {
   status: string;
 };
 
+type ContactEventRow = {
+  project_id: string;
+  contacted_at: string;
+};
+
+type OutcomeRow = {
+  project_id: string;
+  target: string;
+  outcome_data: Record<string, unknown> | null;
+  created_at: string;
+};
+
 type DueFollowUpRow = {
   id: string;
   project_id: string;
@@ -99,6 +111,15 @@ Be conservative — only flag real issues, not warnings you cannot verify.`;
 const FOLLOWUP_LOOKAHEAD_DAYS = 30;
 const PROJECT_STALE_DAYS = 5;
 const QUEUE_STALE_HOURS = 24;
+// Cert expiry: flag when ≤21 days remain (LE certs are 90-day; 21 gives
+// a safe renewal window), high severity at ≤7 days.
+const CERT_WARN_DAYS = 21;
+const CERT_CRITICAL_DAYS = 7;
+// Client cadence: no logged contact in 30 days = medium, 60 = high.
+// Projects with ZERO contact events are reported as "no contact logged"
+// (informational), not a fake-date breach.
+const CADENCE_WARN_DAYS = 30;
+const CADENCE_HIGH_DAYS = 60;
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -168,7 +189,7 @@ const fetchProjects = async (projectId?: string): Promise<ProjectRow[]> => {
 
 const normalizeChecks = (checks: unknown): Set<string> => {
   if (!Array.isArray(checks) || checks.length === 0) {
-    return new Set(["followups", "staleness", "queue_age", "wp_health"]);
+    return new Set(["followups", "staleness", "queue_age", "wp_health", "cert_expiry", "client_cadence"]);
   }
   return new Set(checks.filter((value): value is string => typeof value === "string").map((value) => value.trim()));
 };
@@ -357,6 +378,69 @@ const loadJobMeta = async (jobType: string): Promise<{ required_credentials: str
   };
 };
 
+const queueCaptainJob = async (
+  project: ProjectRow,
+  jobType: string,
+  opts: {
+    taskTitle: string;
+    taskSummary: string;
+    memory: string[];
+    dedupeDay: string; // e.g. 2026-08-23 — dedupes same-day re-queues
+    extra?: Record<string, unknown>;
+  },
+): Promise<boolean> => {
+  const db = serviceDb();
+  const { data: recentRows, error: recentError } = await db
+    .from("captain_plan_requests")
+    .select("id, project_id, status, created_at, digest")
+    .eq("project_id", project.id)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  const rows = (!recentError && Array.isArray(recentRows) ? recentRows : []) as QueueRow[];
+  const dedupeHit = rows.find((row) => {
+    if (!["pending", "in_progress", "done", "approved", "executing"].includes(String(row.status))) return false;
+    const digest = row.digest ?? {};
+    return String(digest.jobType ?? "") === jobType &&
+      String(digest.primaryDomain ?? digest.siteUrl ?? "") === project.primary_domain;
+  });
+  if (dedupeHit) return false;
+
+  const jobMeta = await loadJobMeta(jobType);
+  const digest = {
+    taskTitle: opts.taskTitle,
+    taskSummary: opts.taskSummary,
+    primaryDomain: project.primary_domain,
+    siteUrl: project.primary_domain,
+    stack: "wordpress",
+    jobType,
+    requiredCredentials: jobMeta?.required_credentials ?? [],
+    cloudReady: jobMeta?.cloud_ready ?? false,
+    memory: opts.memory,
+    constraints: [
+      "This task was monitor-triggered. Plan it conservatively and require approval before any write action.",
+    ],
+    ...(opts.extra ?? {}),
+  };
+
+  const { error } = await db.from("captain_plan_requests").insert({
+    project_id: project.id,
+    run_id: null,
+    digest,
+    status: "pending",
+  });
+  if (error) {
+    console.warn("Failed to queue monitor job", { projectId: project.id, jobType, error: error.message });
+    return false;
+  }
+
+  await postMonitorMessage(
+    project.id,
+    `Monitor queued Captain planning for ${jobType} on ${project.primary_domain}. (${opts.dedupeDay})`,
+    `monitor-queue-${project.id}-${jobType}-${project.primary_domain}-${opts.dedupeDay}`,
+  );
+  return true;
+};
+
 const queueCaptainFollowUp = async (
   project: ProjectRow,
   followUp: DueFollowUpRow,
@@ -423,6 +507,128 @@ const queueCaptainFollowUp = async (
     `monitor-queue-${project.id}-${jobType}-${project.primary_domain}-${dueAt.slice(0, 10)}`,
   );
   return "queued_for_captain";
+};
+
+// ---------------------------------------------------------------------------
+// Cert expiry — derived from the most recent ssl_verify outcome per project.
+// No synthetic data: if Captain never verified the cert, there is no expiry
+// date to check, so the check is skipped (a staleness of its own is covered
+// by the project-staleness check).
+// ---------------------------------------------------------------------------
+
+type CertInfo = { expiresAt: Date; issuer: string | null; domains: string[] } | null;
+
+const parseCertInfo = (outcomeData: Record<string, unknown> | null): CertInfo => {
+  if (!outcomeData) return null;
+  const raw = outcomeData.cert_expiry ?? outcomeData.certExpiresAt ?? outcomeData.expires_at;
+  if (typeof raw !== "string") return null;
+  const expiresAt = new Date(raw);
+  if (Number.isNaN(expiresAt.getTime())) return null;
+  const issuer = typeof outcomeData.cert_issuer === "string" ? outcomeData.cert_issuer : null;
+  const domains = Array.isArray(outcomeData.domains_covered)
+    ? outcomeData.domains_covered.map(String)
+    : [];
+  return { expiresAt, issuer, domains };
+};
+
+const latestSslOutcome = async (projectId: string): Promise<OutcomeRow | null> => {
+  const db = serviceDb();
+  const { data, error } = await db
+    .from("captain_outcomes")
+    .select("project_id, target, outcome_data, created_at")
+    .eq("project_id", projectId)
+    .in("job_type", ["ssl_verify", "ssl_install", "ssl_renew"])
+    .order("created_at", { ascending: false })
+    .limit(5);
+  if (error || !Array.isArray(data)) return null;
+  // Most recent row that actually carries a parseable expiry
+  for (const row of data as OutcomeRow[]) {
+    if (parseCertInfo(row.outcome_data)) return row;
+  }
+  return null;
+};
+
+const checkCertExpiry = async (project: ProjectRow, issues: MonitorIssue[]): Promise<void> => {
+  const outcome = await latestSslOutcome(project.id);
+  const cert = outcome ? parseCertInfo(outcome.outcome_data) : null;
+  if (!cert) return; // nothing verified yet — skip honestly
+  const daysLeft = Math.floor((cert.expiresAt.getTime() - Date.now()) / 86_400_000);
+  if (daysLeft > CERT_WARN_DAYS) return;
+  const severity = daysLeft <= CERT_CRITICAL_DAYS ? "high" : "medium";
+  const title = `SSL certificate expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`;
+  const summary = `The verified certificate for ${project.primary_domain}${cert.issuer ? ` (issued by ${cert.issuer})` : ""} expires on ${cert.expiresAt.toISOString().slice(0, 10)}. Renewal should be planned now.`;
+  await writeRiskFlag(project.id, severity, title, summary);
+  // Queue the renewal job when inside the warn window
+  if (outcome) {
+    const queued = await queueCaptainJob(project, "ssl_renew", {
+      taskTitle: `SSL renewal for ${project.primary_domain}`,
+      taskSummary: `Monitor detected the certificate for ${project.primary_domain} expires on ${cert.expiresAt.toISOString().slice(0, 10)} (${daysLeft} day(s) left). Plan the renewal now.`,
+      memory: [
+        `Triggered by cert-expiry scan from captain_outcomes row ${outcome.created_at}.`,
+        `Verified issuer: ${cert.issuer ?? "unknown"}.`,
+      ],
+      dedupeDay: new Date().toISOString().slice(0, 10),
+    });
+    issues.push({
+      project_id: project.id,
+      severity,
+      title,
+      summary,
+      action_taken: queued ? "queued_for_captain" : "flagged",
+    });
+    return;
+  }
+  issues.push({ project_id: project.id, severity, title, summary, action_taken: "flagged" });
+};
+
+// ---------------------------------------------------------------------------
+// Client contact cadence — from durable project_contact_events rows.
+// ---------------------------------------------------------------------------
+
+const lastContactAt = async (projectId: string): Promise<ContactEventRow | null> => {
+  const db = serviceDb();
+  const { data, error } = await db
+    .from("project_contact_events")
+    .select("project_id, contacted_at")
+    .eq("project_id", projectId)
+    .order("contacted_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as ContactEventRow;
+};
+
+const checkClientCadence = async (project: ProjectRow, issues: MonitorIssue[]): Promise<void> => {
+  const last = await lastContactAt(project.id);
+  if (!last) {
+    // No contact ever logged — informational flag, not a fake breach
+    const title = "No client contact logged";
+    const summary = `No contact event has ever been logged for ${project.primary_domain}. Log contact in Ops so cadence monitoring has a real baseline.`;
+    await writeRiskFlag(project.id, "low", title, summary);
+    issues.push({ project_id: project.id, severity: "low", title, summary, action_taken: "flagged" });
+    return;
+  }
+  const daysSince = Math.floor((Date.now() - new Date(last.contacted_at).getTime()) / 86_400_000);
+  if (daysSince < CADENCE_WARN_DAYS) return;
+  const severity = daysSince >= CADENCE_HIGH_DAYS ? "high" : "medium";
+  const title = `Client contact overdue (${daysSince} days)`;
+  const summary = `Last logged contact for ${project.primary_domain} was ${daysSince} day(s) ago (${last.contacted_at.slice(0, 10)}). Reach out or log the contact that already happened.`;
+  await writeRiskFlag(project.id, severity, title, summary);
+  const queued = await queueCaptainJob(project, "client_brief_create", {
+    taskTitle: `Client re-engagement for ${project.primary_domain}`,
+    taskSummary: `Monitor detected no logged client contact in ${daysSince} days for ${project.primary_domain}. Draft a re-engagement touchpoint for review.`,
+    memory: [
+      `Triggered by client-cadence check. Last contact: ${last.contacted_at.slice(0, 10)}.`,
+    ],
+    dedupeDay: last.contacted_at.slice(0, 10),
+  });
+  issues.push({
+    project_id: project.id,
+    severity,
+    title,
+    summary,
+    action_taken: queued ? "queued_for_captain" : "flagged",
+  });
 };
 
 const fetchDueFollowUps = async (projectId?: string): Promise<DueFollowUpRow[]> => {
@@ -525,6 +731,26 @@ Deno.serve(async (req) => {
     }
   }
 
+  if (checks.has("cert_expiry")) {
+    for (const project of projects) {
+      try {
+        await checkCertExpiry(project, issues);
+      } catch (err) {
+        errors.push(`${project.id}: cert_expiry: ${String((err as Error)?.message ?? err).slice(0, 160)}`);
+      }
+    }
+  }
+
+  if (checks.has("client_cadence")) {
+    for (const project of projects) {
+      try {
+        await checkClientCadence(project, issues);
+      } catch (err) {
+        errors.push(`${project.id}: client_cadence: ${String((err as Error)?.message ?? err).slice(0, 160)}`);
+      }
+    }
+  }
+
   if (checks.has("queue_age")) {
     const staleQueue = await staleQueueAlerts(body.project_id);
     for (const stalled of staleQueue) {
@@ -598,6 +824,21 @@ Deno.serve(async (req) => {
             .eq("title", result.title)
             .eq("status", "open");
         }
+      } else if (result.severity === "high" || (result.severity === "medium" && result.recommended_fix)) {
+        // Brief: "wire to job queue" — any real medium/high wp_health finding
+        // with a recommended fix gets a Captain plan request instead of only a
+        // passive flag. Deduped by jobType+domain in queueCaptainJob.
+        const queued = await queueCaptainJob(project, "wp_debug_fix", {
+          taskTitle: `${result.title} on ${project.primary_domain}`,
+          taskSummary: `Monitor health check found: ${result.summary} Recommended fix: ${result.recommended_fix ?? "diagnose first"}.`,
+          memory: [
+            `Triggered by wp_health scan at ${new Date().toISOString()}.`,
+            `Severity: ${result.severity}. Findings: ${result.findings.join("; ").slice(0, 500)}`,
+          ],
+          dedupeDay: new Date().toISOString().slice(0, 10),
+          extra: { findings: result.findings },
+        });
+        if (queued) action_taken = "queued_for_captain";
       }
 
       issues.push({

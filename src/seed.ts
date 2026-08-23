@@ -151,6 +151,7 @@ export const createSeedWorkspace = (): Organization => ({
           summary: "Production changes need stronger approvals because staging does not fully reflect live conditions.",
         },
       ],
+      contactEvents: [],
       qaRules: [
         {
           id: "qa-epay-1",
@@ -293,6 +294,7 @@ export const createSeedWorkspace = (): Organization => ({
       ],
       recommendations: [],
       riskFlags: [],
+      contactEvents: [],
       qaRules: [
         {
           id: "qa-bluehole-1",
@@ -535,6 +537,7 @@ export const createSeedWorkspace = (): Organization => ({
           summary: "Staging verification is still required, but a clean staging result does not prove production data behaves the same way.",
         },
       ],
+      contactEvents: [],
       qaRules: [
         {
           id: "qa-bioptrics-1",

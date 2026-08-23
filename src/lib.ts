@@ -304,6 +304,7 @@ export const createProjectFromDraft = (draft: ProjectDraft): Project => {
       },
     ],
     riskFlags: [],
+    contactEvents: [],
     qaRules: [
       {
         id: `${baseId}-qa-availability`,

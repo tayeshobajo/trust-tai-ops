@@ -176,6 +176,16 @@ export type RiskFlag = {
   createdAt?: string;
 };
 
+export type ContactEvent = {
+  id: string;
+  contactedAt: string;
+  channel: "email" | "phone" | "sms" | "meeting" | "slack" | "other";
+  direction: "outbound" | "inbound";
+  summary: string;
+  recordedBy?: string | null;
+  recordedByEmail?: string | null;
+};
+
 export type QaRule = {
   id: string;
   name: string;
@@ -339,6 +349,7 @@ export type Project = {
   memoryEntries: MemoryEntry[];
   recommendations: Recommendation[];
   riskFlags: RiskFlag[];
+  contactEvents: ContactEvent[];
   qaRules: QaRule[];
   runs: Run[];
 };
