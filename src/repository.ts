@@ -132,6 +132,7 @@ type RiskFlagRow = {
   status: RiskFlag["status"];
   title: string;
   summary: string;
+  created_at: string;
 };
 
 type RecommendationRow = {
@@ -2043,6 +2044,7 @@ function mapRiskFlag(row: RiskFlagRow): RiskFlag {
     status: row.status,
     title: row.title,
     summary: row.summary,
+    createdAt: row.created_at,
   };
 }
 

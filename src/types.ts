@@ -170,9 +170,10 @@ export type Recommendation = {
 export type RiskFlag = {
   id: string;
   severity: "medium" | "high" | "critical";
-  status: "open" | "monitoring" | "mitigated";
+  status: "open" | "monitoring" | "mitigated" | "resolved";
   title: string;
   summary: string;
+  createdAt?: string;
 };
 
 export type QaRule = {

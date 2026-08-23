@@ -25,6 +25,21 @@ export const buildGlobalActivity = (workspace: Organization, limit = 40): Global
   const items: GlobalActivityItem[] = [];
 
   for (const project of workspace.projects) {
+    for (const risk of project.riskFlags) {
+      if (risk.status !== "open" && risk.status !== "monitoring") continue;
+      items.push({
+        id: `${project.id}:risk:${risk.id}`,
+        projectId: project.id,
+        projectName: project.name,
+        domain: project.primaryDomain,
+        headline: risk.title,
+        detail: risk.summary,
+        stamp: risk.createdAt ?? "",
+        tone: "attention",
+        technical: [`Severity: ${risk.severity}`, `Status: ${risk.status}`],
+      });
+    }
+
     for (const task of buildTaskHistory(project)) {
       const signal = signalForRun(task.run);
       const tone: GlobalActivityItem["tone"] = task.needsYou
