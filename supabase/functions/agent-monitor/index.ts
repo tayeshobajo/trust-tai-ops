@@ -601,11 +601,12 @@ const lastContactAt = async (projectId: string): Promise<ContactEventRow | null>
 const checkClientCadence = async (project: ProjectRow, issues: MonitorIssue[]): Promise<void> => {
   const last = await lastContactAt(project.id);
   if (!last) {
-    // No contact ever logged — informational flag, not a fake breach
+    // No contact ever logged — informational flag, not a fake breach.
+    // Severity must be one of medium|high|critical (DB constraint).
     const title = "No client contact logged";
     const summary = `No contact event has ever been logged for ${project.primary_domain}. Log contact in Ops so cadence monitoring has a real baseline.`;
-    await writeRiskFlag(project.id, "low", title, summary);
-    issues.push({ project_id: project.id, severity: "low", title, summary, action_taken: "flagged" });
+    await writeRiskFlag(project.id, "medium", title, summary);
+    issues.push({ project_id: project.id, severity: "medium", title, summary, action_taken: "flagged" });
     return;
   }
   const daysSince = Math.floor((Date.now() - new Date(last.contacted_at).getTime()) / 86_400_000);
