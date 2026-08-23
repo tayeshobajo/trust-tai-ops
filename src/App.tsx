@@ -105,16 +105,26 @@ function App() {
     message: "Loading auth state...",
   });
 
+  const loadRepositoryHealth = async (auth: AuthState): Promise<RepositoryHealth> => {
+    if (auth.adapter === "supabase" && !auth.isAuthenticated) {
+      return {
+        adapter: "supabase",
+        ok: true,
+        message: "Sign in to verify repository health.",
+      };
+    }
+
+    return workspaceRepository.health();
+  };
+
   useEffect(() => {
     let cancelled = false;
 
     const hydrateWorkspace = async () => {
       // Temporary QA mode signs the shared QA account in before anything reads.
       await ensureQaSession();
-      const [health, auth] = await Promise.all([
-        workspaceRepository.health(),
-        loadAuthState(),
-      ]);
+      const auth = await loadAuthState();
+      const health = await loadRepositoryHealth(auth);
 
       if (cancelled) {
         return;
@@ -334,6 +344,7 @@ function App() {
         onSignedIn={async (targetPath) => {
           const auth = await loadAuthState();
           setAuthState(auth);
+          setRepositoryHealth(await loadRepositoryHealth(auth));
           // Any error recorded while nobody was signed in belongs to the
           // signed-out first paint, not to this freshly handed-over session.
           setFatalError(null);
@@ -369,6 +380,7 @@ function App() {
         onAuthed={async () => {
           const auth = await loadAuthState();
           setAuthState(auth);
+          setRepositoryHealth(await loadRepositoryHealth(auth));
           setFatalError(null);
           try {
             const stored = await workspaceRepository.loadWorkspace();
@@ -663,7 +675,9 @@ function App() {
                 className="ghost-button"
                 onClick={async () => {
                   await signOutIfSupported();
-                  setAuthState(await loadAuthState());
+                  const auth = await loadAuthState();
+                  setAuthState(auth);
+                  setRepositoryHealth(await loadRepositoryHealth(auth));
                 }}
               >
                 Sign out
