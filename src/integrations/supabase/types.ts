@@ -849,6 +849,50 @@ export type Database = {
           },
         ]
       }
+      project_contact_events: {
+        Row: {
+          channel: string
+          contacted_at: string
+          created_at: string
+          direction: string
+          id: string
+          project_id: string
+          recorded_by: string | null
+          recorded_by_email: string | null
+          summary: string
+        }
+        Insert: {
+          channel: string
+          contacted_at?: string
+          created_at?: string
+          direction: string
+          id?: string
+          project_id: string
+          recorded_by?: string | null
+          recorded_by_email?: string | null
+          summary: string
+        }
+        Update: {
+          channel?: string
+          contacted_at?: string
+          created_at?: string
+          direction?: string
+          id?: string
+          project_id?: string
+          recorded_by?: string | null
+          recorded_by_email?: string | null
+          summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_contact_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_environments: {
         Row: {
           cache_layers: string[]
