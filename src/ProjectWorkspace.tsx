@@ -792,7 +792,7 @@ export function ProjectWorkspace({
   }, [messagesLoaded, visible.length, surface, searching, streamingText]);
 
   // Single write path for every message the user actually sees.
-  const emit = async (input: NewProjectMessage): Promise<ProjectMessage | null> => {
+  async function emit(input: NewProjectMessage): Promise<ProjectMessage | null> {
     const key = input.dedupeKey ?? null;
     if (key && emitRef.current.has(key)) return null;
     // The agent repeating itself word for word is noise, never news. The same
@@ -841,7 +841,7 @@ export function ProjectWorkspace({
         : "I couldn't save that to the conversation history. The work itself is unaffected — you can try again.",
     );
     return null;
-  };
+  }
 
   // Bridge: once a task has a real conversation record, keep it complete.
   useEffect(() => {
