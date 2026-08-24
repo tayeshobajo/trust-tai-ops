@@ -40,6 +40,10 @@ export const autoAdvanceTarget = (project: Project, run: Run): RunState | null =
     const readOnly = run.taskType === "qa_only";
     const storedPlan = run.artifacts.some((artifact) => artifact.type === "fix_plan");
 
+    if (readOnly && !storedPlan) {
+      return validateAdvance(run, "recommendations").ok ? "recommendations" : null;
+    }
+
     if (!readOnly) {
       if (!storedPlan) return null;
       const approved = run.approvals.some(

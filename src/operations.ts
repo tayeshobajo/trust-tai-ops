@@ -15,7 +15,7 @@ export const LAWFUL_TRANSITIONS: Record<RunState, RunState[]> = {
   backup_gate: ["environment_mapping", "paused", "escalated"],
   environment_mapping: ["diagnosis", "paused", "escalated"],
   diagnosis: ["plan", "paused", "escalated", "failed"],
-  plan: ["execution", "paused", "escalated"],
+  plan: ["execution", "recommendations", "paused", "escalated"],
   execution: ["qa", "paused", "escalated", "failed", "rolled_back"],
   qa: ["recommendations", "complete", "paused", "rolled_back"],
   recommendations: ["complete", "paused"],

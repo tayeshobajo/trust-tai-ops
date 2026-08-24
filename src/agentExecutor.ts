@@ -14,6 +14,7 @@ import { looksLikeQuestion, replyLines, streamAgentReply, voiceAvailable } from 
 import { hostGuidanceFact } from "./hostGuidance";
 import { detectConstraints, constraintAlreadyStored } from "./agent-core/constraints";
 import { loadJobCatalog, matchJobType } from "./jobRegistry";
+import { bodySignature } from "./messages";
 
 /**
  * Agent executor bridge.
@@ -126,20 +127,29 @@ const speakTurn = async (
         doneTools: [...new Set(turn.learned.map((item) => item.toolId))],
       });
       if (synthesis?.ok && synthesis.synthesis) {
-        await context.emit({
-          runId: context.run.id,
-          role: "agent",
-          kind: "status_update",
-          body: [synthesis.synthesis.slice(0, 4000)],
-          dedupeKey: `synthesis-${context.run.id}`,
-        });
-        await workspaceRepository.addEvidence(
-          context.project.id,
-          context.run.id,
-          "scan_result",
-          "Diagnosis synthesis",
-          synthesis.synthesis.slice(0, 400),
-        );
+        const synthesisBody = synthesis.synthesis.slice(0, 4000);
+        const synthesisSummary = synthesis.synthesis.slice(0, 400);
+        const recent = await workspaceRepository
+          .getRecentEvidence(context.project.id, context.run.id, "scan_result", 8)
+          .catch(() => []);
+        const alreadyStored = recent.some((item) => item.summary === synthesisSummary);
+
+        if (!alreadyStored) {
+          await context.emit({
+            runId: context.run.id,
+            role: "agent",
+            kind: "status_update",
+            body: [synthesisBody],
+            dedupeKey: `synthesis-${context.run.id}-${bodySignature([synthesisBody])}`,
+          });
+          await workspaceRepository.addEvidence(
+            context.project.id,
+            context.run.id,
+            "scan_result",
+            "Diagnosis synthesis",
+            synthesisSummary,
+          );
+        }
       }
     } catch {
       // The synthesis is an enhancement. The run already closed out truthfully.
@@ -403,6 +413,16 @@ const runQaStep = async (context: AgentStepContext): Promise<AgentStepResult> =>
 };
 
 const runAdvanceStep = async (context: AgentStepContext, target: RunState): Promise<AgentStepResult> => {
+  if (context.run.state === "plan" && target === "recommendations" && context.run.taskType === "qa_only") {
+    const summary = "Advisory task — nothing to verify.";
+    await workspaceRepository
+      .setQaVerdict(context.project.id, context.run.id, "waived", summary)
+      .catch(() => undefined);
+    await sayStep(context, "advisory-close", [summary], "status_update");
+    context.onWorkspaceUpdate(await workspaceRepository.advanceRun(context.project.id, context.run.id, target));
+    return { ran: true };
+  }
+
   // "Preparing the fix" / "applying the fix" are only true when an executable
   // plan exists. Those states narrate themselves from the fix-plan and
   // execution paths, so nothing is announced here.
@@ -668,14 +688,27 @@ export const sendToCaptain = async (params: {
   emit: AgentEmit;
   /** Invoked as the poll progresses, so the caller can show live status. */
   onStatus?: (status: string) => void;
+  /** Recent thread messages (newest last). The digest must carry what the
+   *  person actually just said — a run's title/summary can be days old and
+   *  bare. Lesson 2026-08-24 (WildSmiles): a stale run summary made Captain
+   *  answer an 11-day-old question while the real message sat unread. */
+  recentMessages?: Array<{ role: string; body: string[] }>;
 }): Promise<CaptainPlanResult | null> => {
-  const { project, run, memory, emit, onStatus } = params;
+  const { project, run, memory, emit, onStatus, recentMessages } = params;
 
   // Phase 4: resolve the job catalog against the brief text so Captain gets a
   // structured job type + required credentials instead of inferring from prose.
   const briefText = [run?.title, run?.taskSummary].filter(Boolean).join("\n");
   const catalog = await loadJobCatalog();
   const jobMatch = matchJobType(briefText, catalog);
+
+  // The last user messages are the live task text. Prefer them over the
+  // (possibly stale) run summary; keep the summary as context fallback.
+  const userThread = (recentMessages ?? [])
+    .filter((m) => m.role === "user")
+    .slice(-6)
+    .map((m) => m.body.join("\n"))
+    .filter((text) => text.trim().length > 0);
 
   const digest: Record<string, unknown> = {
     projectName: project.name,
@@ -684,6 +717,10 @@ export const sendToCaptain = async (params: {
     stack: getProjectStack(project),
     taskTitle: run?.title ?? null,
     taskSummary: run?.taskSummary ?? null,
+    // What the person most recently asked — this is the operative brief.
+    // Never let Captain plan from a stale summary when a live message exists.
+    recentUserMessages: userThread.length > 0 ? userThread : null,
+    latestUserBrief: userThread.length > 0 ? userThread[userThread.length - 1] : null,
     taskType: run?.taskType ?? null,
     urgency: run?.urgency ?? null,
     runState: run?.state ?? null,

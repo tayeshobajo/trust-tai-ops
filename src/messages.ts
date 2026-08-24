@@ -9,7 +9,7 @@ const VOLATILE_SUFFIXES = ["-working", "-qa", "-qa-working", "-plan-working"];
 const isVolatile = (id: string) => VOLATILE_SUFFIXES.some((suffix) => id.endsWith(suffix));
 
 // Stable, order-independent signature of what a message actually says.
-const bodySignature = (body: string[]): string => {
+export const bodySignature = (body: string[]): string => {
   const text = body.join("\n").trim();
   let hash = 0;
   for (let index = 0; index < text.length; index += 1) {

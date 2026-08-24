@@ -3,7 +3,7 @@ import { buildSiteHealth } from "./health";
 import type { AgentEvidence } from "./agent-core/types";
 import type { AccessType, MessageKind, NewProjectMessage, Organization, Project, ProjectMessage, Run, RunDraft } from "./types";
 import { buildThread, classifyIntake, draftFromBrief, looksLikeNewTaskBrief } from "./conversation";
-import { getQueuedRuns } from "./lib";
+import { getQueuedRuns, isRunStale } from "./lib";
 import { MarkdownBody } from "./markdown";
 import { markdownFromClipboard } from "./richPaste";
 
@@ -76,6 +76,10 @@ const PAGE_SIZE = 40;
 
 // One small read-only task holds every access-confirmation conversation.
 const ACCESS_RUN_TITLE = "Confirm project access";
+const STALE_QUEUE_MS = 24 * 60 * 60 * 1000;
+const ZOMBIE_RUN_MS = 48 * 60 * 60 * 1000;
+const ZOMBIE_CLOSE_NOTE = "Auto-closed stale run after 48 hours with no activity so it no longer blocks new work.";
+const ZOMBIE_BLOCKED_STATES = new Set(["paused", "escalated", "failed", "rolled_back"]);
 
 /** Marks the searched phrase inside a line so results are scannable. */
 function Highlight({ text, query }: { text: string; query: string }) {
@@ -437,10 +441,12 @@ export function ProjectWorkspace({
   const attemptedRef = useRef<Set<string>>(new Set());
   const memoryRef = useRef<Set<string>>(new Set());
   const emitRef = useRef<Set<string>>(new Set());
+  const sendingRef = useRef(false);
   // Synchronous claim on decision actions, taken before any await, so a fast
   // double click cannot start the same domain action twice while React is
   // still committing the busy state.
   const decisionRef = useRef<Set<string>>(new Set());
+  const staleCloseRef = useRef<Set<string>>(new Set());
   // How far the reader expanded earlier messages, per task, so returning to a
   // task reopens the thread at the same window size.
   const windowSizeRef = useRef<Map<string, number>>(new Map());
@@ -468,6 +474,32 @@ export function ProjectWorkspace({
     () => (looksLikeAccessText(composerValue) ? describeCredentialText(composerValue) : null),
     [composerValue],
   );
+
+  // Run creation is shared by "new task" and "queue behind current task".
+  // The persisted opening brief stays attached to the run it created.
+  const createTaskFromBrief = useCallback(async (
+    brief: string,
+    body: string[],
+    options?: { queued?: boolean },
+  ) => {
+    const draft = draftFromBrief(project, brief);
+    const next = await workspaceRepository.createRun(project.id, draft, options);
+    onWorkspaceUpdate(next);
+    const nextProject = next.projects.find((item) => item.id === project.id) ?? null;
+    const created = options?.queued
+      ? getQueuedRuns(nextProject).slice(-1)[0] ?? null
+      : nextProject?.runs[0] ?? null;
+    const createdId = created?.id ?? null;
+    const saved = await emit({
+      runId: createdId,
+      role: "user",
+      kind: "message",
+      body: body.length > 0 ? body : [brief],
+      dedupeKey: created ? `${created.id}-brief` : `project-brief-${Date.now()}`,
+      sourceKey: created ? `${created.id}-brief` : null,
+    });
+    return { created, createdId, draft, nextProject, savedId: saved?.id ?? null };
+  }, [emit, onWorkspaceUpdate, project]);
 
   /**
    * The plan is a working document, not a log. Reasoner revisions restate the
@@ -514,6 +546,43 @@ export function ProjectWorkspace({
     () => (activeRun ? buildThread(project, activeRun) : []),
     [project, activeRun],
   );
+
+  useEffect(() => {
+    if (!canWrite) return;
+
+    for (const run of runs) {
+      if (run.state === "complete") continue;
+      if (ZOMBIE_BLOCKED_STATES.has(run.state)) continue;
+      if (!isRunStale(run, ZOMBIE_RUN_MS)) continue;
+      if (staleCloseRef.current.has(run.id)) continue;
+      staleCloseRef.current.add(run.id);
+
+      void (async () => {
+        try {
+          const next = await workspaceRepository.closeRunManually(project.id, run.id, ZOMBIE_CLOSE_NOTE);
+          await emit({
+            runId: run.id,
+            role: "agent",
+            kind: "status_update",
+            body: [ZOMBIE_CLOSE_NOTE],
+            dedupeKey: `stale-close-${run.id}`,
+          });
+          onWorkspaceUpdate(next);
+
+          if (activeRunId === run.id) {
+            const nextProject = next.projects.find((item) => item.id === project.id) ?? null;
+            const nextLive =
+              nextProject?.runs.find((candidate) => (candidate.queuePosition ?? null) === null && candidate.state !== "complete")
+              ?? nextProject?.runs.find((candidate) => (candidate.queuePosition ?? null) === null)
+              ?? null;
+            setActiveRunId(nextLive?.id ?? null);
+          }
+        } catch {
+          staleCloseRef.current.delete(run.id);
+        }
+      })();
+    }
+  }, [activeRunId, canWrite, emit, onWorkspaceUpdate, project.id, runs]);
 
   // The agent's living plan for the current task. Re-read whenever the
   // conversation moves, because that is when the agent revises it.
@@ -1102,6 +1171,7 @@ export function ProjectWorkspace({
         run: activeRun,
         memory: project.memoryEntries,
         emit,
+        recentMessages: messages.filter((message) => message.runId === activeRun.id),
       });
       if (!plan) {
         setCaptainError("Captain didn't return a plan — check that the reasoning service is reachable.");
@@ -1593,215 +1663,206 @@ export function ProjectWorkspace({
       : typed;
     const attachments = pendingFiles;
     if (!value && attachments.length === 0) return;
+    if (sendingRef.current) return;
+    sendingRef.current = true;
 
-    // Credential-shaped text never becomes a stored message. It goes straight
-    // to the authorized server intake, which parses, authorizes and seals it,
-    // and returns a sanitized replacement for the conversation.
-    if (typed && looksLikeAccessText(typed)) {
-      await handleCredentialPaste(typed);
-      return;
-    }
+    try {
+      // Credential-shaped text never becomes a stored message. It goes straight
+      // to the authorized server intake, which parses, authorizes and seals it,
+      // and returns a sanitized replacement for the conversation.
+      if (typed && looksLikeAccessText(typed)) {
+        await handleCredentialPaste(typed);
+        return;
+      }
 
-    // A message that points backwards ("option B", "same as yesterday") is not
-    // a new instruction. It is resolved against stored history first, and if it
-    // cannot be resolved the agent asks rather than assumes.
-    if (typed && attachments.length === 0 && continuityAvailable() && referenceIntent(typed).needsRecall) {
-      const handled = await handleBackwardReference(typed);
-      if (handled) return;
-    }
+      // A message that points backwards ("option B", "same as yesterday") is not
+      // a new instruction. It is resolved against stored history first, and if it
+      // cannot be resolved the agent asks rather than assumes.
+      if (typed && attachments.length === 0 && continuityAvailable() && referenceIntent(typed).needsRecall) {
+        const handled = await handleBackwardReference(typed);
+        if (handled) return;
+      }
 
-    setReplyTo(null);
+      setReplyTo(null);
 
-    // Filenames are never persisted from the browser: the client's name for a
-    // file is unsanitized, and the attachment records are the source of truth.
-    const attachmentNote =
-      attachments.length > 0
-        ? `Shared ${attachments.length} evidence file${attachments.length === 1 ? "" : "s"}.`
-        : "";
-    const bodyLines = [value, attachmentNote].filter((line) => line.length > 0);
+      // Filenames are never persisted from the browser: the client's name for a
+      // file is unsanitized, and the attachment records are the source of truth.
+      const attachmentNote =
+        attachments.length > 0
+          ? `Shared ${attachments.length} evidence file${attachments.length === 1 ? "" : "s"}.`
+          : "";
+      const bodyLines = [value, attachmentNote].filter((line) => line.length > 0);
 
-    // Not everything typed into a workspace is work. A greeting, a question or
-    // a short aside gets an answer; only a real brief opens a task in the rail.
-    if (!activeRun && attachments.length === 0) {
-      const intent = classifyIntake(typed);
-      if (intent !== "task") {
+      // Not everything typed into a workspace is work. A greeting, a question or
+      // a short aside gets an answer; only a real brief opens a task in the rail.
+      if (!activeRun && attachments.length === 0) {
+        const intent = classifyIntake(typed);
+        if (intent !== "task") {
+          setBusy(true);
+          const stamp = Date.now();
+          try {
+            const saved = await emit({
+              runId: null,
+              role: "user",
+              kind: "message",
+              body: bodyLines,
+              dedupeKey: `user-project-${stamp}`,
+            });
+            if (saved) setComposerValue("");
+            await emit({
+              runId: null,
+              role: "agent",
+              kind: "message",
+              body:
+                intent === "ambiguous"
+                  ? [
+                      "Happy to pick that up — do you want me to open it as a task and start working, or are we still just talking it through?",
+                    ]
+                  : composeReply(project, null, value),
+              dedupeKey: `ack-project-${stamp}`,
+            });
+            if (intent === "ambiguous") setTaskOffer(typed);
+          } catch {
+            setPersistError("I couldn't save that message. It's still here — try again.");
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+      }
+
+      if (!activeRun) {
         setBusy(true);
-        const stamp = Date.now();
+        let createdId: string | null = null;
+        let savedId: string | null = null;
         try {
-          const saved = await emit({
-            runId: null,
-            role: "user",
-            kind: "message",
-            body: bodyLines,
-            dedupeKey: `user-project-${stamp}`,
-          });
-          if (saved) setComposerValue("");
-          await emit({
-            runId: null,
-            role: "agent",
-            kind: "message",
-            body:
-              intent === "ambiguous"
-                ? [
-                    "Happy to pick that up — do you want me to open it as a task and start working, or are we still just talking it through?",
-                  ]
-                : composeReply(project, null, value),
-            dedupeKey: `ack-project-${stamp}`,
-          });
-          if (intent === "ambiguous") setTaskOffer(typed);
+          const brief = typed || `Review the ${attachments.length === 1 ? "file" : "files"} I've attached.`;
+          const opened = await createTaskFromBrief(brief, bodyLines);
+          createdId = opened.createdId;
+          savedId = opened.savedId;
+          setActiveRunId(createdId);
+          if (savedId) setComposerValue("");
         } catch {
-          setPersistError("I couldn't save that message. It's still here — try again.");
+          setPersistError("I couldn't start that task. Your message is still here — try again.");
+        } finally {
+          setBusy(false);
+        }
+        if (savedId && attachments.length > 0) await sendAttachments(createdId, savedId, attachments);
+        if (value) await captureConstraints(value, createdId, savedId);
+        return;
+      }
+
+      // A fresh brief arriving mid-task does not derail the task underway. It
+      // becomes the next thing in the queue, unless the current run is stale
+      // enough that queueing behind it would strand the new work.
+      if (
+        typed &&
+        attachments.length === 0 &&
+        activeRun.state !== "complete" &&
+        looksLikeNewTaskBrief(typed)
+      ) {
+        setBusy(true);
+        try {
+          if (isRunStale(activeRun, STALE_QUEUE_MS)) {
+            const opened = await createTaskFromBrief(typed, bodyLines);
+            setActiveRunId(opened.createdId);
+            if (opened.savedId) setComposerValue("");
+            await emit({
+              runId: opened.createdId,
+              role: "agent",
+              kind: "status_update",
+              body: ["I started this as a fresh task instead of queueing it behind an older stalled run."],
+              dedupeKey: opened.created ? `stale-start-${opened.created.id}` : `stale-start-${Date.now()}`,
+            });
+          } else {
+            const opened = await createTaskFromBrief(typed, bodyLines, { queued: true });
+            const ahead = getQueuedRuns(opened.nextProject).length;
+
+            await emit({
+              runId: activeRun.id,
+              role: "agent",
+              kind: "message",
+              body: [
+                `I've put that down as a separate task: **${opened.draft.title}**.`,
+                ahead > 1
+                  ? `It's number ${ahead} in the queue. I'll start it once I'm finished here.`
+                  : "I'll start it as soon as I'm finished with what I'm on. If it's more urgent, hit “Start now” next to it in the task list.",
+              ],
+              dedupeKey: opened.created ? `queued-${opened.created.id}` : `queued-${Date.now()}`,
+            });
+
+            setComposerValue("");
+          }
+        } catch {
+          setPersistError("I couldn't queue that as a new task. Your message is still here — try again.");
         } finally {
           setBusy(false);
         }
         return;
       }
-    }
 
-    if (!activeRun) {
       setBusy(true);
-      let createdId: string | null = null;
-      let savedId: string | null = null;
+
+      const stamp = Date.now();
+      let savedMessage: ProjectMessage | null = null;
       try {
-        const brief = typed || `Review the ${attachments.length === 1 ? "file" : "files"} I've attached.`;
-        const next = await workspaceRepository.createRun(project.id, draftFromBrief(project, brief));
-        onWorkspaceUpdate(next);
-        const created = next.projects.find((item) => item.id === project.id)?.runs[0];
-        createdId = created?.id ?? null;
-        // The brief becomes the first real message of the new task.
         const saved = await emit({
-          runId: createdId,
+          runId: activeRun.id,
           role: "user",
           kind: "message",
-          body: bodyLines.length > 0 ? bodyLines : [brief],
-          dedupeKey: created ? `${created.id}-brief` : `project-brief-${Date.now()}`,
-          sourceKey: created ? `${created.id}-brief` : null,
+          body: bodyLines,
+          dedupeKey: `user-${activeRun.id}-${stamp}`,
         });
-        setActiveRunId(createdId);
-        if (saved) {
-          savedId = saved.id;
-          setComposerValue("");
-        }
-      } catch {
-        setPersistError("I couldn't start that task. Your message is still here — try again.");
-      } finally {
-        setBusy(false);
-      }
-      if (savedId && attachments.length > 0) await sendAttachments(createdId, savedId, attachments);
-      if (value) await captureConstraints(value, createdId, savedId);
-      return;
-    }
 
-    // A fresh brief arriving mid-task does not derail the task underway. It
-    // becomes the next thing in the queue, and the agent says so plainly.
-    if (
-      typed &&
-      attachments.length === 0 &&
-      activeRun.state !== "complete" &&
-      looksLikeNewTaskBrief(typed)
-    ) {
-      setBusy(true);
-      try {
-        const draft = draftFromBrief(project, typed);
-        const next = await workspaceRepository.createRun(project.id, draft, { queued: true });
-        onWorkspaceUpdate(next);
-        const created = getQueuedRuns(next.projects.find((item) => item.id === project.id) ?? null).slice(-1)[0];
-        const ahead = getQueuedRuns(next.projects.find((item) => item.id === project.id) ?? null).length;
-
-        if (created) {
-          // The brief belongs to the task it created, so opening that task
-          // later shows the request that started it.
-          await emit({
-            runId: created.id,
-            role: "user",
-            kind: "message",
-            body: bodyLines.length > 0 ? bodyLines : [typed],
-            dedupeKey: `${created.id}-brief`,
-            sourceKey: `${created.id}-brief`,
-          });
-        }
-
-        await emit({
-          runId: activeRun.id,
-          role: "agent",
-          kind: "message",
-          body: [
-            `I've put that down as a separate task: **${draft.title}**.`,
-            ahead > 1
-              ? `It's number ${ahead} in the queue. I'll start it once I'm finished here.`
-              : "I'll start it as soon as I'm finished with what I'm on. If it's more urgent, hit “Start now” next to it in the task list.",
-          ],
-          dedupeKey: created ? `queued-${created.id}` : `queued-${Date.now()}`,
-        });
+        if (!saved) return;
+        savedMessage = saved;
 
         setComposerValue("");
-      } catch {
-        setPersistError("I couldn't queue that as a new task. Your message is still here — try again.");
+
+        if (attachments.length > 0) {
+          await sendAttachments(activeRun.id, saved.id, attachments);
+          if (value) await captureConstraints(value, activeRun.id, saved.id);
+          return;
+        }
+
+        if (value) await captureConstraints(value, activeRun.id, saved.id);
       } finally {
         setBusy(false);
       }
-      return;
-    }
 
-    setBusy(true);
+      if (!savedMessage) return;
 
-    const stamp = Date.now();
-    let savedMessage: ProjectMessage | null = null;
-    try {
-      const saved = await emit({
-        runId: activeRun.id,
-        role: "user",
-        kind: "message",
-        body: bodyLines,
-        dedupeKey: `user-${activeRun.id}-${stamp}`,
-      });
-
-      if (!saved) return;
-      savedMessage = saved;
-
-      setComposerValue("");
-
-      if (attachments.length > 0) {
-        await sendAttachments(activeRun.id, saved.id, attachments);
-        if (value) await captureConstraints(value, activeRun.id, saved.id);
-        return;
-      }
-
-      if (value) await captureConstraints(value, activeRun.id, saved.id);
-    } finally {
-      setBusy(false);
-    }
-
-    if (!savedMessage) return;
-
-    // What the person just said is thought about, not acknowledged. The kernel
-    // reads it in context, revises the plan, and investigates for real. The
-    // composed reply is only a fallback for when it had nothing to say.
-    setAgentBusy(true);
-    try {
-      const outcome = await respondToUserMessage({
-        project,
-        run: activeRun,
-        emit,
-        onWorkspaceUpdate,
-        recentMessages: [...messages.filter((message) => message.runId === activeRun.id), savedMessage],
-        memory: project.memoryEntries,
-        onStream: setStreamingText,
-              onEvidence: collectEvidence,
-      });
-
-      if (!outcome.spoke) {
-        await emit({
-          runId: activeRun.id,
-          role: "agent",
-          kind: "message",
-          body: composeReply(project, activeRun, value),
-          dedupeKey: `ack-${activeRun.id}-${stamp}`,
+      // What the person just said is thought about, not acknowledged. The kernel
+      // reads it in context, revises the plan, and investigates for real. The
+      // composed reply is only a fallback for when it had nothing to say.
+      setAgentBusy(true);
+      try {
+        const outcome = await respondToUserMessage({
+          project,
+          run: activeRun,
+          emit,
+          onWorkspaceUpdate,
+          recentMessages: [...messages.filter((message) => message.runId === activeRun.id), savedMessage],
+          memory: project.memoryEntries,
+          onStream: setStreamingText,
+          onEvidence: collectEvidence,
         });
+
+        if (!outcome.spoke) {
+          await emit({
+            runId: activeRun.id,
+            role: "agent",
+            kind: "message",
+            body: composeReply(project, activeRun, value),
+            dedupeKey: `ack-${activeRun.id}-${stamp}`,
+          });
+        }
+      } finally {
+        setStreamingText("");
+        setAgentBusy(false);
       }
     } finally {
-      setStreamingText("");
-      setAgentBusy(false);
+      sendingRef.current = false;
     }
   };
 

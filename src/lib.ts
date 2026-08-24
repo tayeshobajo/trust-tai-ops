@@ -5,6 +5,12 @@ import { accessTypeLabels, getProjectStack, stackCopy } from "./stacks";
 export const getProjectById = (workspace: Organization, projectId: string | null): Project | null =>
   workspace.projects.find((project) => project.id === projectId) ?? null;
 
+export const isRunStale = (run: Pick<Run, "updatedAt"> | null, maxAgeMs: number): boolean => {
+  if (!run) return false;
+  const updatedAt = new Date(run.updatedAt).getTime();
+  return Number.isFinite(updatedAt) && Date.now() - updatedAt > maxAgeMs;
+};
+
 /** A task waiting its turn. The agent never works on one of these. */
 export const isQueuedRun = (run: Run): boolean => (run.queuePosition ?? null) !== null;
 
