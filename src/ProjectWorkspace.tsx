@@ -78,6 +78,9 @@ const PAGE_SIZE = 40;
 const ACCESS_RUN_TITLE = "Confirm project access";
 const STALE_QUEUE_MS = 24 * 60 * 60 * 1000;
 const ZOMBIE_RUN_MS = 48 * 60 * 60 * 1000;
+// Zombie auto-close shipped 2026-08-24 ~22:40 UTC. Runs with earlier
+// startedAt may carry the scaffold's demo timestamp, so they are exempt.
+const GUARD_LIVE_MS = Date.parse("2026-08-24T23:00:00Z");
 const ZOMBIE_CLOSE_NOTE = "Auto-closed stale run after 48 hours with no activity so it no longer blocks new work.";
 const ZOMBIE_BLOCKED_STATES = new Set(["paused", "escalated", "failed", "rolled_back"]);
 
@@ -553,7 +556,11 @@ export function ProjectWorkspace({
     for (const run of runs) {
       if (run.state === "complete") continue;
       if (ZOMBIE_BLOCKED_STATES.has(run.state)) continue;
-      if (!isRunStale(run, ZOMBIE_RUN_MS)) continue;
+      // Runs born before this deploy cannot prove real createdAts (the scaffold
+  // stamped demo timestamps until today), so the guard never closes them.
+  const bornMs = new Date(run.startedAt).getTime();
+  if (Number.isFinite(bornMs) && bornMs < GUARD_LIVE_MS) continue;
+  if (!isRunStale(run, ZOMBIE_RUN_MS)) continue;
       if (staleCloseRef.current.has(run.id)) continue;
       staleCloseRef.current.add(run.id);
 

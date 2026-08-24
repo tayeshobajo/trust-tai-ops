@@ -354,7 +354,7 @@ export const injectProjectIntoWorkspace = (workspace: Organization, project: Pro
 });
 
 export const createRunFromDraft = (draft: RunDraft, project: Project): Run => {
-  const nowStamp = "2026-08-04 22:24 CDT";
+  const nowStamp = new Date().toISOString();
   const environment = project.environments.find((item) => item.id === draft.environmentId) ?? project.environments[0];
   // Conservative by design: anything write-capable — including deploys,
   // migrations, features, and dependency upgrades — stays high risk.
